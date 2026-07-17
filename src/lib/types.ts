@@ -177,6 +177,122 @@ export type MediaAsset = {
   created_at: string
 }
 
+// ---------------------------------------------------------------------------
+// Unified Inbox + FrontDesk + CRM (Phase 2) — mirrors supabase/migrations/0003_frontdesk.sql.
+// ---------------------------------------------------------------------------
+
+/** Where a contact/conversation originated. 'manual' is CRM-only (no conversation carries it). */
+export type ContactSource =
+  | "web_chat"
+  | "form"
+  | "sms"
+  | "email"
+  | "instagram"
+  | "facebook"
+  | "google"
+  | "missed_call"
+  | "manual"
+
+/** The channel a conversation is happening on — ContactSource minus 'manual'. */
+export type ConversationChannel = Exclude<ContactSource, "manual">
+
+export type ContactStatus = "lead" | "contacted" | "booked" | "customer"
+
+export type Contact = {
+  id: string
+  org_id: string
+  name: string | null
+  phone: string | null
+  email: string | null
+  source: ContactSource
+  status: ContactStatus
+  tags: string[]
+  notes: string | null
+  custom: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type ConversationStatus = "open" | "pending" | "resolved"
+
+/**
+ * Named AI-transparency states (never a numeric confidence score) — see
+ * docs/design-briefs/phase-2-inbox-frontdesk-crm.md "AI transparency rules".
+ * ai_answered = AI auto-sent a reply; ai_draft = AI drafted, needs review;
+ * escalated = AI couldn't help, flagged for a human; human = no AI involved.
+ */
+export type ConversationAiState = "ai_answered" | "ai_draft" | "escalated" | "human"
+
+export type Conversation = {
+  id: string
+  org_id: string
+  contact_id: string
+  channel: ConversationChannel
+  status: ConversationStatus
+  ai_state: ConversationAiState
+  last_message_at: string | null
+  unread: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type MessageDirection = "inbound" | "outbound"
+
+export type MessageKind = "message" | "note"
+
+export type Message = {
+  id: string
+  org_id: string
+  conversation_id: string
+  direction: MessageDirection
+  kind: MessageKind
+  body: string | null
+  ai_handled: boolean
+  model: string | null
+  cost_usd: number
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type AppointmentStatus = "scheduled" | "completed" | "cancelled" | "no_show"
+
+export type Appointment = {
+  id: string
+  org_id: string
+  contact_id: string
+  starts_at: string
+  ends_at: string | null
+  service: string | null
+  status: AppointmentStatus
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A conversation joined with a few contact fields, for thread-list rendering. */
+export type ConversationWithContact = Conversation & {
+  contact_name: string | null
+  contact_phone: string | null
+  contact_email: string | null
+}
+
+/** A conversation with its full message history + contact, for the detail pane. */
+export type ConversationDetail = ConversationWithContact & {
+  messages: Message[]
+  contact: Contact | null
+}
+
+/** One entry in a contact's merged chronological activity timeline. */
+export type ContactTimelineEvent =
+  | { type: "message"; at: string; message: Message; conversationId: string; channel: ConversationChannel }
+  | { type: "appointment"; at: string; appointment: Appointment }
+  | { type: "status_change"; at: string; status: ContactStatus }
+
+export type ContactWithTimeline = {
+  contact: Contact
+  timeline: ContactTimelineEvent[]
+}
+
 /**
  * Minimal `Database`-lite shape for use with the Supabase JS client generics.
  * Includes the empty `Relationships`/`Views`/`Functions` members the
@@ -238,6 +354,30 @@ export interface Database {
         Row: MediaAsset
         Insert: Partial<MediaAsset> & Pick<MediaAsset, "org_id" | "kind" | "url">
         Update: Partial<MediaAsset>
+        Relationships: []
+      }
+      contacts: {
+        Row: Contact
+        Insert: Partial<Contact> & Pick<Contact, "org_id" | "source">
+        Update: Partial<Contact>
+        Relationships: []
+      }
+      conversations: {
+        Row: Conversation
+        Insert: Partial<Conversation> & Pick<Conversation, "org_id" | "contact_id" | "channel">
+        Update: Partial<Conversation>
+        Relationships: []
+      }
+      messages: {
+        Row: Message
+        Insert: Partial<Message> & Pick<Message, "org_id" | "conversation_id" | "direction">
+        Update: Partial<Message>
+        Relationships: []
+      }
+      appointments: {
+        Row: Appointment
+        Insert: Partial<Appointment> & Pick<Appointment, "org_id" | "contact_id" | "starts_at">
+        Update: Partial<Appointment>
         Relationships: []
       }
     }
