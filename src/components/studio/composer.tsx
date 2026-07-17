@@ -28,13 +28,20 @@ import {
   renderSlideshowAction,
   saveDraftAsTemplate,
 } from "@/app/(app)/studio/actions"
-import { PLATFORMS, type GeneratedDraft, type Platform, type PostFormat } from "@/app/(app)/studio/types"
+import {
+  PLATFORMS,
+  type GeneratedDraft,
+  type Platform,
+  type PostFormat,
+  type StudioTemplate,
+} from "@/app/(app)/studio/types"
 
 import { AiAssistRail } from "./ai-assist-rail"
 import { FormatSegmented } from "./format-segmented"
 import { PhoneFrame, type PhoneFrameStatus } from "./phone-frame"
 import { PlatformChip } from "./platform-chip"
 import { Shimmer } from "./shimmer"
+import { TemplatesPanel } from "./templates-panel"
 
 const MICRO_COPY = ["Sketching layout…", "Rendering image…", "Polishing caption…"]
 const SLIDESHOW_MICRO_COPY = ["Rendering slides…", "Stitching video…", "Almost there…"]
@@ -123,9 +130,11 @@ function describeScheduledAt(iso: string): string {
 
 type ComposerProps = {
   businessName: string
+  /** Saved templates (★ save-as-template) — demo data or Supabase-backed, loaded server-side in page.tsx. */
+  templates?: StudioTemplate[]
 }
 
-export function Composer({ businessName }: ComposerProps) {
+export function Composer({ businessName, templates = [] }: ComposerProps) {
   const reduceMotion = useReducedMotion()
   const isMountedRef = useRef(true)
   const revealIntervalRef = useRef<RevealInterval | null>(null)
@@ -134,6 +143,12 @@ export function Composer({ businessName }: ComposerProps) {
   // Enter), so a plain ref is the source of truth for "is a generate call
   // already in flight".
   const isGeneratingRef = useRef(false)
+  // Bumped every time a new draft is successfully generated (including via
+  // "Use template"). A slideshow render captures this value when it starts
+  // and, if it no longer matches once the render resolves, the result
+  // belongs to a draft that's no longer current — it's discarded without
+  // touching state (item 5, Phase 1 security review: stale-render nonce).
+  const draftVersionRef = useRef(0)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -210,15 +225,43 @@ export function Composer({ businessName }: ComposerProps) {
     })
   }
 
-  async function handleGenerate() {
+  /** ★ Regenerate-from-template: fills the prompt bar from a saved template, then generates immediately. */
+  function handleUseTemplate(template: StudioTemplate) {
+    if (isGeneratingRef.current) {
+      toast.info("Please wait for the current generation to finish")
+      return
+    }
+    const nextPlatforms = template.platforms.length > 0 ? template.platforms : platforms
+
+    setPrompt(template.prompt)
+    handleFormatChange(template.format)
+    setPlatforms(nextPlatforms)
+    void handleGenerate({ prompt: template.prompt, format: template.format, platforms: nextPlatforms })
+  }
+
+  /**
+   * `overrides` lets handleUseTemplate (Templates panel "Use" → ★
+   * regenerate-from-template) generate immediately with a template's
+   * prompt/format/platforms without waiting a render for the corresponding
+   * `setPrompt`/`setFormat`/`setPlatforms` calls to land in state.
+   */
+  async function handleGenerate(overrides?: {
+    prompt?: string
+    format?: PostFormat
+    platforms?: Platform[]
+  }) {
     if (isGeneratingRef.current) return
-    if (prompt.trim().length === 0) {
+    const effectivePrompt = overrides?.prompt ?? prompt
+    const effectiveFormat = overrides?.format ?? format
+    const effectivePlatforms = overrides?.platforms ?? platforms
+
+    if (effectivePrompt.trim().length === 0) {
       toast.info("Describe your post first", {
         description: "Tell the AI what you'd like to post about.",
       })
       return
     }
-    if (platforms.length === 0) return
+    if (effectivePlatforms.length === 0) return
 
     isGeneratingRef.current = true
     setStatus("generating")
@@ -229,7 +272,7 @@ export function Composer({ businessName }: ComposerProps) {
 
     try {
       const result = await generateDraft(
-        { prompt: prompt.trim(), format, platforms },
+        { prompt: effectivePrompt.trim(), format: effectiveFormat, platforms: effectivePlatforms },
         nextAttempt
       )
       if (!isMountedRef.current) return
@@ -262,6 +305,7 @@ export function Composer({ businessName }: ComposerProps) {
       setSlideshowStatus("idle")
       setSlideshowVideoUrl(undefined)
       setResultKey((key) => key + 1)
+      draftVersionRef.current += 1
       setStatus("ready")
       setAnnouncement("Draft ready")
       toast.success("Draft ready", {
@@ -326,11 +370,17 @@ export function Composer({ businessName }: ComposerProps) {
   async function handleRenderSlideshow() {
     if (!draft || format !== "slideshow" || slideshowStatus === "rendering") return
 
+    // Captured now — if a new draft is generated (or a template is used)
+    // while this render is in flight, draftVersionRef.current will have
+    // moved on by the time this resolves, and the result below is ignored.
+    const renderNonce = draftVersionRef.current
+
     setSlideshowStatus("rendering")
     setSlideshowMicroCopyIndex(0)
     try {
       const result = await renderSlideshowAction(draft)
       if (!isMountedRef.current) return
+      if (draftVersionRef.current !== renderNonce) return
 
       if ("error" in result) {
         setSlideshowStatus("idle")
@@ -338,6 +388,8 @@ export function Composer({ businessName }: ComposerProps) {
           toast.error("You've hit this month's slideshow limit", { description: result.message })
         } else if (result.error === "ffmpeg-missing") {
           toast.error("Slideshow rendering unavailable", { description: result.message })
+        } else if (result.error === "busy") {
+          toast.error("A slideshow is already rendering — try again in a moment.")
         } else {
           toast.error("Couldn't render the slideshow", { description: result.message })
         }
@@ -349,6 +401,7 @@ export function Composer({ businessName }: ComposerProps) {
       toast.success("Slideshow ready", { description: "Tap the preview to play it." })
     } catch {
       if (!isMountedRef.current) return
+      if (draftVersionRef.current !== renderNonce) return
       setSlideshowStatus("idle")
       toast.error("Couldn't render the slideshow", { description: "Please try again." })
     }
@@ -394,6 +447,9 @@ export function Composer({ businessName }: ComposerProps) {
         {announcement}
       </div>
 
+      {/* Saved templates — ★ save-as-template / regenerate-from-template */}
+      <TemplatesPanel templates={templates} onUse={handleUseTemplate} disabled={status === "generating"} />
+
       {/* Zone 1 — prompt bar */}
       <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft">
         <label htmlFor="studio-prompt" className="sr-only">
@@ -433,7 +489,7 @@ export function Composer({ businessName }: ComposerProps) {
               <SlidersHorizontal aria-hidden="true" className="size-3.5" />
               AI Assist
             </Button>
-            <Button type="button" onClick={handleGenerate} disabled={!canGenerate} className="gap-1.5">
+            <Button type="button" onClick={() => handleGenerate()} disabled={!canGenerate} className="gap-1.5">
               {status === "generating" ? (
                 <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
               ) : (
@@ -554,7 +610,7 @@ export function Composer({ businessName }: ComposerProps) {
               variant="outline"
               size="sm"
               disabled={status === "generating"}
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               className="gap-1.5"
             >
               <RefreshCw

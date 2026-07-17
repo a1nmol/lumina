@@ -5,7 +5,8 @@ import { Camera, MapPin, Music2, Users2, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PLATFORM_LABELS, type Platform } from "@/app/(app)/studio/types"
 
-const PLATFORM_META: Record<Platform, { icon: LucideIcon; dotClassName: string }> = {
+/** Exported for reuse by templates-panel.tsx (platform badges on saved template cards). */
+export const PLATFORM_META: Record<Platform, { icon: LucideIcon; dotClassName: string }> = {
   instagram: { icon: Camera, dotClassName: "bg-[var(--chart-4)]" },
   facebook: { icon: Users2, dotClassName: "bg-[var(--info)]" },
   tiktok: { icon: Music2, dotClassName: "bg-foreground" },

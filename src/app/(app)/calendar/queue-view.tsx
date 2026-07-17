@@ -2,6 +2,8 @@
 
 import { parseISO } from "date-fns"
 
+import { CopyCaptionButton, ReminderButton } from "@/components/calendar/reminder-button"
+
 import { dayKeyOfPost, queueHeading } from "./calendar-utils"
 import type { DemoPost } from "./demo-posts"
 import { PostCard } from "./post-card"
@@ -46,7 +48,17 @@ export function QueueView({ posts }: QueueViewProps) {
           <h3 className="px-0.5 text-sm font-semibold text-foreground">{group.heading}</h3>
           <div className="flex flex-col gap-2">
             {group.posts.map((post) => (
-              <PostCard key={post.id} post={post} variant="full" />
+              <PostCard
+                key={post.id}
+                post={post}
+                variant="full"
+                actions={
+                  <>
+                    <ReminderButton post={post} />
+                    <CopyCaptionButton post={post} />
+                  </>
+                }
+              />
             ))}
           </div>
         </div>

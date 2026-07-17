@@ -38,3 +38,18 @@ export type GenerateDraftError = {
 }
 
 export type GenerateDraftResult = GeneratedDraft | GenerateDraftError
+
+/**
+ * Templates panel display shape (★ save-as-template / regenerate-from-template) —
+ * shared by demo templates and Supabase-backed `Template` rows once mapped
+ * (see demo-templates.ts#mapTemplate).
+ */
+export type StudioTemplate = {
+  id: string
+  name: string
+  prompt: string
+  format: PostFormat
+  platforms: Platform[]
+  caption: string
+  hashtags: string[]
+}

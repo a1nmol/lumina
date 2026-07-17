@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { format, parseISO } from "date-fns"
 import { CheckCircle2 } from "lucide-react"
 
@@ -36,10 +37,12 @@ type PostCardProps = {
   isDragging?: boolean
   /** Applies focus-visible ring styling when composed inside a custom drag handle. */
   className?: string
+  /** Extra actions row (e.g. reminder-to-post) — "full" variant only. */
+  actions?: ReactNode
 }
 
 /** Calendar post card — compact (month grid) or full (week / queue). Plain img+badge, no phone-frame DOM. */
-export function PostCard({ post, variant, isDragging, className }: PostCardProps) {
+export function PostCard({ post, variant, isDragging, className, actions }: PostCardProps) {
   const time = format(parseISO(post.date), "h:mm a")
   const fullDate = format(parseISO(post.date), "EEEE, MMMM d 'at' h:mm a")
   const primaryPlatform = post.platforms[0]
@@ -160,6 +163,7 @@ export function PostCard({ post, variant, isDragging, className }: PostCardProps
             )
           })}
         </div>
+        {actions && <div className="flex items-center gap-1 pt-1">{actions}</div>}
       </div>
     </div>
   )

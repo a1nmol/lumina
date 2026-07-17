@@ -144,6 +144,56 @@ export async function listTemplates(orgId: string): Promise<Template[]> {
 }
 
 /**
+ * Deletes a saved template. Uses the RLS-scoped client — the
+ * "templates_delete_owner_admin" policy (supabase/migrations/0002_content.sql)
+ * restricts deletes to org owners/admins, so a non-owner/admin's request
+ * simply deletes zero rows (no error) rather than being explicitly denied.
+ * Returns whether a row was actually deleted, so the caller can tell that
+ * apart from "already gone" / "not permitted". Demo-safe no-op (`true`,
+ * since there's nothing to persist) when Supabase isn't configured.
+ */
+export async function deleteTemplate(orgId: string, templateId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return true
+
+  const supabase = await createClient()
+  const { error, count } = await supabase
+    .from("templates")
+    .delete({ count: "exact" })
+    .eq("id", templateId)
+    .eq("org_id", orgId)
+
+  if (error) {
+    throw new Error(`deleteTemplate: failed to delete template ${templateId}: ${error.message}`)
+  }
+
+  return (count ?? 0) > 0
+}
+
+/**
+ * Loads a single content item for the org (RLS-scoped). Used server-side to
+ * resolve a slideshow render's real image URL from the persisted
+ * content_items row rather than ever trusting a client-supplied URL — see
+ * resolveTrustedSlideshowImageUrl in src/app/(app)/studio/actions.ts.
+ */
+export async function getContentItem(orgId: string, contentId: string): Promise<ContentItem | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("content_items")
+    .select()
+    .eq("id", contentId)
+    .eq("org_id", orgId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`getContentItem: failed to load content item ${contentId} for org ${orgId}: ${error.message}`)
+  }
+
+  return data
+}
+
+/**
  * Moves a content item into the queue: "scheduled" (with scheduled_at) when
  * a time is given, or "queued" (no fixed time yet) otherwise.
  */
@@ -182,10 +232,18 @@ export interface SaveSlideshowMediaAssetInput {
 /**
  * Best-effort: uploads a locally-rendered slideshow MP4 (from
  * src/lib/media/slideshow.ts) to the Supabase Storage bucket "media" (if it
- * exists) and records a media_assets row pointing at it. Non-fatal by
- * design — callers should swallow errors, since the slideshow itself is
- * already served locally via /api/slideshow/[id] regardless of whether this
+ * exists) and records a media_assets row pointing at it, with the render id
+ * embedded in `metadata.renderId` — this is what
+ * /api/slideshow/[id]/route.ts checks against to authorize playback (a
+ * returned, RLS-scoped row proves org membership). Non-fatal by design —
+ * callers should swallow errors, since the slideshow itself is already
+ * served locally via /api/slideshow/[id] regardless of whether this
  * succeeds.
+ *
+ * Returns whether the upload + insert actually succeeded, so the caller
+ * (src/app/(app)/studio/actions.ts) knows whether it's safe to immediately
+ * delete the local work directory (src/lib/media/slideshow.ts#cleanupSlideshowWorkDir)
+ * or must leave it for the 60-minute opportunistic sweep instead.
  *
  * TODO(docs/backend-notes.md): provision the "media" Storage bucket (and
  * decide public vs. signed URLs) — until then this silently no-ops on the
@@ -194,8 +252,8 @@ export interface SaveSlideshowMediaAssetInput {
 export async function saveSlideshowMediaAsset(
   orgId: string,
   input: SaveSlideshowMediaAssetInput
-): Promise<void> {
-  if (!isSupabaseConfigured()) return
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false
 
   const supabase = await createClient()
   const bytes = await readFile(input.filePath)
@@ -207,19 +265,21 @@ export async function saveSlideshowMediaAsset(
 
   // Bucket may not be provisioned yet in this environment — see the TODO
   // above. Swallow so a missing bucket never breaks slideshow rendering.
-  if (uploadError) return
+  if (uploadError) return false
 
   const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
 
-  await supabase.from("media_assets").insert({
+  const { error: insertError } = await supabase.from("media_assets").insert({
     org_id: orgId,
     content_id: input.contentId ?? null,
     kind: "video",
     url: publicUrlData.publicUrl,
     provider: "ffmpeg-local",
     cost_usd: 0,
-    metadata: { durationSec: input.durationSec, source: "slideshow" },
+    metadata: { durationSec: input.durationSec, source: "slideshow", renderId: input.id },
   })
+
+  return !insertError
 }
 
 /** Lists an org's scheduled content items falling within the calendar month containing `month`. */

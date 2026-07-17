@@ -49,5 +49,6 @@ export function contentItemToPost(item: ContentItem): CalendarPost | null {
     platforms: platforms.length > 0 ? platforms : [FALLBACK_PLATFORM],
     thumbnailHue: hueFromId(item.id),
     status: toPostStatus(item.status),
+    hashtags: item.hashtags,
   }
 }

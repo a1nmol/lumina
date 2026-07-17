@@ -15,6 +15,7 @@ import "server-only"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { promises as fs } from "node:fs"
+import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 
@@ -48,13 +49,27 @@ const EXT_BY_TYPE: Record<string, string> = {
   "image/webp": "webp",
 }
 
-/** Basic SSRF guard — not exhaustive (no DNS resolution check), just blocks obvious loopback/metadata hosts. */
-const BLOCKED_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"])
+// ---------------------------------------------------------------------------
+// SSRF guard: ALLOWLIST (not a blocklist). Slideshow image sources only ever
+// legitimately come from this codebase's own fal.ai calls
+// (src/lib/ai/generate-image.ts) — a client-supplied URL is never fetched
+// here at all (see resolveTrustedSlideshowImageUrl in
+// src/app/(app)/studio/actions.ts). Only hosts equal to, or a subdomain of,
+// fal.media or fal.run are permitted. Single place to edit if another
+// trusted media host is ever added.
+// ---------------------------------------------------------------------------
+const ALLOWED_IMAGE_HOST_SUFFIXES = ["fal.media", "fal.run"] as const
+
+function isAllowedImageHostname(hostname: string): boolean {
+  return ALLOWED_IMAGE_HOST_SUFFIXES.some(
+    (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`)
+  )
+}
+
+/** One message for every rejection reason below — never reveals which specific check failed (no probing oracle). */
+const URL_REJECTION_MESSAGE = "Image URL is not from an allowed source."
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
-
-/** Root temp directory every render lives under, keyed by render id — the API route reads from here too. */
-export const SLIDESHOW_TMP_ROOT = path.join(os.tmpdir(), "localos-slideshows")
 
 // ===========================================================================
 // Errors
@@ -78,6 +93,14 @@ export class SlideshowRenderError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "SlideshowRenderError"
+  }
+}
+
+/** Thrown by acquireRenderSlot() when the global (2) or per-org (1) concurrent render cap is already at capacity. */
+export class SlideshowBusyError extends Error {
+  constructor() {
+    super("A slideshow is already rendering — try again in a moment.")
+    this.name = "SlideshowBusyError"
   }
 }
 
@@ -144,14 +167,21 @@ function assertSafeUrl(raw: string): URL {
   try {
     url = new URL(raw)
   } catch {
-    throw new SlideshowValidationError(`Invalid image URL: ${raw}`)
+    throw new SlideshowValidationError(URL_REJECTION_MESSAGE)
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new SlideshowValidationError(`Image URL must be http(s): ${raw}`)
+    throw new SlideshowValidationError(URL_REJECTION_MESSAGE)
   }
   const hostname = url.hostname.toLowerCase()
-  if (BLOCKED_HOSTNAMES.has(hostname) || hostname.endsWith(".local")) {
-    throw new SlideshowValidationError(`Image URL host is not allowed: ${hostname}`)
+  // Defense-in-depth: reject literal IP hosts outright. No IP literal could
+  // ever match the fal.media/fal.run allowlist below, but this guards
+  // against a future allowlist edit accidentally admitting a bare-IP
+  // pattern (and documents the intent explicitly).
+  if (net.isIP(hostname) !== 0) {
+    throw new SlideshowValidationError(URL_REJECTION_MESSAGE)
+  }
+  if (!isAllowedImageHostname(hostname)) {
+    throw new SlideshowValidationError(URL_REJECTION_MESSAGE)
   }
   return url
 }
@@ -192,7 +222,11 @@ async function downloadImage(url: URL, destBasePath: string): Promise<string> {
 
   let res: Response
   try {
-    res = await fetch(url.toString(), { signal: controller.signal, redirect: "follow" })
+    // "manual" so a redirect (e.g. an allowlisted host 302-ing to an
+    // internal/private address) surfaces as a response we can reject
+    // outright, rather than fetch silently following it past our host
+    // allowlist check.
+    res = await fetch(url.toString(), { signal: controller.signal, redirect: "manual" })
   } catch (error) {
     throw new SlideshowValidationError(
       `Failed to fetch image (${error instanceof Error ? error.message : "unknown error"}): ${url}`
@@ -201,6 +235,9 @@ async function downloadImage(url: URL, destBasePath: string): Promise<string> {
     clearTimeout(timer)
   }
 
+  if (res.status >= 300 && res.status < 400) {
+    throw new SlideshowValidationError(`Image URL responded with a redirect, which is not allowed: ${url}`)
+  }
   if (!res.ok) {
     throw new SlideshowValidationError(`Failed to download image (HTTP ${res.status}): ${url}`)
   }
@@ -396,6 +433,103 @@ function probeDurationSeconds(filePath: string): Promise<number | null> {
 }
 
 // ===========================================================================
+// Work directory lifecycle (temp root, opportunistic sweep, cleanup)
+// ===========================================================================
+
+/**
+ * Root temp directory every render lives under, keyed by render id — the API
+ * route reads from here too. Computed lazily inside a function (rather than
+ * as a module-level constant) so Next/Turbopack's build-time file tracing
+ * doesn't statically pick up `os.tmpdir()` as a project-relative dependency
+ * and over-broadly trace the whole project (see item 11 of the Phase 1
+ * security review).
+ */
+export function getSlideshowTmpRoot(): string {
+  // turbopackIgnore: os.tmpdir() is a genuine OS runtime path (not a
+  // project-relative file), but Turbopack's build-time file tracer can't
+  // tell that apart from a dynamic project-file require and otherwise traces
+  // the whole project defensively — see the doc comment above.
+  return path.join(/* turbopackIgnore: true */ os.tmpdir(), "localos-slideshows")
+}
+
+const WORKDIR_MAX_AGE_MS = 60 * 60 * 1000 // 60 minutes
+
+/**
+ * Opportunistic sweep: removes any render work directory older than 60
+ * minutes. Runs at the start of every renderSlideshow() call instead of on a
+ * cron — cheap (one readdir + one stat per entry, all local disk) and
+ * self-healing. A directory only survives this long if its upload to
+ * Supabase Storage failed (or Supabase isn't configured) — a successful
+ * upload triggers immediate deletion via cleanupSlideshowWorkDir() instead.
+ */
+async function sweepStaleWorkDirs(): Promise<void> {
+  const root = getSlideshowTmpRoot()
+  let entries: string[]
+  try {
+    entries = await fs.readdir(root)
+  } catch {
+    return // Root doesn't exist yet (nothing has rendered) — nothing to sweep.
+  }
+
+  const now = Date.now()
+  await Promise.all(
+    entries.map(async (entry) => {
+      const dirPath = path.join(root, entry)
+      try {
+        const stats = await fs.stat(dirPath)
+        if (stats.isDirectory() && now - stats.mtimeMs > WORKDIR_MAX_AGE_MS) {
+          await fs.rm(dirPath, { recursive: true, force: true })
+        }
+      } catch {
+        // Lost a race with another sweep/cleanup/render, or the entry
+        // disappeared mid-iteration — never let a sweep throw.
+      }
+    })
+  )
+}
+
+/**
+ * Deletes a render's work directory immediately. Called by
+ * src/app/(app)/studio/actions.ts once the rendered MP4 has been
+ * successfully uploaded to Supabase Storage, so local disk isn't left
+ * holding a duplicate copy for up to an hour waiting on sweepStaleWorkDirs().
+ */
+export async function cleanupSlideshowWorkDir(id: string): Promise<void> {
+  const workDir = path.join(getSlideshowTmpRoot(), id)
+  await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+}
+
+// ===========================================================================
+// Concurrency cap
+// ===========================================================================
+
+const MAX_GLOBAL_CONCURRENT_RENDERS = 2
+const MAX_PER_ORG_CONCURRENT_RENDERS = 1
+
+let globalActiveRenders = 0
+const activeRendersByOrg = new Map<string, number>()
+
+/** Throws SlideshowBusyError if the global or per-org concurrent render cap is already saturated; otherwise reserves a slot. Always pair with releaseRenderSlot() in a `finally`. */
+function acquireRenderSlot(orgId: string): void {
+  const orgActive = activeRendersByOrg.get(orgId) ?? 0
+  if (globalActiveRenders >= MAX_GLOBAL_CONCURRENT_RENDERS || orgActive >= MAX_PER_ORG_CONCURRENT_RENDERS) {
+    throw new SlideshowBusyError()
+  }
+  globalActiveRenders += 1
+  activeRendersByOrg.set(orgId, orgActive + 1)
+}
+
+function releaseRenderSlot(orgId: string): void {
+  globalActiveRenders = Math.max(0, globalActiveRenders - 1)
+  const orgActive = activeRendersByOrg.get(orgId) ?? 0
+  if (orgActive <= 1) {
+    activeRendersByOrg.delete(orgId)
+  } else {
+    activeRendersByOrg.set(orgId, orgActive - 1)
+  }
+}
+
+// ===========================================================================
 // Public entry point
 // ===========================================================================
 
@@ -406,9 +540,11 @@ function probeDurationSeconds(filePath: string): Promise<number | null> {
  * checkAllowance/recordUsage already no-op when Supabase isn't configured.
  *
  * Throws FfmpegMissingError, SlideshowValidationError, SlideshowRenderError,
- * or AllowanceDeniedError. On any failure the work directory is removed; on
- * success only the source images are cleaned up and the MP4 is left in
- * place at the returned `filePath` for the API route to stream.
+ * SlideshowBusyError, or AllowanceDeniedError. On any failure the work
+ * directory is removed; on success only the source images are cleaned up and
+ * the MP4 is left in place at the returned `filePath` for the API route to
+ * stream (until the caller uploads it and calls cleanupSlideshowWorkDir(), or
+ * the 60-minute sweep reclaims it).
  */
 export async function renderSlideshow(input: RenderSlideshowInput): Promise<RenderSlideshowResult> {
   const { orgId, images } = input
@@ -435,6 +571,10 @@ export async function renderSlideshow(input: RenderSlideshowInput): Promise<Rend
     )
   }
 
+  // Opportunistic cleanup of stale work directories — no cron needed, this
+  // piggybacks on every render call (see sweepStaleWorkDirs() above).
+  await sweepStaleWorkDirs().catch(() => {})
+
   if (!(await isFfmpegAvailable())) {
     throw new FfmpegMissingError()
   }
@@ -446,69 +586,78 @@ export async function renderSlideshow(input: RenderSlideshowInput): Promise<Rend
     throw new AllowanceDeniedError("slideshows", allowance.reason)
   }
 
-  const id = randomUUID()
-  const workDir = path.join(SLIDESHOW_TMP_ROOT, id)
-  await fs.mkdir(workDir, { recursive: true })
-
-  const clipLenSec = durationPerImageSec + CROSSFADE_SEC
-  const outputPath = path.join(workDir, `${outName}.mp4`)
-
+  // Concurrency cap: max 2 renders globally, max 1 per org, at any moment.
+  // Throws SlideshowBusyError (mapped to a typed result + toast by
+  // src/app/(app)/studio/actions.ts) rather than letting ffmpeg processes
+  // pile up under load.
+  acquireRenderSlot(orgId)
   try {
-    const prepared = await Promise.all(
-      images.map((source, index) => prepareInput(source, index, workDir, clipLenSec))
-    )
+    const id = randomUUID()
+    const workDir = path.join(getSlideshowTmpRoot(), id)
+    await fs.mkdir(workDir, { recursive: true })
 
-    const inputArgs = prepared.flatMap((p) => p.inputArgs)
-    const slideFilters = prepared.map((_, index) => buildSlideFilter(index, clipLenSec))
-    const { filters: xfadeFilters, outputLabel } = buildXfadeChain(prepared.length, clipLenSec)
-    const filterComplex = [...slideFilters, ...xfadeFilters].join(";")
+    const clipLenSec = durationPerImageSec + CROSSFADE_SEC
+    const outputPath = path.join(workDir, `${outName}.mp4`)
 
-    const args = [
-      "-y",
-      "-loglevel",
-      "error",
-      ...inputArgs,
-      "-filter_complex",
-      filterComplex,
-      "-map",
-      `[${outputLabel}]`,
-      "-r",
-      String(FPS),
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      // TODO(audio): mix in a licensed royalty-free music bed here once one
-      // is selected (MASTER_PLAN.md §5) — e.g. an extra `-i track.mp3`
-      // input + `-c:a aac -shortest`. No audio track for now.
-      "-an",
-      outputPath,
-    ]
+    try {
+      const prepared = await Promise.all(
+        images.map((source, index) => prepareInput(source, index, workDir, clipLenSec))
+      )
 
-    await runFfmpeg(args)
+      const inputArgs = prepared.flatMap((p) => p.inputArgs)
+      const slideFilters = prepared.map((_, index) => buildSlideFilter(index, clipLenSec))
+      const { filters: xfadeFilters, outputLabel } = buildXfadeChain(prepared.length, clipLenSec)
+      const filterComplex = [...slideFilters, ...xfadeFilters].join(";")
 
-    // The mp4 now has everything it needs — drop the downloaded sources.
-    await Promise.all(
-      prepared.map((p) => (p.filePath ? fs.unlink(p.filePath).catch(() => {}) : Promise.resolve()))
-    )
+      const args = [
+        "-y",
+        "-loglevel",
+        "error",
+        ...inputArgs,
+        "-filter_complex",
+        filterComplex,
+        "-map",
+        `[${outputLabel}]`,
+        "-r",
+        String(FPS),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        // TODO(audio): mix in a licensed royalty-free music bed here once one
+        // is selected (MASTER_PLAN.md §5) — e.g. an extra `-i track.mp3`
+        // input + `-c:a aac -shortest`. No audio track for now.
+        "-an",
+        outputPath,
+      ]
 
-    const estimatedDurationSec = prepared.length * durationPerImageSec + CROSSFADE_SEC
-    const durationSec = (await probeDurationSeconds(outputPath)) ?? estimatedDurationSec
+      await runFfmpeg(args)
 
-    await recordUsage(orgId, {
-      feature: "slideshows",
-      units: 1,
-      costUsd: 0,
-      metadata: { imageCount: prepared.length, durationPerImageSec, durationSec },
-    })
+      // The mp4 now has everything it needs — drop the downloaded sources.
+      await Promise.all(
+        prepared.map((p) => (p.filePath ? fs.unlink(p.filePath).catch(() => {}) : Promise.resolve()))
+      )
 
-    return { filePath: outputPath, id, durationSec }
-  } catch (error) {
-    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
-    throw error
+      const estimatedDurationSec = prepared.length * durationPerImageSec + CROSSFADE_SEC
+      const durationSec = (await probeDurationSeconds(outputPath)) ?? estimatedDurationSec
+
+      await recordUsage(orgId, {
+        feature: "slideshows",
+        units: 1,
+        costUsd: 0,
+        metadata: { imageCount: prepared.length, durationPerImageSec, durationSec },
+      })
+
+      return { filePath: outputPath, id, durationSec }
+    } catch (error) {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
+  } finally {
+    releaseRenderSlot(orgId)
   }
 }

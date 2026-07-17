@@ -12,6 +12,13 @@ const FORMAT_OPTIONS: { value: PostFormat; label: string; icon: LucideIcon }[] =
   { value: "slideshow", label: "Slideshow", icon: MonitorPlay },
 ]
 
+/** Exported for reuse by templates-panel.tsx (format icon on saved template cards). */
+export const FORMAT_META: Record<PostFormat, { label: string; icon: LucideIcon }> = {
+  single: { label: "Single", icon: LayoutGrid },
+  carousel: { label: "Carousel", icon: GalleryHorizontal },
+  slideshow: { label: "Slideshow", icon: MonitorPlay },
+}
+
 type FormatSegmentedProps = {
   value: PostFormat
   onChange: (format: PostFormat) => void

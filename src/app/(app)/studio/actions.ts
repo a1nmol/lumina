@@ -20,13 +20,21 @@ import { generateContentDraft, type GeneratedContentDraft } from "@/lib/ai/gener
 import { generateImage, isFalConfigured } from "@/lib/ai/generate-image"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
 import {
+  deleteTemplate,
+  getContentItem,
   queueContentItem,
   rateContentItem,
   saveContentItem,
   saveSlideshowMediaAsset,
   saveTemplate,
 } from "@/lib/content"
-import { FfmpegMissingError, renderSlideshow, type SlideshowSource } from "@/lib/media/slideshow"
+import {
+  cleanupSlideshowWorkDir,
+  FfmpegMissingError,
+  renderSlideshow,
+  SlideshowBusyError,
+  type SlideshowSource,
+} from "@/lib/media/slideshow"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { ContentRating } from "@/lib/types"
@@ -296,26 +304,55 @@ export async function addToQueue(input: AddToQueueInput): Promise<AddToQueueResu
  */
 const BRAND_HUE_COLORS = ["#6D4AFF", "#3FA79E", "#D9A441", "#C24F97"] as const
 
-/** Real fal.ai image (if the draft has one) as slide 1, padded to 4 slides with brand-hue placeholders; else 4 placeholders. */
-function buildSlideshowSources(draft: GeneratedDraft): SlideshowSource[] {
-  if (draft.imageUrl) {
-    return [draft.imageUrl, ...BRAND_HUE_COLORS.slice(0, 3).map((color) => ({ color }))]
+/** Real fal.ai image URL (already validated) as slide 1, padded to 4 slides with brand-hue placeholders; else 4 placeholders. */
+function buildSlideshowSources(imageUrl?: string): SlideshowSource[] {
+  if (imageUrl) {
+    return [imageUrl, ...BRAND_HUE_COLORS.slice(0, 3).map((color) => ({ color }))]
   }
   return BRAND_HUE_COLORS.map((color) => ({ color }))
+}
+
+/**
+ * SSRF hardening: a slideshow's real image URL is NEVER taken from the
+ * client-supplied `draft.imageUrl` — that field arrives over the wire in a
+ * server action call and cannot be trusted (nothing stops a client from
+ * passing an arbitrary URL for the server to fetch). Instead, when the draft
+ * was actually persisted (`draft.contentId`), the server re-loads its own
+ * content_items row (RLS-scoped to the caller's org) and only ever renders
+ * with the image URL *it* saved there via fal.ai. If there's no persisted
+ * row to check against (demo mode, or the draft never made it to Supabase),
+ * the slideshow renders with placeholder colors only — never a fetched URL.
+ */
+async function resolveTrustedSlideshowImageUrl(
+  orgId: string | null,
+  draft: GeneratedDraft
+): Promise<string | undefined> {
+  if (!isSupabaseConfigured() || !orgId || !draft.contentId) return undefined
+
+  try {
+    const item = await getContentItem(orgId, draft.contentId)
+    const candidate = item?.media_urls?.[0]
+    return typeof candidate === "string" ? candidate : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export type RenderSlideshowResult =
   | { videoUrl: string; durationSec: number }
   | { error: "allowance"; message: string }
   | { error: "ffmpeg-missing"; message: string }
+  | { error: "busy"; message: string }
   | { error: "render"; message: string }
 
 /**
- * Renders the current draft's image (or brand-hue placeholders, in demo
- * mode / when no image exists) into a slideshow MP4 via
- * src/lib/media/slideshow.ts, served back from /api/slideshow/[id]. A real
- * quota denial or a missing ffmpeg binary are surfaced as typed errors, not
- * silently swallowed, so the composer can show the right toast.
+ * Renders a slideshow MP4 via src/lib/media/slideshow.ts, served back from
+ * /api/slideshow/[id]. Uses the org's own server-verified image (or
+ * brand-hue placeholders — see resolveTrustedSlideshowImageUrl above), never
+ * the client-supplied draft.imageUrl directly. A real quota denial, a
+ * missing ffmpeg binary, or the render concurrency cap being saturated are
+ * surfaced as typed errors, not silently swallowed, so the composer can show
+ * the right toast.
  */
 export async function renderSlideshowAction(draft: GeneratedDraft): Promise<RenderSlideshowResult> {
   const orgId = await getCurrentOrgId()
@@ -324,14 +361,24 @@ export async function renderSlideshowAction(draft: GeneratedDraft): Promise<Rend
   // when there's no signed-in org to resolve.
   const resolvedOrgId = orgId ?? "demo-org"
 
+  const trustedImageUrl = await resolveTrustedSlideshowImageUrl(orgId, draft)
+
   try {
     const result = await renderSlideshow({
       orgId: resolvedOrgId,
-      images: buildSlideshowSources(draft),
+      images: buildSlideshowSources(trustedImageUrl),
     })
 
     if (isSupabaseConfigured() && orgId) {
-      await saveSlideshowMediaAsset(orgId, { ...result, contentId: draft.contentId }).catch(() => {})
+      const uploaded = await saveSlideshowMediaAsset(orgId, { ...result, contentId: draft.contentId }).catch(
+        () => false
+      )
+      // Only safe to delete the local copy once it's durably in Storage —
+      // otherwise leave it for the 60-minute opportunistic sweep so
+      // /api/slideshow/[id] can still serve it in the meantime.
+      if (uploaded) {
+        await cleanupSlideshowWorkDir(result.id).catch(() => {})
+      }
     }
 
     return { videoUrl: `/api/slideshow/${result.id}`, durationSec: result.durationSec }
@@ -345,6 +392,30 @@ export async function renderSlideshowAction(draft: GeneratedDraft): Promise<Rend
         message: "Video rendering isn't available on this server yet (ffmpeg is missing).",
       }
     }
+    if (error instanceof SlideshowBusyError) {
+      return { error: "busy", message: error.message }
+    }
     return { error: "render", message: "Couldn't render the slideshow. Please try again." }
+  }
+}
+
+export interface DeleteTemplateResult {
+  ok: boolean
+  /** True when Supabase isn't configured (or there's no resolvable org) — nothing was persisted, so the removal only lasted this session. */
+  demoOnly?: boolean
+}
+
+/** Deletes a saved template (RLS-scoped to org owner/admin — see src/lib/content.ts#deleteTemplate). Demo-safe session-only no-op when unconfigured. */
+export async function deleteTemplateAction(templateId: string): Promise<DeleteTemplateResult> {
+  if (!isSupabaseConfigured()) return { ok: true, demoOnly: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: true, demoOnly: true }
+
+  try {
+    const deleted = await deleteTemplate(orgId, templateId)
+    return { ok: deleted }
+  } catch {
+    return { ok: false }
   }
 }

@@ -20,6 +20,8 @@ export type DemoPost = {
   /** Hue (0-360) driving the brand-consistent gradient thumbnail. */
   thumbnailHue: number
   status: PostStatus
+  /** Optional — used by the queue's "Copy caption" reminder-to-post action (real content_items only; demo posts keep hashtags inline in the caption text). */
+  hashtags?: string[]
 }
 
 /**
