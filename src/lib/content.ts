@@ -12,6 +12,8 @@ import "server-only"
 // so future server actions can call these unconditionally and fall back to
 // demo data exactly like src/app/(app)/studio/actions.ts does today.
 
+import { readFile } from "node:fs/promises"
+
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { ContentItem, ContentRating, ContentStatus, ContentFormat, Template } from "@/lib/types"
@@ -168,6 +170,56 @@ export async function queueContentItem(
   }
 
   return data
+}
+
+export interface SaveSlideshowMediaAssetInput {
+  filePath: string
+  id: string
+  durationSec: number
+  contentId?: string | null
+}
+
+/**
+ * Best-effort: uploads a locally-rendered slideshow MP4 (from
+ * src/lib/media/slideshow.ts) to the Supabase Storage bucket "media" (if it
+ * exists) and records a media_assets row pointing at it. Non-fatal by
+ * design — callers should swallow errors, since the slideshow itself is
+ * already served locally via /api/slideshow/[id] regardless of whether this
+ * succeeds.
+ *
+ * TODO(docs/backend-notes.md): provision the "media" Storage bucket (and
+ * decide public vs. signed URLs) — until then this silently no-ops on the
+ * upload's "bucket not found" error.
+ */
+export async function saveSlideshowMediaAsset(
+  orgId: string,
+  input: SaveSlideshowMediaAssetInput
+): Promise<void> {
+  if (!isSupabaseConfigured()) return
+
+  const supabase = await createClient()
+  const bytes = await readFile(input.filePath)
+  const storagePath = `${orgId}/slideshows/${input.id}.mp4`
+
+  const { error: uploadError } = await supabase.storage
+    .from("media")
+    .upload(storagePath, bytes, { contentType: "video/mp4", upsert: true })
+
+  // Bucket may not be provisioned yet in this environment — see the TODO
+  // above. Swallow so a missing bucket never breaks slideshow rendering.
+  if (uploadError) return
+
+  const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
+
+  await supabase.from("media_assets").insert({
+    org_id: orgId,
+    content_id: input.contentId ?? null,
+    kind: "video",
+    url: publicUrlData.publicUrl,
+    provider: "ffmpeg-local",
+    cost_usd: 0,
+    metadata: { durationSec: input.durationSec, source: "slideshow" },
+  })
 }
 
 /** Lists an org's scheduled content items falling within the calendar month containing `month`. */

@@ -19,7 +19,14 @@ import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { generateContentDraft, type GeneratedContentDraft } from "@/lib/ai/generate-content"
 import { generateImage, isFalConfigured } from "@/lib/ai/generate-image"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
-import { queueContentItem, rateContentItem, saveContentItem, saveTemplate } from "@/lib/content"
+import {
+  queueContentItem,
+  rateContentItem,
+  saveContentItem,
+  saveSlideshowMediaAsset,
+  saveTemplate,
+} from "@/lib/content"
+import { FfmpegMissingError, renderSlideshow, type SlideshowSource } from "@/lib/media/slideshow"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { ContentRating } from "@/lib/types"
@@ -276,5 +283,68 @@ export async function addToQueue(input: AddToQueueInput): Promise<AddToQueueResu
     return { ok: queued !== null, scheduledAt }
   } catch {
     return { ok: false }
+  }
+}
+
+/**
+ * Approximate hex swatches for the DESIGN_SYSTEM.md dataviz chart hues
+ * (chart-1 violet / chart-2 teal / chart-3 amber / chart-4 magenta,
+ * globals.css). Not a UI token itself — these are plain hex values because
+ * they're consumed by FFmpeg's lavfi `color=` source (src/lib/media/slideshow.ts),
+ * not rendered as CSS, so they can't reference the oklch CSS custom
+ * properties directly.
+ */
+const BRAND_HUE_COLORS = ["#6D4AFF", "#3FA79E", "#D9A441", "#C24F97"] as const
+
+/** Real fal.ai image (if the draft has one) as slide 1, padded to 4 slides with brand-hue placeholders; else 4 placeholders. */
+function buildSlideshowSources(draft: GeneratedDraft): SlideshowSource[] {
+  if (draft.imageUrl) {
+    return [draft.imageUrl, ...BRAND_HUE_COLORS.slice(0, 3).map((color) => ({ color }))]
+  }
+  return BRAND_HUE_COLORS.map((color) => ({ color }))
+}
+
+export type RenderSlideshowResult =
+  | { videoUrl: string; durationSec: number }
+  | { error: "allowance"; message: string }
+  | { error: "ffmpeg-missing"; message: string }
+  | { error: "render"; message: string }
+
+/**
+ * Renders the current draft's image (or brand-hue placeholders, in demo
+ * mode / when no image exists) into a slideshow MP4 via
+ * src/lib/media/slideshow.ts, served back from /api/slideshow/[id]. A real
+ * quota denial or a missing ffmpeg binary are surfaced as typed errors, not
+ * silently swallowed, so the composer can show the right toast.
+ */
+export async function renderSlideshowAction(draft: GeneratedDraft): Promise<RenderSlideshowResult> {
+  const orgId = await getCurrentOrgId()
+  // renderSlideshow's metering (checkAllowance/recordUsage) already no-ops
+  // in demo mode regardless of orgId value, so any stable placeholder works
+  // when there's no signed-in org to resolve.
+  const resolvedOrgId = orgId ?? "demo-org"
+
+  try {
+    const result = await renderSlideshow({
+      orgId: resolvedOrgId,
+      images: buildSlideshowSources(draft),
+    })
+
+    if (isSupabaseConfigured() && orgId) {
+      await saveSlideshowMediaAsset(orgId, { ...result, contentId: draft.contentId }).catch(() => {})
+    }
+
+    return { videoUrl: `/api/slideshow/${result.id}`, durationSec: result.durationSec }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You've hit this month's slideshow limit" }
+    }
+    if (error instanceof FfmpegMissingError) {
+      return {
+        error: "ffmpeg-missing",
+        message: "Video rendering isn't available on this server yet (ffmpeg is missing).",
+      }
+    }
+    return { error: "render", message: "Couldn't render the slideshow. Please try again." }
   }
 }

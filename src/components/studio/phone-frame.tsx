@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import {
   Bookmark,
@@ -10,6 +10,8 @@ import {
   ImageIcon,
   MessageSquare,
   MoreHorizontal,
+  Pause,
+  Play,
   PlaySquare,
   Send,
 } from "lucide-react"
@@ -39,6 +41,8 @@ type PhoneFrameProps = {
   imageDescription: string
   /** Real fal.ai image URL, when the backend generated one. Falls back to the gradient placeholder when absent. */
   imageUrl?: string
+  /** Rendered slideshow MP4 (src/lib/media/slideshow.ts via /api/slideshow/[id]). When present with format "slideshow", plays instead of the static image block. */
+  videoUrl?: string
   microCopy: string
   className?: string
 }
@@ -65,6 +69,7 @@ export function PhoneFrame({
   hashtags,
   imageDescription,
   imageUrl,
+  videoUrl,
   microCopy,
   className,
 }: PhoneFrameProps) {
@@ -127,6 +132,7 @@ export function PhoneFrame({
                   hashtags={hashtags}
                   imageDescription={imageDescription}
                   imageUrl={imageUrl}
+                  videoUrl={videoUrl}
                   handle={handle}
                   aspectClassName={aspectClassName}
                 />
@@ -192,6 +198,7 @@ function ReadyContent({
   hashtags,
   imageDescription,
   imageUrl,
+  videoUrl,
   handle,
   aspectClassName,
 }: {
@@ -200,6 +207,7 @@ function ReadyContent({
   hashtags: string[]
   imageDescription: string
   imageUrl?: string
+  videoUrl?: string
   handle: string
   aspectClassName: string
 }) {
@@ -209,15 +217,19 @@ function ReadyContent({
         {format === "carousel" ? (
           <CarouselImage imageDescription={imageDescription} imageUrl={imageUrl} />
         ) : format === "slideshow" ? (
-          <ImageBlock
-            imageDescription={imageDescription}
-            imageUrl={imageUrl}
-            badge={
-              <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-1 text-[10px] font-medium ring-1 ring-border backdrop-blur-sm">
-                <PlaySquare aria-hidden="true" className="size-3" /> Slideshow
-              </span>
-            }
-          />
+          videoUrl ? (
+            <SlideshowVideo videoUrl={videoUrl} altText={imageDescription || "Slideshow preview"} />
+          ) : (
+            <ImageBlock
+              imageDescription={imageDescription}
+              imageUrl={imageUrl}
+              badge={
+                <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-1 text-[10px] font-medium ring-1 ring-border backdrop-blur-sm">
+                  <PlaySquare aria-hidden="true" className="size-3" /> Slideshow
+                </span>
+              }
+            />
+          )
         ) : (
           <ImageBlock imageDescription={imageDescription} imageUrl={imageUrl} />
         )}
@@ -238,6 +250,77 @@ function ReadyContent({
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Plays the rendered slideshow MP4 (muted, looped, no native controls) with
+ * a tap-to-toggle-play overlay. Respects `prefers-reduced-motion` by never
+ * autoplaying — the user has to tap once to start it either way, but under
+ * reduced motion the very first frame also stays fully static (not just
+ * "paused after an autoplay flash").
+ */
+function SlideshowVideo({ videoUrl, altText }: { videoUrl: string; altText: string }) {
+  const reduceMotion = useReducedMotion()
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+
+  useEffect(() => {
+    if (reduceMotion) return
+    const video = videoRef.current
+    if (!video) return
+    video.play().catch(() => {
+      // Autoplay can be blocked by the browser — the tap overlay still works.
+    })
+  }, [reduceMotion, videoUrl])
+
+  function toggle() {
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) {
+      video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
+  }
+
+  return (
+    <div className="relative h-full w-full bg-muted">
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        muted
+        loop
+        playsInline
+        controls={false}
+        aria-label={altText}
+        className="h-full w-full object-cover"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={isPlaying ? "Pause slideshow preview" : "Play slideshow preview"}
+        className="group/video-btn absolute inset-0 flex items-center justify-center bg-transparent outline-none transition-colors duration-150 hover:bg-background/10 focus-visible:bg-background/10 focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <span
+          className={cn(
+            "flex size-9 items-center justify-center rounded-full bg-background/80 text-foreground shadow-raised ring-1 ring-border backdrop-blur-sm transition-opacity duration-150",
+            isPlaying ? "opacity-0 group-hover/video-btn:opacity-100 group-focus-visible/video-btn:opacity-100" : "opacity-100"
+          )}
+        >
+          {isPlaying ? (
+            <Pause aria-hidden="true" className="size-4" />
+          ) : (
+            <Play aria-hidden="true" className="size-4" />
+          )}
+        </span>
+      </button>
+      <span className="pointer-events-none absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-1 text-[10px] font-medium ring-1 ring-border backdrop-blur-sm">
+        <PlaySquare aria-hidden="true" className="size-3" /> Slideshow
+      </span>
     </div>
   )
 }

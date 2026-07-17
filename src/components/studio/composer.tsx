@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import {
   Bookmark,
   BookmarkCheck,
+  Film,
   ListPlus,
   Loader2,
   RefreshCw,
@@ -20,7 +21,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { duration, easing, microCopyCycleMs, wordRevealMs } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
-import { addToQueue, generateDraft, rateDraft, saveDraftAsTemplate } from "@/app/(app)/studio/actions"
+import {
+  addToQueue,
+  generateDraft,
+  rateDraft,
+  renderSlideshowAction,
+  saveDraftAsTemplate,
+} from "@/app/(app)/studio/actions"
 import { PLATFORMS, type GeneratedDraft, type Platform, type PostFormat } from "@/app/(app)/studio/types"
 
 import { AiAssistRail } from "./ai-assist-rail"
@@ -30,6 +37,9 @@ import { PlatformChip } from "./platform-chip"
 import { Shimmer } from "./shimmer"
 
 const MICRO_COPY = ["Sketching layout…", "Rendering image…", "Polishing caption…"]
+const SLIDESHOW_MICRO_COPY = ["Rendering slides…", "Stitching video…", "Almost there…"]
+
+type SlideshowRenderStatus = "idle" | "rendering" | "ready"
 
 type RevealInterval = ReturnType<typeof setInterval>
 
@@ -159,6 +169,10 @@ export function Composer({ businessName }: ComposerProps) {
   const [ratedDown, setRatedDown] = useState(false)
   const [railOpen, setRailOpen] = useState(false)
 
+  const [slideshowStatus, setSlideshowStatus] = useState<SlideshowRenderStatus>("idle")
+  const [slideshowVideoUrl, setSlideshowVideoUrl] = useState<string | undefined>(undefined)
+  const [slideshowMicroCopyIndex, setSlideshowMicroCopyIndex] = useState(0)
+
   useEffect(() => {
     if (status !== "generating") return
     const id = setInterval(() => {
@@ -166,6 +180,25 @@ export function Composer({ businessName }: ComposerProps) {
     }, microCopyCycleMs)
     return () => clearInterval(id)
   }, [status])
+
+  useEffect(() => {
+    if (slideshowStatus !== "rendering") return
+    const id = setInterval(() => {
+      setSlideshowMicroCopyIndex((current) => (current + 1) % SLIDESHOW_MICRO_COPY.length)
+    }, microCopyCycleMs)
+    return () => clearInterval(id)
+  }, [slideshowStatus])
+
+  // A rendered slideshow belongs to the draft it was rendered from —
+  // switching away from the slideshow format invalidates it. (A new draft
+  // invalidates it too, handled directly in handleGenerate's success path.)
+  function handleFormatChange(next: PostFormat) {
+    setFormat(next)
+    if (next !== "slideshow") {
+      setSlideshowStatus("idle")
+      setSlideshowVideoUrl(undefined)
+    }
+  }
 
   function togglePlatform(platform: Platform) {
     setPlatforms((current) => {
@@ -226,6 +259,8 @@ export function Composer({ businessName }: ComposerProps) {
       setImageUrl(result.imageUrl)
       setSavedTemplate(false)
       setRatedDown(false)
+      setSlideshowStatus("idle")
+      setSlideshowVideoUrl(undefined)
       setResultKey((key) => key + 1)
       setStatus("ready")
       setAnnouncement("Draft ready")
@@ -288,6 +323,37 @@ export function Composer({ businessName }: ComposerProps) {
     }
   }
 
+  async function handleRenderSlideshow() {
+    if (!draft || format !== "slideshow" || slideshowStatus === "rendering") return
+
+    setSlideshowStatus("rendering")
+    setSlideshowMicroCopyIndex(0)
+    try {
+      const result = await renderSlideshowAction(draft)
+      if (!isMountedRef.current) return
+
+      if ("error" in result) {
+        setSlideshowStatus("idle")
+        if (result.error === "allowance") {
+          toast.error("You've hit this month's slideshow limit", { description: result.message })
+        } else if (result.error === "ffmpeg-missing") {
+          toast.error("Slideshow rendering unavailable", { description: result.message })
+        } else {
+          toast.error("Couldn't render the slideshow", { description: result.message })
+        }
+        return
+      }
+
+      setSlideshowVideoUrl(result.videoUrl)
+      setSlideshowStatus("ready")
+      toast.success("Slideshow ready", { description: "Tap the preview to play it." })
+    } catch {
+      if (!isMountedRef.current) return
+      setSlideshowStatus("idle")
+      toast.error("Couldn't render the slideshow", { description: "Please try again." })
+    }
+  }
+
   async function handleAddToQueue() {
     try {
       const result = await addToQueue({
@@ -315,6 +381,11 @@ export function Composer({ businessName }: ComposerProps) {
 
   const canGenerate = prompt.trim().length > 0 && platforms.length > 0 && status !== "generating"
   const hashtagsList = parseHashtags(hashtagsText)
+  const isSlideshowRendering = format === "slideshow" && slideshowStatus === "rendering"
+  const phoneFrameStatus: PhoneFrameStatus = isSlideshowRendering ? "generating" : status
+  const phoneFrameMicroCopy = isSlideshowRendering
+    ? SLIDESHOW_MICRO_COPY[slideshowMicroCopyIndex]
+    : MICRO_COPY[microCopyIndex]
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 pb-8">
@@ -337,7 +408,7 @@ export function Composer({ businessName }: ComposerProps) {
           className="min-h-20 resize-none border-none px-0 text-base shadow-none focus-visible:ring-0"
         />
         <div className="flex flex-wrap items-center gap-2">
-          <FormatSegmented value={format} onChange={setFormat} disabled={status === "generating"} />
+          <FormatSegmented value={format} onChange={handleFormatChange} disabled={status === "generating"} />
           <div aria-hidden="true" className="h-5 w-px bg-border" />
           <div className="flex flex-wrap gap-1.5">
             {PLATFORMS.map((platform) => (
@@ -378,14 +449,15 @@ export function Composer({ businessName }: ComposerProps) {
       <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,320px)_1fr]">
         <PhoneFrame
           format={format}
-          status={status}
+          status={phoneFrameStatus}
           resultKey={resultKey}
           businessName={businessName}
           caption={caption}
           hashtags={hashtagsList}
           imageDescription={draft?.imageDescription ?? ""}
           imageUrl={imageUrl}
-          microCopy={MICRO_COPY[microCopyIndex]}
+          videoUrl={format === "slideshow" ? slideshowVideoUrl : undefined}
+          microCopy={phoneFrameMicroCopy}
         />
 
         <div className="flex flex-col gap-4">
@@ -491,6 +563,27 @@ export function Composer({ businessName }: ComposerProps) {
               />
               Regenerate
             </Button>
+            {format === "slideshow" && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={status !== "ready" || slideshowStatus === "rendering"}
+                onClick={handleRenderSlideshow}
+                className="gap-1.5"
+              >
+                {slideshowStatus === "rendering" ? (
+                  <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                ) : (
+                  <Film aria-hidden="true" className="size-3.5" />
+                )}
+                {slideshowStatus === "rendering"
+                  ? "Rendering…"
+                  : slideshowStatus === "ready"
+                    ? "Re-render slideshow"
+                    : "Render slideshow"}
+              </Button>
+            )}
             <Button
               type="button"
               disabled={status !== "ready"}
