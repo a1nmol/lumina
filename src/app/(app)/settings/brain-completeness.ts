@@ -26,6 +26,7 @@ export function computeBrainCompleteness(brain: BusinessBrain): Completeness {
     { label: "Description", filled: Boolean(brain.description) },
     { label: "Hours", filled: hasHours },
     { label: "Services", filled: (brain.services?.length ?? 0) > 0 },
+    { label: "FAQ", filled: (brain.faq?.length ?? 0) > 0 },
     { label: "Voice & tone", filled: Boolean(brain.tone) },
     { label: "Brand color", filled: Boolean(brain.brand_kit?.primary_color) },
     { label: "Channels", filled: hasChannel },

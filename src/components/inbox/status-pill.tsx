@@ -3,16 +3,17 @@
 // (open/pending/resolved) and CRM pipeline (lead/contacted/booked/customer).
 
 import { cn } from "@/lib/utils"
-import type { ContactStatus, ConversationStatus } from "@/lib/types"
+import type { AppointmentStatus, ContactStatus, ConversationStatus } from "@/lib/types"
 
-export type StatusPillTone = "neutral" | "info" | "warning" | "success" | "brand"
+export type StatusPillTone = "neutral" | "info" | "warning" | "success" | "brand" | "danger"
 
-const TONE_CLASSES: Record<StatusPillTone, string> = {
+export const TONE_CLASSES: Record<StatusPillTone, string> = {
   neutral: "bg-secondary text-secondary-foreground",
   info: "bg-info/10 text-info",
   warning: "bg-warning/10 text-warning",
   success: "bg-success/10 text-success",
   brand: "bg-primary/10 text-primary",
+  danger: "bg-destructive/10 text-destructive",
 }
 
 export const CONVERSATION_STATUS_META: Record<ConversationStatus, { label: string; tone: StatusPillTone }> = {
@@ -29,6 +30,15 @@ export const CONTACT_STATUS_META: Record<ContactStatus, { label: string; tone: S
 }
 
 export const CONTACT_STATUSES: ContactStatus[] = ["lead", "contacted", "booked", "customer"]
+
+export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, { label: string; tone: StatusPillTone }> = {
+  scheduled: { label: "Scheduled", tone: "info" },
+  completed: { label: "Completed", tone: "success" },
+  cancelled: { label: "Cancelled", tone: "danger" },
+  no_show: { label: "No-show", tone: "warning" },
+}
+
+export const APPOINTMENT_STATUSES: AppointmentStatus[] = ["scheduled", "completed", "cancelled", "no_show"]
 
 // Overloaded signatures for flexibility: either pass (label + tone) or (status)
 type StatusPillPropsWithTone = {

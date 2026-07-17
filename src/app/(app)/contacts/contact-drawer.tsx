@@ -6,6 +6,7 @@ import { X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { BookingDialog } from "@/components/booking-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -49,6 +50,7 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
   const [notesDraft, setNotesDraft] = useState(contact?.notes ?? "")
   const [tagDraft, setTagDraft] = useState("")
   const [syncedContactId, setSyncedContactId] = useState(contact?.id ?? null)
+  const [bookingOpen, setBookingOpen] = useState(false)
 
   // Reset the local drafts when a different contact is selected (adjusting
   // state during render, per React's guidance, instead of an effect —
@@ -209,11 +211,16 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
         </div>
 
         <SheetFooter className="border-t border-border">
+          <Button variant="outline" onClick={() => setBookingOpen(true)}>
+            Book appointment
+          </Button>
           <Button variant="outline" render={<Link href={`/contacts/${contact.id}`} />}>
             Open full profile
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      <BookingDialog contact={contact} open={bookingOpen} onOpenChange={setBookingOpen} />
     </Sheet>
   )
 }

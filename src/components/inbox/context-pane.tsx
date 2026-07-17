@@ -1,8 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CalendarClock, Plus, StickyNote, User } from "lucide-react"
+import { CalendarClock, CalendarPlus, Plus, StickyNote, User } from "lucide-react"
+import { toast } from "sonner"
 
+import { updateAppointmentStatusAction } from "@/app/(app)/contacts/booking-actions"
+import { AppointmentStatusSelect } from "@/components/appointment-status-select"
+import { BookingDialog } from "@/components/booking-dialog"
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +21,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import type { Appointment, Contact, ContactStatus } from "@/lib/types"
+import type { Appointment, AppointmentStatus, Contact, ContactStatus } from "@/lib/types"
 
 import { getAppointmentsForContact, type ThreadListConversation } from "@/app/(app)/inbox/actions"
 
@@ -52,6 +56,7 @@ export function ContextPane({
   const [tagInput, setTagInput] = useState("")
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loadingAppointments, setLoadingAppointments] = useState(false)
+  const [bookingOpen, setBookingOpen] = useState(false)
 
   const contactId = contact?.id
 
@@ -101,6 +106,27 @@ export function ContextPane({
     if (!trimmed) return
     onAddTag(trimmed)
     setTagInput("")
+  }
+
+  function handleBooked(appointment: Appointment) {
+    setAppointments((prev) => [...prev, appointment])
+  }
+
+  async function handleAppointmentStatusChange(appointmentId: string, nextStatus: AppointmentStatus) {
+    const previous = appointments.find((appointment) => appointment.id === appointmentId)?.status
+    if (!previous || previous === nextStatus) return
+
+    setAppointments((prev) =>
+      prev.map((appointment) => (appointment.id === appointmentId ? { ...appointment, status: nextStatus } : appointment))
+    )
+
+    const result = await updateAppointmentStatusAction(appointmentId, nextStatus)
+    if (!result.ok) {
+      setAppointments((prev) =>
+        prev.map((appointment) => (appointment.id === appointmentId ? { ...appointment, status: previous } : appointment))
+      )
+      toast.error("Couldn't update appointment status", { description: "Reverted — please try again." })
+    }
   }
 
   return (
@@ -184,6 +210,17 @@ export function ContextPane({
           <StickyNote aria-hidden="true" className="size-3.5" />
           Add internal note
         </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setBookingOpen(true)}
+          className="gap-1.5"
+        >
+          <CalendarPlus aria-hidden="true" className="size-3.5" />
+          Book appointment
+        </Button>
       </div>
 
       {/* Linked appointments */}
@@ -201,17 +238,24 @@ export function ContextPane({
             {appointments.map((appointment) => (
               <li
                 key={appointment.id}
-                className="rounded-lg border border-border bg-card px-2.5 py-2 text-xs shadow-soft"
+                className="flex items-start justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-xs shadow-soft"
               >
-                <p className="font-medium text-foreground">{appointment.service ?? "Appointment"}</p>
-                <p className="text-muted-foreground">
-                  {new Date(appointment.starts_at).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">{appointment.service ?? "Appointment"}</p>
+                  <p className="text-muted-foreground">
+                    {new Date(appointment.starts_at).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+                <AppointmentStatusSelect
+                  status={appointment.status}
+                  onStatusChange={(status) => handleAppointmentStatusChange(appointment.id, status)}
+                  label={`Status for ${appointment.service ?? "appointment"}`}
+                />
               </li>
             ))}
           </ul>
@@ -256,6 +300,8 @@ export function ContextPane({
           </AccordionPanel>
         </AccordionItem>
       </Accordion>
+
+      <BookingDialog contact={contact} open={bookingOpen} onOpenChange={setBookingOpen} onBooked={handleBooked} />
     </div>
   )
 }

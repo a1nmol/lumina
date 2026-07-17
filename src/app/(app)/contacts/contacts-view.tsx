@@ -7,6 +7,7 @@ import { MessageCircle, MoreHorizontal, Plus, Search, Users, X } from "lucide-re
 import { toast } from "sonner"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { BookingDialog } from "@/components/booking-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -52,6 +53,7 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
   const [statusFilter, setStatusFilter] = useState<ContactStatus | "all">("all")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [bookingContact, setBookingContact] = useState<Contact | null>(null)
   const reduceMotion = useReducedMotion()
 
   const filtered = useMemo(() => {
@@ -75,12 +77,6 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
 
   function handleContactChange(updated: Contact) {
     setContacts((prev) => prev.map((contact) => (contact.id === updated.id ? updated : contact)))
-  }
-
-  function handleBook(contact: Contact) {
-    toast.info(`Book an appointment for ${displayName(contact)}`, {
-      description: "Booking from Contacts is coming soon.",
-    })
   }
 
   function handleCopy(value: string, label: string) {
@@ -164,7 +160,7 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
                     key={contact.id}
                     contact={contact}
                     onOpen={() => setSelectedId(contact.id)}
-                    onBook={() => handleBook(contact)}
+                    onBook={() => setBookingContact(contact)}
                     onCopy={handleCopy}
                   />
                 ))}
@@ -181,7 +177,7 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
                 index={index}
                 reduceMotion={reduceMotion}
                 onOpen={() => setSelectedId(contact.id)}
-                onBook={() => handleBook(contact)}
+                onBook={() => setBookingContact(contact)}
               />
             ))}
           </ul>
@@ -197,6 +193,14 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
           if (!open) setSelectedId(null)
         }}
         onContactChange={handleContactChange}
+      />
+
+      <BookingDialog
+        contact={bookingContact}
+        open={bookingContact !== null}
+        onOpenChange={(open) => {
+          if (!open) setBookingContact(null)
+        }}
       />
 
       {!isLive && (

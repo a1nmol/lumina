@@ -540,7 +540,12 @@ export interface CreateAppointmentInput {
   notes?: string | null
 }
 
-/** Books a new appointment for a contact (FrontDesk booking — MASTER_PLAN.md §4.D). */
+/**
+ * Books a new appointment for a contact (FrontDesk booking — MASTER_PLAN.md
+ * §4.D). No external calendar sync yet (Google Calendar / etc. need API
+ * keys) — this only writes to the `appointments` table. TODO(V2): push/pull
+ * to a connected calendar once Business Brain calendar connections exist.
+ */
 export async function createAppointment(orgId: string, input: CreateAppointmentInput): Promise<Appointment | null> {
   if (!isSupabaseConfigured()) return null
 
@@ -561,6 +566,30 @@ export async function createAppointment(orgId: string, input: CreateAppointmentI
 
   if (error) {
     throw new Error(`createAppointment: failed to create appointment for org ${orgId}: ${error.message}`)
+  }
+
+  return data
+}
+
+/** Updates an appointment's status (scheduled/completed/cancelled/no_show). */
+export async function updateAppointmentStatus(
+  orgId: string,
+  appointmentId: string,
+  status: AppointmentStatus
+): Promise<Appointment | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("appointments")
+    .update({ status })
+    .eq("id", appointmentId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`updateAppointmentStatus: failed to update appointment ${appointmentId}: ${error.message}`)
   }
 
   return data

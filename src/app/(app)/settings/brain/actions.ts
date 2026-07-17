@@ -278,6 +278,33 @@ export async function saveBusinessBrainStep(
   return { ok: !error }
 }
 
+export interface SaveFaqResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org" | "invalid-payload"
+}
+
+/**
+ * Persists the FAQ list on its own — used by the Settings hub's FAQ card
+ * (src/app/(app)/settings/faq-card.tsx), independent of the wizard's
+ * step-by-step draft flow. Reuses the same validation caps (≤50 items,
+ * question ≤300 chars, answer ≤1000 chars) as the wizard. No-ops in demo
+ * mode.
+ */
+export async function saveFaq(faq: BusinessFaq[]): Promise<SaveFaqResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  if (!isValidFaq(faq)) return { ok: false, reason: "invalid-payload" }
+
+  const supabase = await createClient()
+  const { error } = await supabase.from("business_brain").upsert({ faq, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
 /**
  * Marks the Business Brain complete on the final wizard step. `stepCount`
  * is the wizard's total step count (WIZARD_STEPS.length), passed in by the
