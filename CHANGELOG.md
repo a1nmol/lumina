@@ -3,6 +3,7 @@
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
 
 ## Unreleased
+- Phase 1 complete ✅ — Content Studio Composer (streamed generation, phone-mockup preview, AI assist rail, carousel/slideshow formats), real AI backend (OpenRouter routing + cost metering, fal.ai images, migration 0002), FFmpeg slideshow engine (Ken Burns + crossfades, SSRF-hardened, org-authorized playback, concurrency-capped), Calendar (month/week/queue, accessible drag-drop, persisted reschedule), templates with regenerate-from-template + real delete, reminder-to-post + copy-caption. Two full review passes, all findings fixed.
 - Phase 0 complete ✅ — Business Brain 4-step wizard (sectioned, skip-safe, focus-managed, validated server-side), settings hub with completeness ring, admin dashboard gated by ADMIN_EMAILS; org bootstrap repair path wired; reviewed twice with all findings fixed.
 - Phase 0: App shell (sidebar with business switcher, sliding active-pill nav, ＋ Create), aurora login (magic-link-first, demo mode), Command Center with StatCards + sparklines, crafted empty states for all workspace pages; reviewed + a11y fixes (native-button semantics, reduced-motion safe).
 - Phase 0: Security review fixes — entitlements writes locked to service role (spend-cap self-escalation closed), collision-proof signup bootstrap with `ensureOrgBootstrap` repair path, fail-closed usage metering, RLS hardening, Supabase session-refresh proxy.

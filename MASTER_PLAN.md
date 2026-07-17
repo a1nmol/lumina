@@ -3,8 +3,8 @@
 > This is the single anchor document for the whole project. Every agent (led by **Fable**) must read this before doing anything and must not deviate from it without the owner's explicit approval. If a decision isn't covered here, propose it, get approval, then update this file.
 
 Owner: Anmol · Building with Claude Code
-Status: **Phase 0 complete** (schema+RLS, entitlements+usage metering+spend guard, app shell, auth, Business Brain wizard, admin skeleton — all reviewed) · **Phase 1 in progress** · Ethos: **ship fast, iterate continuously — no fixed deadline. Move as fast as possible and keep going.**
-Deferred by design: FAQ editing UI → Phase 2 (when FrontDesk consumes it); voice → Phase 4; migration applied to live Supabase once keys arrive.
+Status: **Phases 0–1 complete** (foundation + Content Studio/Calendar with real AI backend seam, all reviewed twice) · **Phase 2 in progress** (Inbox + FrontDesk text + CRM) · Ethos: **ship fast, iterate continuously — no fixed deadline. Move as fast as possible and keep going.**
+Deferred by design: FAQ editing UI → Phase 2 (when FrontDesk consumes it); voice → Phase 4; migrations 0001/0002 applied to live Supabase once keys arrive; Supabase Storage 'media' bucket provisioning; audio bed for slideshows (licensed music).
 
 ---
 
