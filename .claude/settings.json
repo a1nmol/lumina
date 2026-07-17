@@ -1,0 +1,42 @@
+{
+  "model": "fable",
+  "availableModels": ["fable", "opus", "sonnet", "haiku"],
+  "permissions": {
+    "allow": [
+      "Agent(ui-researcher, builder, quick-worker, reviewer)",
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write",
+      "WebSearch",
+      "WebFetch",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(pnpm *)",
+      "Bash(node *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(chmod *)",
+      "Bash(echo *)",
+      "Bash(git init*)",
+      "Bash(git config *)",
+      "Bash(git status)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(supabase *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push *)",
+      "Bash(vercel deploy*)",
+      "Read(.env)",
+      "Read(.env.local)"
+    ]
+  }
+}
