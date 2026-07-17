@@ -150,6 +150,7 @@ export function ThreadList({
                 }}
                 conversation={conversation}
                 selected={conversation.id === selectedId}
+                tabbable={selectedId == null && index === 0}
                 onSelect={onSelect}
               />
             </motion.div>

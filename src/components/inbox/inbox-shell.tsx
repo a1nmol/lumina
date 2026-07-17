@@ -17,6 +17,7 @@ import type { ConversationStatus, ContactStatus, Message } from "@/lib/types"
 import {
   addContactTag,
   getConversationDetail,
+  markRead,
   setContactPipelineStatus,
   setState,
   setStatus,
@@ -34,6 +35,13 @@ type InboxShellProps = {
   initialConversations: ThreadListConversation[]
 }
 
+// Debounce before firing the conversation-detail fetch after `selectedId`
+// changes — absorbs rapid re-selection (arrow-key nav, fast re-clicks)
+// without firing a redundant fetch per keystroke. Row highlight and the
+// optimistic unread-clear in handleSelect update synchronously and are
+// unaffected by this delay.
+const DETAIL_FETCH_DEBOUNCE_MS = 180
+
 export function InboxShell({ initialConversations }: InboxShellProps) {
   const composerRef = useRef<ReplyComposerHandle>(null)
 
@@ -49,36 +57,57 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     if (!selectedId) return
 
     let cancelled = false
-    // Deliberate setState-in-effect: arms the loading state for the fetch
-    // kicked off immediately below (an external system — the server action)
-    // — see the identical, reviewed pattern in
-    // src/components/calendar/reminder-button.tsx.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDetailLoading(true)
-    getConversationDetail(selectedId)
-      .then((detail) => {
-        if (cancelled) return
-        setSelectedDetail(detail)
-        if (!detail) {
-          toast.error("Couldn't load that conversation")
-        }
-      })
-      .catch(() => {
-        if (!cancelled) toast.error("Couldn't load that conversation")
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false)
-      })
+    const timeoutId = window.setTimeout(() => {
+      // Arms the loading state for the fetch kicked off immediately below
+      // (an external system — the server action). Nested inside the
+      // setTimeout (rather than a direct effect-body call), so the
+      // react-hooks/set-state-in-effect rule doesn't flag it here — compare
+      // the direct-call case in src/components/calendar/reminder-button.tsx.
+      setDetailLoading(true)
+      getConversationDetail(selectedId)
+        .then((detail) => {
+          if (cancelled) return
+          setSelectedDetail(detail)
+          if (!detail) {
+            toast.error("Couldn't load that conversation")
+          }
+        })
+        .catch(() => {
+          if (!cancelled) toast.error("Couldn't load that conversation")
+        })
+        .finally(() => {
+          if (!cancelled) setDetailLoading(false)
+        })
+    }, DETAIL_FETCH_DEBOUNCE_MS)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timeoutId)
     }
   }, [selectedId])
 
-  const handleSelect = useCallback((id: string) => {
-    setSelectedId(id)
-    setConversations((current) => current.map((c) => (c.id === id ? { ...c, unread: false } : c)))
-  }, [])
+  const handleSelect = useCallback(
+    (id: string) => {
+      setSelectedId(id)
+
+      const target = conversations.find((c) => c.id === id)
+      const wasUnread = target?.unread ?? false
+      setConversations((current) => current.map((c) => (c.id === id ? { ...c, unread: false } : c)))
+
+      if (!wasUnread) return
+
+      // Fire-and-forget, revert-on-error — mirrors handleStatusChange /
+      // handleContactStatusChange's optimistic-update pattern above, just
+      // without awaiting the result before returning.
+      void markRead(id).then((result) => {
+        if (!result.ok) {
+          setConversations((current) => current.map((c) => (c.id === id ? { ...c, unread: true } : c)))
+          toast.error("Couldn't mark conversation read", { description: "Please try again." })
+        }
+      })
+    },
+    [conversations]
+  )
 
   function handleBack() {
     setSelectedId(null)
@@ -103,11 +132,18 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     }
   }
 
+  // Keyed off message.conversation_id (not selectedDetail.id) — defense in
+  // depth against the cross-conversation composer race: a reply sent from a
+  // thread the user has since navigated away from must still land on ITS
+  // thread-list row, and must never be applied to whatever conversation
+  // happens to be selected now. selectedDetail is only ever touched when its
+  // id matches the message's conversation.
   function handleMessageSent(message: Message) {
-    if (!selectedDetail) return
-    const conversationId = selectedDetail.id
+    const conversationId = message.conversation_id
 
-    setSelectedDetail((prev) => (prev ? { ...prev, messages: [...prev.messages, message] } : prev))
+    setSelectedDetail((prev) =>
+      prev && prev.id === conversationId ? { ...prev, messages: [...prev.messages, message] } : prev
+    )
 
     const isRealMessage = message.kind !== "note"
     setConversations((current) =>
@@ -125,7 +161,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
 
     // A verbatim (or lightly edited) AI draft that just got sent counts as the AI having answered the thread.
     if (isRealMessage && message.ai_handled) {
-      setSelectedDetail((prev) => (prev ? { ...prev, ai_state: "ai_answered" } : prev))
+      setSelectedDetail((prev) => (prev && prev.id === conversationId ? { ...prev, ai_state: "ai_answered" } : prev))
       setConversations((current) =>
         current.map((c) => (c.id === conversationId ? { ...c, ai_state: "ai_answered" } : c))
       )
@@ -133,10 +169,13 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     }
   }
 
-  function handleEscalated() {
-    if (!selectedDetail) return
-    const conversationId = selectedDetail.id
-    setSelectedDetail((prev) => (prev ? { ...prev, ai_state: "escalated" } : prev))
+  // Threaded conversationId (rather than assuming selectedDetail) for the
+  // same reason as handleMessageSent above — an AI draft request kicked off
+  // from a thread the user has since navigated away from must escalate ITS
+  // thread, not whatever is currently selected.
+  function handleEscalated(conversationId: string, reason: string) {
+    void reason // surfaced to the user directly by the composer's toast; only the ai_state flip happens here.
+    setSelectedDetail((prev) => (prev && prev.id === conversationId ? { ...prev, ai_state: "escalated" } : prev))
     setConversations((current) =>
       current.map((c) => (c.id === conversationId ? { ...c, ai_state: "escalated" } : c))
     )

@@ -30,6 +30,13 @@ import type { Contact, ContactStatus, ContactTimelineEvent, ContactWithTimeline 
 const MAX_TEXT_LENGTH = 2000
 const MAX_TAGS = 12
 const MAX_TAG_LENGTH = 40
+const MAX_PHONE_LENGTH = 40
+const MAX_EMAIL_LENGTH = 254
+// Loose shape checks — not full E.164/RFC-5322 validation, just enough to
+// reject obvious garbage before it reaches the database. Digits, spaces, and
+// the common phone punctuation/formatting characters.
+const PHONE_PATTERN = /^[0-9+()\-.\s]+$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export interface ListContactsResult {
   contacts: Contact[]
@@ -103,6 +110,12 @@ export async function getContactAction(id: string): Promise<GetContactResult> {
 function isValidSaveInput(input: UpsertContactInput): boolean {
   if (input.name != null && input.name.length > MAX_TEXT_LENGTH) return false
   if (input.notes != null && input.notes.length > MAX_TEXT_LENGTH) return false
+  if (input.phone != null && input.phone.length > 0) {
+    if (input.phone.length > MAX_PHONE_LENGTH || !PHONE_PATTERN.test(input.phone)) return false
+  }
+  if (input.email != null && input.email.length > 0) {
+    if (input.email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(input.email)) return false
+  }
   if (input.tags) {
     if (input.tags.length > MAX_TAGS) return false
     if (input.tags.some((tag) => typeof tag !== "string" || tag.length > MAX_TAG_LENGTH)) return false
@@ -113,6 +126,8 @@ function isValidSaveInput(input: UpsertContactInput): boolean {
 export interface SaveContactResult {
   ok: boolean
   contact: Contact | null
+  /** Set when `ok` is false and the failure was a validation rejection (as opposed to a write/lookup failure). */
+  reason?: "invalid-payload"
 }
 
 /**
@@ -120,7 +135,7 @@ export interface SaveContactResult {
  * one. See the module doc above for the demo-mode create-vs-update split.
  */
 export async function saveContactAction(input: UpsertContactInput): Promise<SaveContactResult> {
-  if (!isValidSaveInput(input)) return { ok: false, contact: null }
+  if (!isValidSaveInput(input)) return { ok: false, contact: null, reason: "invalid-payload" }
 
   if (!isSupabaseConfigured()) {
     if (input.id) return { ok: true, contact: null }

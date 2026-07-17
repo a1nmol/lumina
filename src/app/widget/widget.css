@@ -1,0 +1,87 @@
+/*
+ * LocalOS web chat widget — scoped design tokens.
+ *
+ * This page is embedded (via public/widget.js) as an iframe on a THIRD-PARTY
+ * business's site, or opened standalone. Per the design brief it must follow
+ * the visitor's real `prefers-color-scheme` — never the dashboard's manual
+ * theme choice. The dashboard's ThemeProvider (src/components/providers.tsx)
+ * toggles a `.dark` class on <html> using next-themes with `defaultTheme:
+ * "dark"`, which would force this page dark for any visitor who has never
+ * set a preference (i.e. almost every customer landing here from an iframe).
+ * Since /widget is nested under the single shared root layout
+ * (src/app/layout.tsx) we can't opt out of that ThemeProvider without a
+ * larger multi-root-layout restructure, so instead this stylesheet defines
+ * its OWN token namespace (`--lw-*`) driven purely by the
+ * `prefers-color-scheme` media query — completely independent of the
+ * `.dark` class and any next-themes/localStorage state. Values mirror the
+ * app's real tokens (src/app/globals.css) 1:1 so the widget still reads as
+ * part of the same design system.
+ */
+
+.lw-root {
+  --lw-bg: oklch(0.988 0.002 277);
+  --lw-fg: oklch(0.16 0.01 277);
+  --lw-card: oklch(1 0 0);
+  --lw-muted: oklch(0.965 0.005 277);
+  --lw-muted-fg: oklch(0.5 0.015 277);
+  --lw-border: oklch(0.915 0.005 277);
+  --lw-primary: oklch(0.54 0.21 277);
+  --lw-primary-fg: oklch(0.985 0.005 277);
+  --lw-success: oklch(0.6 0.13 155);
+  --lw-danger: oklch(0.577 0.215 27);
+  --lw-danger-fg: oklch(0.985 0 0);
+  --lw-danger-bg: oklch(0.577 0.215 27 / 0.1);
+  --lw-shadow-soft: 0 1px 2px oklch(0.2 0.02 277 / 0.06), 0 1px 3px oklch(0.2 0.02 277 / 0.08);
+  --lw-shadow-raised: 0 2px 4px oklch(0.2 0.02 277 / 0.05), 0 6px 16px oklch(0.2 0.02 277 / 0.1);
+  --lw-radius-lg: 0.625rem;
+  --lw-radius-xl: 0.875rem;
+  --lw-radius-2xl: 1.125rem;
+
+  min-height: 100dvh;
+  width: 100%;
+  background: var(--lw-bg);
+  color: var(--lw-fg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .lw-root {
+    --lw-bg: oklch(0.135 0.008 277);
+    --lw-fg: oklch(0.96 0.005 277);
+    --lw-card: oklch(0.175 0.01 277);
+    --lw-muted: oklch(0.22 0.012 277);
+    --lw-muted-fg: oklch(0.68 0.015 277);
+    --lw-border: oklch(1 0 0 / 9%);
+    --lw-primary: oklch(0.68 0.17 277);
+    --lw-primary-fg: oklch(0.13 0.02 277);
+    --lw-success: oklch(0.72 0.14 155);
+    --lw-danger: oklch(0.66 0.19 25);
+    --lw-danger-fg: oklch(0.98 0 0);
+    --lw-danger-bg: oklch(0.66 0.19 25 / 0.16);
+    --lw-shadow-soft: 0 1px 2px oklch(0 0 0 / 0.35);
+    --lw-shadow-raised: 0 2px 4px oklch(0 0 0 / 0.3), 0 8px 20px oklch(0 0 0 / 0.4);
+  }
+}
+
+/* Typing indicator — three dots, staggered bounce. Respects reduced-motion globally (globals.css). */
+@keyframes lw-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.lw-typing-dot {
+  animation: lw-typing-bounce 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-typing-dot {
+    animation-duration: 0.01ms !important;
+  }
+}

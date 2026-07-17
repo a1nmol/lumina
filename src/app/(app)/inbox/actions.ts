@@ -19,6 +19,7 @@ import {
   getContactWithTimeline,
   getConversation,
   listConversations,
+  markConversationRead,
   sendMessage,
   setAiState,
   setConversationStatus,
@@ -41,7 +42,10 @@ import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
 const DEMO_DRAFT_DELAY_MS = 900
 const MAX_BODY_LENGTH = 4000
-const MAX_TAG_LENGTH = 32
+// Aligned with src/app/(app)/contacts/actions.ts's MAX_TAGS/MAX_TAG_LENGTH —
+// the same contact `tags` column is written from both surfaces.
+const MAX_TAGS = 12
+const MAX_TAG_LENGTH = 40
 const GENERIC_DEMO_DRAFT =
   "Thanks so much for reaching out — let me take a look and get back to you shortly with the details!"
 const AI_FAILURE_MESSAGE = "I couldn't answer this — flagging for you."
@@ -114,6 +118,7 @@ export type DraftReplyResult =
   | { draft: string; model?: string; costUsd?: number }
   | { error: "allowance"; message: string }
   | { error: "needs_human"; message: string }
+  | { error: "not_found"; message: string }
 
 /**
  * Drafts the next customer reply. Demo mode returns the thread's canned
@@ -121,7 +126,10 @@ export type DraftReplyResult =
  * Configured mode calls draftCustomerReply — a needsHuman result (or the
  * model failing to produce a usable draft) flips ai_state to "escalated" and
  * is surfaced as a typed error so the composer can toast + reflect the state
- * change; a spend-guard/quota denial is surfaced distinctly.
+ * change; a spend-guard/quota denial is surfaced distinctly. A missing
+ * conversation (e.g. raced with a delete, or a stale id) is its own distinct
+ * "not_found" error — unlike a real escalation, there is no conversation
+ * left to flip ai_state on, so it must not attempt that write.
  */
 export async function draftReply(conversationId: string): Promise<DraftReplyResult> {
   if (!isSupabaseConfigured() || !isOpenRouterConfigured()) {
@@ -138,7 +146,7 @@ export async function draftReply(conversationId: string): Promise<DraftReplyResu
 
   const conversation = await getConversation(orgId, conversationId)
   if (!conversation) {
-    return { error: "needs_human", message: "This conversation could not be found." }
+    return { error: "not_found", message: "This conversation could not be found." }
   }
 
   try {
@@ -264,12 +272,13 @@ export async function setContactPipelineStatus(contactId: string, status: Contac
   }
 }
 
-/** Appends a tag to a contact (dedupes, trims to a reasonable length). Demo-safe no-op when unconfigured. */
+/** Appends a tag to a contact (dedupes, trims to a reasonable length, caps total tag count). Demo-safe no-op when unconfigured. */
 export async function addContactTag(contactId: string, currentTags: string[], tag: string): Promise<ActionResult> {
   const cleaned = tag.trim().slice(0, MAX_TAG_LENGTH)
   if (!cleaned) return { ok: false }
 
   const nextTags = Array.from(new Set([...currentTags, cleaned]))
+  if (nextTags.length > MAX_TAGS) return { ok: false }
 
   if (!isSupabaseConfigured()) return { ok: true }
 
@@ -278,6 +287,21 @@ export async function addContactTag(contactId: string, currentTags: string[], ta
 
   try {
     await upsertContact(orgId, { id: contactId, tags: nextTags })
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Marks a conversation as read (clears `unread`). Demo-safe no-op when unconfigured. */
+export async function markRead(conversationId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: true }
+
+  try {
+    await markConversationRead(orgId, conversationId)
     return { ok: true }
   } catch {
     return { ok: false }

@@ -35,7 +35,7 @@ type ConversationPaneProps = {
   onBack: () => void
   onStatusChange: (status: ConversationStatus) => void
   onMessageSent: (message: Message) => void
-  onEscalated: (reason: string) => void
+  onEscalated: (conversationId: string, reason: string) => void
   onOpenContext: () => void
   composerRef?: Ref<ReplyComposerHandle>
   className?: string
@@ -177,7 +177,17 @@ export function ConversationPane({
       </div>
 
       <div className="border-t border-border p-3 sm:p-4">
-        <ReplyComposer ref={composerRef} conversationId={detail.id} onSent={onMessageSent} onEscalated={onEscalated} />
+        {/* Keyed on conversation id so the composer fully remounts (fresh
+            state, no in-flight request can leak across threads) instead of
+            reusing an instance across a selection change — the fix for the
+            cross-conversation composer race. */}
+        <ReplyComposer
+          key={detail.id}
+          ref={composerRef}
+          conversationId={detail.id}
+          onSent={onMessageSent}
+          onEscalated={onEscalated}
+        />
       </div>
     </div>
   )

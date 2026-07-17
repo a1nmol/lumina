@@ -22,12 +22,18 @@ const STATUS_DOT_CLASSES: Record<ConversationStatus, string> = {
 type ThreadRowProps = {
   conversation: ThreadListConversation
   selected: boolean
+  /**
+   * Roving-tabindex fallback: true when nothing is selected and this is the
+   * first row in the filtered list, so the listbox stays Tab-reachable even
+   * before a conversation has ever been picked.
+   */
+  tabbable?: boolean
   onSelect: (id: string) => void
 }
 
 /** One row in the thread list — see the Pane 1 spec in the Phase 2 design brief. */
 export const ThreadRow = forwardRef<HTMLButtonElement, ThreadRowProps>(function ThreadRow(
-  { conversation, selected, onSelect },
+  { conversation, selected, tabbable, onSelect },
   ref
 ) {
   const name = conversation.contact_name ?? "Unknown contact"
@@ -40,7 +46,7 @@ export const ThreadRow = forwardRef<HTMLButtonElement, ThreadRowProps>(function 
       type="button"
       role="option"
       aria-selected={selected}
-      tabIndex={selected ? 0 : -1}
+      tabIndex={selected || tabbable ? 0 : -1}
       onClick={() => onSelect(conversation.id)}
       className={cn(
         "group/row relative flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left outline-none transition-colors",

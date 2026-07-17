@@ -279,6 +279,26 @@ export async function setAiState(
   return data
 }
 
+/** Marks a conversation as read (clears the `unread` flag). Demo-safe no-op when unconfigured. */
+export async function markConversationRead(orgId: string, conversationId: string): Promise<Conversation | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ unread: false })
+    .eq("id", conversationId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`markConversationRead: failed to update conversation ${conversationId}: ${error.message}`)
+  }
+
+  return data
+}
+
 // ---------------------------------------------------------------------------
 // Contacts
 // ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { NotificationsProvider } from "@/components/notifications-provider"
+import { NotificationTray } from "@/components/notification-tray"
 import { RouteBreadcrumb } from "@/components/route-breadcrumb"
 import { RouteTransition } from "@/components/route-transition"
 import { Separator } from "@/components/ui/separator"
@@ -29,18 +31,23 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const isAdmin = await isPlatformAdmin()
 
   return (
-    <SidebarProvider>
-      <AppSidebar isAdmin={isAdmin} />
-      <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="h-5" />
-          <RouteBreadcrumb />
-        </header>
-        <div className="flex flex-1 flex-col p-6">
-          <RouteTransition>{children}</RouteTransition>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <NotificationsProvider>
+      <SidebarProvider>
+        <AppSidebar isAdmin={isAdmin} />
+        <SidebarInset>
+          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
+            <SidebarTrigger />
+            <Separator orientation="vertical" className="h-5" />
+            <RouteBreadcrumb />
+            <div className="ml-auto flex items-center gap-1">
+              <NotificationTray />
+            </div>
+          </header>
+          <div className="flex flex-1 flex-col p-6">
+            <RouteTransition>{children}</RouteTransition>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </NotificationsProvider>
   )
 }

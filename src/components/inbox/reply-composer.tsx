@@ -1,11 +1,10 @@
 "use client"
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react"
 import { Loader2, RefreshCw, Send, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { Message, MessageKind } from "@/lib/types"
@@ -16,6 +15,19 @@ const AI_FAILURE_TOAST = "I couldn't answer this — flagging for you."
 
 type ComposerMode = "reply" | "note"
 
+/**
+ * Reply/Note pill toggle — a single logical choice, not a tabbed panel set
+ * (there's no separate panel content per mode), so `role="radiogroup"` of
+ * `role="radio"` pills with roving-tabindex arrow-key nav is the correct
+ * semantic. Mirrors src/components/studio/format-segmented.tsx's pattern;
+ * visuals are unchanged from the prior Tabs-based implementation (including
+ * the amber note tint, which lives on the composer's outer container).
+ */
+const MODE_OPTIONS: { value: ComposerMode; label: string }[] = [
+  { value: "reply", label: "Reply" },
+  { value: "note", label: "Note" },
+]
+
 /** Imperative handle so the context pane's "Add note" quick action can jump the composer into Note mode and focus it. */
 export type ReplyComposerHandle = {
   focusNote: () => void
@@ -24,8 +36,8 @@ export type ReplyComposerHandle = {
 type ReplyComposerProps = {
   conversationId: string
   onSent: (message: Message) => void
-  /** Fired when the AI draft flow escalates the thread (needsHuman) — parent flips ai_state locally + persists it. */
-  onEscalated: (reason: string) => void
+  /** Fired when the AI draft flow escalates the thread (needsHuman) — parent flips ai_state locally + persists it for the matching conversation. */
+  onEscalated: (conversationId: string, reason: string) => void
   className?: string
 }
 
@@ -72,18 +84,63 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     },
   }))
 
+  const modeButtonRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  function selectModeAndFocus(index: number) {
+    const option = MODE_OPTIONS[index]
+    if (!option) return
+    setMode(option.value)
+    modeButtonRefs.current[index]?.focus()
+  }
+
+  function handleModeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const currentIndex = MODE_OPTIONS.findIndex((option) => option.value === mode)
+    if (currentIndex === -1) return
+
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        event.preventDefault()
+        selectModeAndFocus((currentIndex + 1) % MODE_OPTIONS.length)
+        break
+      case "ArrowLeft":
+      case "ArrowUp":
+        event.preventDefault()
+        selectModeAndFocus((currentIndex - 1 + MODE_OPTIONS.length) % MODE_OPTIONS.length)
+        break
+      case "Home":
+        event.preventDefault()
+        selectModeAndFocus(0)
+        break
+      case "End":
+        event.preventDefault()
+        selectModeAndFocus(MODE_OPTIONS.length - 1)
+        break
+      default:
+        break
+    }
+  }
+
   async function requestDraft() {
+    // Captured at call time so a stale response (the user switched
+    // conversations while the request was in flight) can be discarded even
+    // though the composer already remounts per conversation via a `key`
+    // prop on ConversationPane — belt-and-braces.
+    const requestConversationId = conversationId
+
     setIsDrafting(true)
     setAnnouncement("Drafting a reply…")
     try {
-      const result = await draftReply(conversationId)
-      if (!isMountedRef.current) return
+      const result = await draftReply(requestConversationId)
+      if (!isMountedRef.current || requestConversationId !== conversationId) return
 
       if ("error" in result) {
         if (result.error === "allowance") {
           toast.error("You're out of AI reply quota this month", { description: result.message })
+        } else if (result.error === "not_found") {
+          toast.error("Couldn't draft a reply", { description: result.message })
         } else {
-          onEscalated(result.message)
+          onEscalated(requestConversationId, result.message)
           toast.error(AI_FAILURE_TOAST, { description: result.message })
         }
         setAnnouncement("")
@@ -95,11 +152,11 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setDraftMeta({ model: result.model, costUsd: result.costUsd })
       setAnnouncement("AI draft ready")
     } catch {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || requestConversationId !== conversationId) return
       toast.error("Couldn't draft a reply", { description: "Please try again." })
       setAnnouncement("")
     } finally {
-      if (isMountedRef.current) setIsDrafting(false)
+      if (isMountedRef.current && requestConversationId === conversationId) setIsDrafting(false)
     }
   }
 
@@ -168,17 +225,37 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
         {announcement}
       </div>
 
-      <Tabs
-        value={mode}
-        onValueChange={(value) => {
-          setMode(value as ComposerMode)
-        }}
+      <div
+        role="radiogroup"
+        aria-label="Reply or internal note"
+        onKeyDown={handleModeKeyDown}
+        className="inline-flex h-8 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
       >
-        <TabsList aria-label="Reply or internal note">
-          <TabsTrigger value="reply">Reply</TabsTrigger>
-          <TabsTrigger value="note">Note</TabsTrigger>
-        </TabsList>
-      </Tabs>
+        {MODE_OPTIONS.map(({ value: optionValue, label }, index) => {
+          const isSelected = mode === optionValue
+          return (
+            <button
+              key={optionValue}
+              ref={(el) => {
+                modeButtonRefs.current[index] = el
+              }}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              tabIndex={isSelected ? 0 : -1}
+              onClick={() => setMode(optionValue)}
+              className={cn(
+                "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
+                isSelected
+                  ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                  : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
 
       <div className="relative">
         {isDraftPending && (
