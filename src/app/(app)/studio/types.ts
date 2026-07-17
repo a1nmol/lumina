@@ -25,4 +25,16 @@ export type GeneratedDraft = {
   caption: string
   hashtags: string[]
   imageDescription: string
+  /** Present once the draft is persisted to Supabase (real backend only) — required by rate/save-template/queue actions. */
+  contentId?: string
+  /** Present when fal.ai generated an accompanying image (real backend only). */
+  imageUrl?: string
 }
+
+/** Returned by generateDraft when the org is out of quota — distinct from a demo/real draft so the composer can show a clear "out of quota" toast instead of treating it as content. */
+export type GenerateDraftError = {
+  error: "allowance"
+  message: string
+}
+
+export type GenerateDraftResult = GeneratedDraft | GenerateDraftError

@@ -16,6 +16,35 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
+
+/**
+ * The signed-in user's first org, via org_members. Null if unauthenticated,
+ * orphaned, or Supabase isn't configured (demo mode).
+ *
+ * The single shared implementation of the "which org is this request for"
+ * lookup — every org-scoped server action should import this rather than
+ * redefining it locally (see src/app/(app)/settings/brain/actions.ts for the
+ * original call site this was extracted from).
+ */
+export async function getCurrentOrgId(): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data } = await supabase
+    .from("org_members")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle()
+
+  return data?.org_id ?? null
+}
 
 export interface OrgBootstrapResult {
   orgId: string

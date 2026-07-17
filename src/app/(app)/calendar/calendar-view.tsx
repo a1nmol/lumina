@@ -14,9 +14,16 @@ import { WeekView } from "./week-view"
 
 type ViewMode = "month" | "week" | "queue"
 
+type CalendarViewProps = {
+  /** Server-fetched posts (real content_items) or DEMO_POSTS when Supabase isn't configured. */
+  initialPosts?: DemoPost[]
+  /** True when `initialPosts` came from Supabase — enables server-persisted drag reschedule. */
+  isLive?: boolean
+}
+
 /** Calendar/Queue page shell: view segmented control + month/week/queue surfaces over shared post state. */
-export function CalendarView() {
-  const [posts, setPosts] = useState<DemoPost[]>(DEMO_POSTS)
+export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: CalendarViewProps) {
+  const [posts, setPosts] = useState<DemoPost[]>(initialPosts)
   const [view, setView] = useState<ViewMode>("month")
 
   return (
@@ -44,7 +51,7 @@ export function CalendarView() {
           actionHref="/studio"
         />
       ) : view === "month" ? (
-        <MonthView posts={posts} onPostsChange={setPosts} />
+        <MonthView posts={posts} onPostsChange={setPosts} isLive={isLive} />
       ) : view === "week" ? (
         <WeekView posts={posts} />
       ) : (

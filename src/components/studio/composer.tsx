@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { duration, easing, microCopyCycleMs, wordRevealMs } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
-import { generateDraft } from "@/app/(app)/studio/actions"
+import { addToQueue, generateDraft, rateDraft, saveDraftAsTemplate } from "@/app/(app)/studio/actions"
 import { PLATFORMS, type GeneratedDraft, type Platform, type PostFormat } from "@/app/(app)/studio/types"
 
 import { AiAssistRail } from "./ai-assist-rail"
@@ -89,6 +89,28 @@ function parseHashtags(raw: string): string[] {
     .filter(Boolean)
 }
 
+/** "today 9:00 AM" / "tomorrow 9:00 AM" / "Thu, Jul 17 at 9:00 AM" — for the Add to Queue success toast. */
+function describeScheduledAt(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return "your queue"
+  const now = new Date()
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  if (isSameDay(date, now)) return `today ${time}`
+  if (isSameDay(date, tomorrow)) return `tomorrow ${time}`
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
 type ComposerProps = {
   businessName: string
 }
@@ -123,6 +145,11 @@ export function Composer({ businessName }: ComposerProps) {
   const [caption, setCaption] = useState("")
   const [revealedCaption, setRevealedCaption] = useState("")
   const [hashtagsText, setHashtagsText] = useState("")
+  // Present once the current draft is persisted to Supabase (real backend
+  // only) — threaded into rate/save-template/queue so they update the same
+  // row instead of creating a duplicate.
+  const [contentId, setContentId] = useState<string | undefined>(undefined)
+  const [imageUrl, setImageUrl] = useState<string | undefined>(undefined)
   const [resultKey, setResultKey] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const [microCopyIndex, setMicroCopyIndex] = useState(0)
@@ -174,6 +201,15 @@ export function Composer({ businessName }: ComposerProps) {
       )
       if (!isMountedRef.current) return
 
+      if ("error" in result) {
+        setStatus(draft ? "ready" : "idle")
+        setAnnouncement("")
+        toast.error("You've hit this month's generation limit", {
+          description: result.message,
+        })
+        return
+      }
+
       setDraft(result)
       await revealCaptionWords(
         result.caption,
@@ -186,6 +222,8 @@ export function Composer({ businessName }: ComposerProps) {
 
       setCaption(result.caption)
       setHashtagsText(result.hashtags.join(", "))
+      setContentId(result.contentId)
+      setImageUrl(result.imageUrl)
       setSavedTemplate(false)
       setRatedDown(false)
       setResultKey((key) => key + 1)
@@ -204,24 +242,75 @@ export function Composer({ businessName }: ComposerProps) {
     }
   }
 
-  function handleSaveTemplate() {
+  async function handleSaveTemplate() {
     setSavedTemplate(true)
-    toast.success("Saved as template", {
-      description: "Regenerate from it anytime from Templates.",
-    })
+    try {
+      const result = await saveDraftAsTemplate({
+        contentId,
+        prompt,
+        format,
+        platforms,
+        draft: { caption, hashtags: hashtagsList, imageDescription: draft?.imageDescription ?? "" },
+      })
+      if (!isMountedRef.current) return
+      if (result.ok) {
+        toast.success("Saved as template", {
+          description: `Saved as "${result.name}" — regenerate from it anytime from Templates.`,
+        })
+      } else {
+        setSavedTemplate(false)
+        toast.error("Couldn't save template", { description: "Please try again." })
+      }
+    } catch {
+      if (!isMountedRef.current) return
+      setSavedTemplate(false)
+      toast.error("Couldn't save template", { description: "Please try again." })
+    }
   }
 
-  function handleRateDown() {
+  async function handleRateDown() {
     setRatedDown(true)
-    toast("Thanks for the feedback", {
-      description: "We'll use this to improve future drafts.",
-    })
+    try {
+      const result = await rateDraft(contentId, -1)
+      if (!isMountedRef.current) return
+      if (result.ok) {
+        toast("Thanks for the feedback", {
+          description: "We'll use this to improve future drafts.",
+        })
+      } else {
+        setRatedDown(false)
+        toast.error("Couldn't save your feedback", { description: "Please try again." })
+      }
+    } catch {
+      if (!isMountedRef.current) return
+      setRatedDown(false)
+      toast.error("Couldn't save your feedback", { description: "Please try again." })
+    }
   }
 
-  function handleAddToQueue() {
-    toast.success("Added to queue", {
-      description: "Find it in Calendar → Queue.",
-    })
+  async function handleAddToQueue() {
+    try {
+      const result = await addToQueue({
+        contentId,
+        prompt,
+        format,
+        platforms,
+        draft: { caption, hashtags: hashtagsList, imageDescription: draft?.imageDescription ?? "", imageUrl },
+      })
+      if (!isMountedRef.current) return
+      if (result.ok) {
+        toast.success("Added to queue", {
+          description: result.scheduledAt
+            ? `Scheduled for ${describeScheduledAt(result.scheduledAt)}.`
+            : "Find it in Calendar → Queue.",
+        })
+      } else {
+        toast.error("Couldn't add to queue", { description: "Please try again." })
+      }
+    } catch {
+      if (!isMountedRef.current) return
+      toast.error("Couldn't add to queue", { description: "Please try again." })
+    }
   }
 
   const canGenerate = prompt.trim().length > 0 && platforms.length > 0 && status !== "generating"
@@ -295,6 +384,7 @@ export function Composer({ businessName }: ComposerProps) {
           caption={caption}
           hashtags={hashtagsList}
           imageDescription={draft?.imageDescription ?? ""}
+          imageUrl={imageUrl}
           microCopy={MICRO_COPY[microCopyIndex]}
         />
 

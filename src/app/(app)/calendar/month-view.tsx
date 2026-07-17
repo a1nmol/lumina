@@ -36,6 +36,7 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 
+import { reschedulePost } from "./actions"
 import { dayKeyOfPost } from "./calendar-utils"
 import type { DemoPost } from "./demo-posts"
 import { PostCard } from "./post-card"
@@ -52,10 +53,12 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 type MonthViewProps = {
   posts: DemoPost[]
   onPostsChange: (posts: DemoPost[]) => void
+  /** True when `posts` are real Supabase content_items — persists cross-day moves via reschedulePost. */
+  isLive?: boolean
 }
 
 /** Month calendar grid with full dnd-kit drag-drop: between days, reorder within a day, keyboard-accessible. */
-export function MonthView({ posts, onPostsChange }: MonthViewProps) {
+export function MonthView({ posts, onPostsChange, isLive = false }: MonthViewProps) {
   const reduceMotion = useReducedMotion()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -185,11 +188,30 @@ export function MonthView({ posts, onPostsChange }: MonthViewProps) {
       insertAt = lastIndex === -1 ? next.length : lastIndex + 1
     }
 
+    const previousPosts = posts
     next.splice(insertAt, 0, updated)
     onPostsChange(next)
 
     if (targetDayKey !== originDayKey) {
       toast.success(`Moved to ${format(parseISO(`${targetDayKey}T00:00:00`), "EEE, MMM d")}`)
+
+      if (isLive) {
+        reschedulePost(updated.id, updated.date)
+          .then((result) => {
+            if (!result.ok) {
+              onPostsChange(previousPosts)
+              toast.error("Couldn't save the new date", {
+                description: "Reverted — please try again.",
+              })
+            }
+          })
+          .catch(() => {
+            onPostsChange(previousPosts)
+            toast.error("Couldn't save the new date", {
+              description: "Reverted — please try again.",
+            })
+          })
+      }
     }
   }
 

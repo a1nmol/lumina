@@ -37,6 +37,8 @@ type PhoneFrameProps = {
   caption: string
   hashtags: string[]
   imageDescription: string
+  /** Real fal.ai image URL, when the backend generated one. Falls back to the gradient placeholder when absent. */
+  imageUrl?: string
   microCopy: string
   className?: string
 }
@@ -62,6 +64,7 @@ export function PhoneFrame({
   caption,
   hashtags,
   imageDescription,
+  imageUrl,
   microCopy,
   className,
 }: PhoneFrameProps) {
@@ -123,6 +126,7 @@ export function PhoneFrame({
                   caption={caption}
                   hashtags={hashtags}
                   imageDescription={imageDescription}
+                  imageUrl={imageUrl}
                   handle={handle}
                   aspectClassName={aspectClassName}
                 />
@@ -187,6 +191,7 @@ function ReadyContent({
   caption,
   hashtags,
   imageDescription,
+  imageUrl,
   handle,
   aspectClassName,
 }: {
@@ -194,6 +199,7 @@ function ReadyContent({
   caption: string
   hashtags: string[]
   imageDescription: string
+  imageUrl?: string
   handle: string
   aspectClassName: string
 }) {
@@ -201,10 +207,11 @@ function ReadyContent({
     <div className="flex h-full w-full flex-col">
       <div className={cn("relative w-full overflow-hidden", aspectClassName)}>
         {format === "carousel" ? (
-          <CarouselImage imageDescription={imageDescription} />
+          <CarouselImage imageDescription={imageDescription} imageUrl={imageUrl} />
         ) : format === "slideshow" ? (
           <ImageBlock
             imageDescription={imageDescription}
+            imageUrl={imageUrl}
             badge={
               <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-1 text-[10px] font-medium ring-1 ring-border backdrop-blur-sm">
                 <PlaySquare aria-hidden="true" className="size-3" /> Slideshow
@@ -212,7 +219,7 @@ function ReadyContent({
             }
           />
         ) : (
-          <ImageBlock imageDescription={imageDescription} />
+          <ImageBlock imageDescription={imageDescription} imageUrl={imageUrl} />
         )}
       </div>
       <div className="flex items-center gap-3 px-3 pt-2 text-foreground">
@@ -237,13 +244,27 @@ function ReadyContent({
 
 function ImageBlock({
   imageDescription,
+  imageUrl,
   variant = 0,
   badge,
 }: {
   imageDescription: string
+  /** Real fal.ai image URL. When present, renders instead of the gradient placeholder. */
+  imageUrl?: string
   variant?: number
   badge?: ReactNode
 }) {
+  if (imageUrl) {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-muted">
+        {/* fal.ai URLs are remote and arbitrary — a plain <img> is the simplest safe choice (no next.config remotePatterns to maintain). */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={imageUrl} alt={imageDescription} className="h-full w-full object-cover" />
+        {badge}
+      </div>
+    )
+  }
+
   const gradients = [
     "from-primary/30 via-[var(--chart-2)]/20 to-[var(--chart-4)]/20",
     "from-[var(--chart-2)]/25 via-primary/20 to-[var(--chart-3)]/20",
@@ -268,7 +289,7 @@ function ImageBlock({
   )
 }
 
-function CarouselImage({ imageDescription }: { imageDescription: string }) {
+function CarouselImage({ imageDescription, imageUrl }: { imageDescription: string; imageUrl?: string }) {
   const [index, setIndex] = useState(0)
 
   const go = (direction: 1 | -1) => {
@@ -279,6 +300,7 @@ function CarouselImage({ imageDescription }: { imageDescription: string }) {
     <div className="group/carousel relative h-full w-full">
       <ImageBlock
         imageDescription={imageDescription}
+        imageUrl={index === 0 ? imageUrl : undefined}
         variant={index}
         badge={
           <span className="absolute top-3 right-3 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium ring-1 ring-border backdrop-blur-sm">

@@ -22,6 +22,15 @@ export type DemoPost = {
   status: PostStatus
 }
 
+/**
+ * `DemoPost` doubles as the shared display shape every calendar view (Month/
+ * Week/Queue/PostCard) renders — both the demo seed data below AND real
+ * Supabase content_items mapped by ./map-content-item.ts. `CalendarPost` is
+ * just a more honest name to reach for at real-data call sites; it's the
+ * exact same type.
+ */
+export type CalendarPost = DemoPost
+
 /** Anchors demo dates to whatever month the app happens to run in. */
 function dayAt(offsetFromMonthStart: number, hour: number, minute = 0): string {
   const day = addDays(startOfMonth(new Date()), offsetFromMonthStart)

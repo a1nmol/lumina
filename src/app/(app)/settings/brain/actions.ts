@@ -8,6 +8,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
+import { getCurrentOrgId } from "@/lib/org"
 import type { BrandKit, BusinessBrain, BusinessFaq, BusinessHours, BusinessService, ConnectedChannels } from "@/lib/types"
 
 import { DAY_ORDER, TONE_OPTIONS } from "./constants"
@@ -237,24 +238,6 @@ function sanitizeBusinessBrainDraft(draft: Partial<BusinessBrain>): Partial<Busi
   }
 
   return sanitized
-}
-
-/** The signed-in user's first org, via org_members. Null if unauthenticated or orphaned. */
-async function getCurrentOrgId(): Promise<string | null> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle()
-
-  return data?.org_id ?? null
 }
 
 /** Loads the current org's Business Brain, falling back to demo data. */
