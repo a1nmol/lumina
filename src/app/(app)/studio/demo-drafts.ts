@@ -71,6 +71,9 @@ const DRAFTS_BY_FORMAT: Record<PostFormat, GeneratedDraft[]> = {
 export function pickCannedDraft(format: PostFormat, prompt: string, attempt = 0): GeneratedDraft {
   const pool = DRAFTS_BY_FORMAT[format]
   const seed = prompt.trim().length > 0 ? prompt.trim().length : Date.now()
-  const index = (seed + attempt) % pool.length
+  // Modulo-safe: JS `%` can return a negative remainder for negative operands,
+  // and `seed + attempt` shouldn't be negative today but this keeps the index
+  // valid even if that invariant ever slips.
+  const index = (((seed + attempt) % pool.length) + pool.length) % pool.length
   return pool[index]
 }

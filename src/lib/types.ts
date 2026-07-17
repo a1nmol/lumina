@@ -119,6 +119,64 @@ export type BusinessBrain = {
   updated_at: string
 }
 
+// ---------------------------------------------------------------------------
+// Content Studio (Phase 1) — mirrors supabase/migrations/0002_content.sql.
+// ---------------------------------------------------------------------------
+
+export type ContentFormat = "single" | "carousel" | "slideshow"
+
+export type ContentStatus = "draft" | "queued" | "scheduled" | "posted"
+
+export type ContentRating = -1 | 0 | 1
+
+export type ContentItem = {
+  id: string
+  org_id: string
+  prompt: string | null
+  caption: string | null
+  hashtags: string[]
+  format: ContentFormat
+  /** Platform ids (e.g. "instagram", "facebook") — kept as plain strings here to avoid a UI->lib type dependency. */
+  platforms: string[]
+  image_description: string | null
+  /** Generated/attached media (images, slideshow frames, video) for this post. */
+  media_urls: unknown[]
+  model: string | null
+  cost_usd: number
+  rating: ContentRating
+  status: ContentStatus
+  scheduled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type Template = {
+  id: string
+  org_id: string
+  name: string
+  source_content_id: string | null
+  prompt: string | null
+  caption: string | null
+  hashtags: string[]
+  format: ContentFormat
+  platforms: string[]
+  created_at: string
+}
+
+export type MediaKind = "image" | "video" | "audio"
+
+export type MediaAsset = {
+  id: string
+  org_id: string
+  content_id: string | null
+  kind: MediaKind
+  url: string
+  provider: string | null
+  cost_usd: number
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 /**
  * Minimal `Database`-lite shape for use with the Supabase JS client generics.
  * Includes the empty `Relationships`/`Views`/`Functions` members the
@@ -162,6 +220,24 @@ export interface Database {
         Row: BusinessBrain
         Insert: Partial<BusinessBrain> & Pick<BusinessBrain, "org_id">
         Update: Partial<BusinessBrain>
+        Relationships: []
+      }
+      content_items: {
+        Row: ContentItem
+        Insert: Partial<ContentItem> & Pick<ContentItem, "org_id" | "format">
+        Update: Partial<ContentItem>
+        Relationships: []
+      }
+      templates: {
+        Row: Template
+        Insert: Partial<Template> & Pick<Template, "org_id" | "name" | "format">
+        Update: Partial<Template>
+        Relationships: []
+      }
+      media_assets: {
+        Row: MediaAsset
+        Insert: Partial<MediaAsset> & Pick<MediaAsset, "org_id" | "kind" | "url">
+        Update: Partial<MediaAsset>
         Relationships: []
       }
     }

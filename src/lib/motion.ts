@@ -13,7 +13,15 @@ export const duration = {
 export const easing = {
   out: [0.16, 1, 0.3, 1],
   inOut: [0.65, 0, 0.35, 1],
+  /** Interactive spring bezier — mirrors --ease-spring in globals.css; use for dnd-kit's string-based transitions. */
+  spring: [0.34, 1.3, 0.64, 1],
 } as const;
+
+/** Per-word caption reveal cadence (Composer "generating" state). */
+export const wordRevealMs = 30;
+
+/** Micro-copy rotation cadence (Composer "generating" state, e.g. "Sketching layout…"). */
+export const microCopyCycleMs = 550;
 
 /** Interactive spring — buttons, toggles, drag, hover lifts. */
 export const spring = {

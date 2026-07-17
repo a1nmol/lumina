@@ -33,6 +33,11 @@ function isValidInput(input: GenerateDraftInput): boolean {
   return input.platforms.every((platform) => PLATFORMS.includes(platform))
 }
 
+/** `attempt` must be a non-negative integer — it indexes into a fixed canned-draft pool. */
+function isValidAttempt(attempt: number): boolean {
+  return Number.isInteger(attempt) && attempt >= 0
+}
+
 /**
  * Generates (in demo mode: picks a canned) post draft for the Composer.
  * `attempt` lets the client ask for a *different* variant on "Regenerate"
@@ -44,6 +49,9 @@ export async function generateDraft(
 ): Promise<GeneratedDraft> {
   if (!isValidInput(input)) {
     throw new Error("generateDraft: invalid input")
+  }
+  if (!isValidAttempt(attempt)) {
+    throw new Error("generateDraft: invalid attempt")
   }
 
   await sleep(SIMULATED_LATENCY_MS)

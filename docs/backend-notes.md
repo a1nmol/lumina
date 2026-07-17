@@ -1,0 +1,8 @@
+# Phase 1 backend notes
+
+- **The seam:** `src/app/(app)/studio/actions.ts#generateDraft` is demo-only today. To go live, have it call `src/lib/ai/generate-content.ts#generateContentDraft({ orgId, businessBrain, prompt, format, platforms })` first; a `null` return means "not configured or couldn't parse" — fall back to `pickCannedDraft(...)` exactly as now. Same pattern for images: `src/lib/ai/generate-image.ts#generateImage` returns `null` when `FAL_KEY` is unset.
+- **Quota errors are not demo fallbacks:** both functions above *throw* `AllowanceDeniedError` (`src/lib/ai/errors.ts`) when the org is out of quota/spend cap — catch that in the server action and show a real "you're out of quota" message, don't swallow it into a demo draft.
+- **Persistence:** once a draft is accepted, use `src/lib/content.ts` (`saveContentItem`, `rateContentItem`, `saveTemplate`, `listTemplates`, `queueContentItem`, `listScheduledItems`) for all reads/writes — all RLS-scoped, all demo-safe (return `null`/`[]` when Supabase isn't configured).
+- **Applying migrations:** once real Supabase keys exist in `.env.local`, run `supabase db push` (or paste `supabase/migrations/0001_foundation.sql` then `0002_content.sql` into the SQL editor, in order — both are safely re-runnable).
+- **Model routing + cost table:** the *only* place OpenRouter model ids and $/Mtok pricing are pinned is `src/lib/ai/router.ts` (`MODEL_CANDIDATES`, `MODEL_PRICING`). The fal.ai per-image cost is pinned in `src/lib/ai/generate-image.ts` (`COST_PER_IMAGE_USD`). Update pricing there if a route changes.
+- **Env vars used:** `OPENROUTER_API_KEY`, `FAL_KEY`, `NEXT_PUBLIC_APP_URL` (all already in `.env.example`) — nothing new to add.

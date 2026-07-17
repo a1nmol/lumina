@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import {
   Bookmark,
@@ -17,7 +17,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { duration, easing } from "@/lib/motion"
+import { duration, easing, microCopyCycleMs, wordRevealMs } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
 import { generateDraft } from "@/app/(app)/studio/actions"
@@ -30,16 +30,29 @@ import { PlatformChip } from "./platform-chip"
 import { Shimmer } from "./shimmer"
 
 const MICRO_COPY = ["Sketching layout…", "Rendering image…", "Polishing caption…"]
-const WORD_REVEAL_MS = 30
 
-/** Progressively reveals `fullCaption` word-by-word into `setRevealed`. Skips straight to the full text under reduced motion. */
+type RevealInterval = ReturnType<typeof setInterval>
+
+/**
+ * Progressively reveals `fullCaption` word-by-word into `setRevealed`. Skips
+ * straight to the full text under reduced motion. Any interval already
+ * tracked in `intervalRef` is cleared synchronously before starting a new
+ * one, and the caller is responsible for clearing `intervalRef` on unmount
+ * so a stray tick can never fire after teardown.
+ */
 function revealCaptionWords(
   fullCaption: string,
   reduceMotion: boolean,
   setRevealed: (value: string) => void,
-  mountedRef: RefObject<boolean>
+  mountedRef: RefObject<boolean>,
+  intervalRef: MutableRefObject<RevealInterval | null>
 ): Promise<void> {
   return new Promise((resolve) => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+
     if (reduceMotion) {
       setRevealed(fullCaption)
       resolve()
@@ -50,9 +63,10 @@ function revealCaptionWords(
     let index = 0
     setRevealed("")
 
-    const id = setInterval(() => {
+    const id: RevealInterval = setInterval(() => {
       if (!mountedRef.current) {
         clearInterval(id)
+        intervalRef.current = null
         resolve()
         return
       }
@@ -60,9 +74,11 @@ function revealCaptionWords(
       setRevealed(words.slice(0, index).join(" "))
       if (index >= words.length) {
         clearInterval(id)
+        intervalRef.current = null
         resolve()
       }
-    }, WORD_REVEAL_MS)
+    }, wordRevealMs)
+    intervalRef.current = id
   })
 }
 
@@ -80,10 +96,21 @@ type ComposerProps = {
 export function Composer({ businessName }: ComposerProps) {
   const reduceMotion = useReducedMotion()
   const isMountedRef = useRef(true)
+  const revealIntervalRef = useRef<RevealInterval | null>(null)
+  // Synchronous re-entrancy guard — `status` is React state and can lag a
+  // frame behind a rapid double-invocation (e.g. double click / double
+  // Enter), so a plain ref is the source of truth for "is a generate call
+  // already in flight".
+  const isGeneratingRef = useRef(false)
+
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
+      if (revealIntervalRef.current) {
+        clearInterval(revealIntervalRef.current)
+        revealIntervalRef.current = null
+      }
     }
   }, [])
 
@@ -99,6 +126,7 @@ export function Composer({ businessName }: ComposerProps) {
   const [resultKey, setResultKey] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const [microCopyIndex, setMicroCopyIndex] = useState(0)
+  const [announcement, setAnnouncement] = useState("")
 
   const [savedTemplate, setSavedTemplate] = useState(false)
   const [ratedDown, setRatedDown] = useState(false)
@@ -108,7 +136,7 @@ export function Composer({ businessName }: ComposerProps) {
     if (status !== "generating") return
     const id = setInterval(() => {
       setMicroCopyIndex((current) => (current + 1) % MICRO_COPY.length)
-    }, 550)
+    }, microCopyCycleMs)
     return () => clearInterval(id)
   }, [status])
 
@@ -123,7 +151,7 @@ export function Composer({ businessName }: ComposerProps) {
   }
 
   async function handleGenerate() {
-    if (status === "generating") return
+    if (isGeneratingRef.current) return
     if (prompt.trim().length === 0) {
       toast.info("Describe your post first", {
         description: "Tell the AI what you'd like to post about.",
@@ -132,8 +160,10 @@ export function Composer({ businessName }: ComposerProps) {
     }
     if (platforms.length === 0) return
 
+    isGeneratingRef.current = true
     setStatus("generating")
     setMicroCopyIndex(0)
+    setAnnouncement("Generating your post…")
     const nextAttempt = attempt + 1
     setAttempt(nextAttempt)
 
@@ -145,7 +175,13 @@ export function Composer({ businessName }: ComposerProps) {
       if (!isMountedRef.current) return
 
       setDraft(result)
-      await revealCaptionWords(result.caption, !!reduceMotion, setRevealedCaption, isMountedRef)
+      await revealCaptionWords(
+        result.caption,
+        !!reduceMotion,
+        setRevealedCaption,
+        isMountedRef,
+        revealIntervalRef
+      )
       if (!isMountedRef.current) return
 
       setCaption(result.caption)
@@ -154,10 +190,17 @@ export function Composer({ businessName }: ComposerProps) {
       setRatedDown(false)
       setResultKey((key) => key + 1)
       setStatus("ready")
+      setAnnouncement("Draft ready")
+      toast.success("Draft ready", {
+        description: "Review, edit, and add it to your queue.",
+      })
     } catch {
       if (!isMountedRef.current) return
       setStatus(draft ? "ready" : "idle")
+      setAnnouncement("")
       toast.error("Couldn't generate that post", { description: "Please try again." })
+    } finally {
+      isGeneratingRef.current = false
     }
   }
 
@@ -186,6 +229,11 @@ export function Composer({ businessName }: ComposerProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 pb-8">
+      {/* Screen-reader status announcements for the async generate flow. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
+
       {/* Zone 1 — prompt bar */}
       <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft">
         <label htmlFor="studio-prompt" className="sr-only">

@@ -163,6 +163,18 @@
   --shadow-glow: 0 0 0 1px oklch(0.68 0.17 277 / 0.25), 0 4px 28px oklch(0.68 0.17 277 / 0.25);
 }
 
+/* Studio composer — text shimmer sweep for "still generating" copy.
+   Hoisted here (single definition) so components only need to reference the
+   keyframe by name via inline style, no per-instance <style> injection. */
+@keyframes studio-shimmer-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

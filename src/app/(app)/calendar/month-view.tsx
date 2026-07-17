@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { memo, useMemo, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -25,6 +25,7 @@ import {
   isSameMonth,
   isToday,
   parseISO,
+  set,
   startOfMonth,
   startOfWeek,
 } from "date-fns"
@@ -64,10 +65,12 @@ export function MonthView({ posts, onPostsChange }: MonthViewProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  const monthStart = startOfMonth(new Date())
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 })
-  const gridEnd = endOfWeek(endOfMonth(monthStart), { weekStartsOn: 0 })
-  const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
+  const { monthStart, days } = useMemo(() => {
+    const start = startOfMonth(new Date())
+    const gridStart = startOfWeek(start, { weekStartsOn: 0 })
+    const gridEnd = endOfWeek(endOfMonth(start), { weekStartsOn: 0 })
+    return { monthStart: start, days: eachDayOfInterval({ start: gridStart, end: gridEnd }) }
+  }, [])
 
   const postsByDay = useMemo(() => {
     const map = new Map<string, DemoPost[]>()
@@ -156,8 +159,18 @@ export function MonthView({ posts, onPostsChange }: MonthViewProps) {
 
     let updated = moved
     if (targetDayKey !== originDayKey) {
-      const time = format(parseISO(moved.date), "HH:mm:ss")
-      updated = { ...moved, date: `${targetDayKey}T${time}` }
+      // Rebuild on the target day using the original date's wall-clock
+      // hours/minutes/seconds, then serialize back to a real UTC ISO string
+      // — string-splicing a bare "yyyy-MM-ddTHH:mm:ss" (no offset) here would
+      // leave DemoPost.date ambiguous about which timezone it's in.
+      const originalDate = parseISO(moved.date)
+      const targetDay = parseISO(`${targetDayKey}T00:00:00`)
+      const rebuilt = set(targetDay, {
+        hours: originalDate.getHours(),
+        minutes: originalDate.getMinutes(),
+        seconds: originalDate.getSeconds(),
+      })
+      updated = { ...moved, date: rebuilt.toISOString() }
     }
 
     let insertAt: number
@@ -234,7 +247,7 @@ export function MonthView({ posts, onPostsChange }: MonthViewProps) {
 
       <DragOverlay dropAnimation={reduceMotion ? null : undefined}>
         {activePost ? (
-          <div className="w-12 scale-[1.05] rounded-lg shadow-overlay">
+          <div className="w-12 scale-[1.03] rounded-lg shadow-overlay">
             <PostCard post={activePost} variant="compact" isDragging />
           </div>
         ) : null}
@@ -253,7 +266,15 @@ type DayCellProps = {
   activeId: string | null
 }
 
-function DayCell({ day, dayKey, posts, isCurrentMonth, isToday: today, overId, activeId }: DayCellProps) {
+const DayCell = memo(function DayCell({
+  day,
+  dayKey,
+  posts,
+  isCurrentMonth,
+  isToday: today,
+  overId,
+  activeId,
+}: DayCellProps) {
   const { setNodeRef, isOver } = useDroppable({ id: containerId(dayKey) })
   const items = useMemo(() => posts.map((p) => p.id), [posts])
   const isDragActive = activeId !== null
@@ -313,4 +334,4 @@ function DayCell({ day, dayKey, posts, isCurrentMonth, isToday: today, overId, a
       </SortableContext>
     </div>
   )
-}
+})
