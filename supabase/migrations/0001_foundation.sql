@@ -118,14 +118,16 @@ on conflict (id) do update set
 -- ===========================================================================
 
 -- private.user_org_ids() — the set of org_ids the current auth user belongs to.
--- SECURITY DEFINER + fixed search_path so it can be used inside RLS policies
--- without those policies re-triggering RLS on org_members recursively.
+-- SECURITY DEFINER + empty search_path (all references below are already
+-- fully schema-qualified) so it can be used inside RLS policies without
+-- those policies re-triggering RLS on org_members recursively, and without
+-- being susceptible to search_path hijacking.
 create or replace function private.user_org_ids()
 returns setof uuid
 language sql
 security definer
 stable
-set search_path = public
+set search_path = ''
 as $$
   select org_id from public.org_members where user_id = auth.uid();
 $$;
@@ -136,7 +138,7 @@ returns boolean
 language sql
 security definer
 stable
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1
@@ -147,10 +149,20 @@ as $$
   );
 $$;
 
+-- Hardening: these two helper functions are invoked from inside RLS policies
+-- (as the querying user, e.g. `authenticated`), so that role needs EXECUTE —
+-- but no other role should be able to call them directly.
+revoke execute on function private.user_org_ids() from public;
+grant execute on function private.user_org_ids() to authenticated;
+
+revoke execute on function private.is_org_owner_or_admin(uuid) from public;
+grant execute on function private.is_org_owner_or_admin(uuid) to authenticated;
+
 -- generic updated_at maintenance trigger
 create or replace function private.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -162,18 +174,26 @@ $$;
 -- New-user bootstrap: default org + owner membership + entitlements + brain
 -- ===========================================================================
 
+-- Bootstraps a default org + owner membership + entitlements + empty
+-- business_brain for every new auth.users row. Slug generation is
+-- collision-proof with no check-then-insert race (always attempt insert,
+-- retry on unique_violation). The whole body is wrapped in an outer
+-- exception handler: bootstrap failure must NEVER block the auth.users
+-- insert itself. If this silently fails, src/lib/org.ts#ensureOrgBootstrap
+-- repairs the org on next sign-in from trusted server code.
 create or replace function private.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   new_org_id uuid;
   base_slug text;
   candidate_slug text;
-  suffix int := 0;
   display_name text;
+  attempt int;
+  inserted boolean := false;
 begin
   display_name := coalesce(
     new.raw_user_meta_data ->> 'business_name',
@@ -188,15 +208,36 @@ begin
     base_slug := 'business';
   end if;
 
-  candidate_slug := base_slug;
-  while exists (select 1 from public.orgs where slug = candidate_slug) loop
-    suffix := suffix + 1;
-    candidate_slug := base_slug || '-' || suffix::text;
+  new_org_id := public.gen_random_uuid();
+
+  -- Always attempt the insert; retry on unique_violation rather than
+  -- check-then-insert (which races under concurrent signups). Max 3
+  -- attempts: base slug, then a random suffix, then a suffix derived from
+  -- this row's own freshly-generated uuid (which cannot collide).
+  for attempt in 1..3 loop
+    if attempt = 1 then
+      candidate_slug := base_slug;
+    elsif attempt = 2 then
+      candidate_slug := base_slug || '-' || substr(md5(random()::text), 1, 6);
+    else
+      candidate_slug := base_slug || '-' || substr(replace(new_org_id::text, '-', ''), 1, 8);
+    end if;
+
+    begin
+      insert into public.orgs (id, name, slug)
+      values (new_org_id, display_name, candidate_slug);
+      inserted := true;
+    exception
+      when unique_violation then
+        inserted := false;
+    end;
+
+    exit when inserted;
   end loop;
 
-  insert into public.orgs (name, slug)
-  values (display_name, candidate_slug)
-  returning id into new_org_id;
+  if not inserted then
+    raise exception 'private.handle_new_user: could not allocate a unique org slug after 3 attempts';
+  end if;
 
   insert into public.org_members (org_id, user_id, role)
   values (new_org_id, new.id, 'owner')
@@ -211,6 +252,13 @@ begin
   on conflict (org_id) do nothing;
 
   return new;
+exception
+  when others then
+    -- Never let bootstrap failure block auth.users insert (signup must
+    -- always succeed). ensureOrgBootstrap() repairs this on next request.
+    raise warning 'private.handle_new_user failed for user % (%): % (sqlstate %)',
+      new.id, new.email, sqlerrm, sqlstate;
+    return new;
 end;
 $$;
 
@@ -245,11 +293,13 @@ alter table public.business_brain enable row level security;
 drop policy if exists "orgs_select_members" on public.orgs;
 create policy "orgs_select_members" on public.orgs
   for select
+  to authenticated
   using (id in (select private.user_org_ids()));
 
 drop policy if exists "orgs_update_owner_admin" on public.orgs;
 create policy "orgs_update_owner_admin" on public.orgs
   for update
+  to authenticated
   using (private.is_org_owner_or_admin(id))
   with check (private.is_org_owner_or_admin(id));
 
@@ -258,22 +308,26 @@ create policy "orgs_update_owner_admin" on public.orgs
 drop policy if exists "org_members_select_members" on public.org_members;
 create policy "org_members_select_members" on public.org_members
   for select
+  to authenticated
   using (org_id in (select private.user_org_ids()));
 
 drop policy if exists "org_members_insert_owner_admin" on public.org_members;
 create policy "org_members_insert_owner_admin" on public.org_members
   for insert
+  to authenticated
   with check (private.is_org_owner_or_admin(org_id));
 
 drop policy if exists "org_members_update_owner_admin" on public.org_members;
 create policy "org_members_update_owner_admin" on public.org_members
   for update
+  to authenticated
   using (private.is_org_owner_or_admin(org_id))
   with check (private.is_org_owner_or_admin(org_id));
 
 drop policy if exists "org_members_delete_owner_admin" on public.org_members;
 create policy "org_members_delete_owner_admin" on public.org_members
   for delete
+  to authenticated
   using (private.is_org_owner_or_admin(org_id));
 
 -- plans: readable by any authenticated user (pricing/limits are not sensitive);
@@ -284,17 +338,20 @@ create policy "plans_select_authenticated" on public.plans
   to authenticated
   using (true);
 
--- entitlements: org members can view; only owner/admin can change plan/flags/overrides.
+-- entitlements: org members can view (select-only for clients). Entitlements
+-- (plan, feature flags, usage overrides) are a self-escalation risk if any
+-- org member/admin could write them directly — an org admin could grant
+-- themselves unlimited usage or paid feature flags. By design there is NO
+-- update/insert/delete policy here for `authenticated`: all entitlement
+-- writes happen exclusively via the service-role admin client from trusted
+-- server code (see src/lib/entitlements.ts, src/lib/org.ts).
 drop policy if exists "entitlements_select_members" on public.entitlements;
 create policy "entitlements_select_members" on public.entitlements
   for select
+  to authenticated
   using (org_id in (select private.user_org_ids()));
 
 drop policy if exists "entitlements_update_owner_admin" on public.entitlements;
-create policy "entitlements_update_owner_admin" on public.entitlements
-  for update
-  using (private.is_org_owner_or_admin(org_id))
-  with check (private.is_org_owner_or_admin(org_id));
 
 -- usage_events: org members can view their org's usage history.
 -- No insert/update/delete policy for anon/authenticated — usage is recorded
@@ -302,21 +359,25 @@ create policy "entitlements_update_owner_admin" on public.entitlements
 drop policy if exists "usage_events_select_members" on public.usage_events;
 create policy "usage_events_select_members" on public.usage_events
   for select
+  to authenticated
   using (org_id in (select private.user_org_ids()));
 
 -- business_brain: any org member can read and write (the whole team maintains it).
 drop policy if exists "business_brain_select_members" on public.business_brain;
 create policy "business_brain_select_members" on public.business_brain
   for select
+  to authenticated
   using (org_id in (select private.user_org_ids()));
 
 drop policy if exists "business_brain_insert_members" on public.business_brain;
 create policy "business_brain_insert_members" on public.business_brain
   for insert
+  to authenticated
   with check (org_id in (select private.user_org_ids()));
 
 drop policy if exists "business_brain_update_members" on public.business_brain;
 create policy "business_brain_update_members" on public.business_brain
   for update
+  to authenticated
   using (org_id in (select private.user_org_ids()))
   with check (org_id in (select private.user_org_ids()));

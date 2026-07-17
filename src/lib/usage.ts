@@ -50,6 +50,15 @@ const EMPTY_SUMMARY = (periodStart: string): UsageSummary => ({
  * Records one metered usage event for an org (e.g. a content generation, an
  * image render, an AI reply). No-ops safely in demo mode (Supabase not
  * configured) so local development never crashes.
+ *
+ * TODO: checkAllowance() (read this month's usage) and recordUsage() (write
+ * a new event) are two separate round-trips, so two concurrent requests can
+ * both pass the allowance check before either's usage is recorded ("check
+ * then act" race) and briefly overshoot a limit/spend cap. Acceptable at
+ * current (invite-only, low-concurrency) scale; if this becomes a problem,
+ * move the check + insert into a single Postgres function/transaction (e.g.
+ * an atomic `SELECT ... FOR UPDATE` on a per-org usage counter, or a
+ * unique/advisory-lock-guarded RPC) instead of two client round-trips.
  */
 export async function recordUsage(orgId: string, input: RecordUsageInput): Promise<void> {
   if (!isSupabaseConfigured()) return
@@ -115,8 +124,17 @@ function resolveLimit(limits: PlanLimits, feature: UsageFeature): number | null 
  * per-org overrides, compares against this month's usage, and denies once
  * either the feature-specific limit or the org's spend_cap_usd is hit.
  *
- * Always returns `{ allowed: true, used: 0, limit: null }` in demo mode so
- * local development is never blocked.
+ * Fails closed: a feature with no configured limit in the merged plan
+ * limits/overrides is DENIED, not treated as unlimited — an unmetered
+ * feature is far more likely to be a missing config entry than an
+ * intentionally-unlimited one, and cost control (MASTER_PLAN.md §5) must
+ * default to safe. Configure an explicit limit (including a very high one,
+ * or `Infinity`-style large number, if truly unlimited is intended) in the
+ * plan's `limits` or the org's `overrides` instead.
+ *
+ * The one exception is demo mode (Supabase not configured), which always
+ * returns `{ allowed: true, used: 0, limit: null }` so local development is
+ * never blocked before a database is connected.
  */
 export async function checkAllowance(
   orgId: string,
@@ -144,7 +162,16 @@ export async function checkAllowance(
     }
   }
 
-  if (limit !== null && used >= limit) {
+  if (limit === null) {
+    return {
+      allowed: false,
+      used,
+      limit,
+      reason: `No limit configured for feature "${feature}" — denying by default (fail closed). Add a limit to the plan or org overrides to enable it.`,
+    }
+  }
+
+  if (used >= limit) {
     return {
       allowed: false,
       used,

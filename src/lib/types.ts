@@ -136,7 +136,7 @@ export interface Database {
       }
       org_members: {
         Row: OrgMember
-        Insert: OrgMember
+        Insert: Partial<OrgMember> & Pick<OrgMember, "org_id" | "user_id" | "role">
         Update: Partial<OrgMember>
         Relationships: []
       }
