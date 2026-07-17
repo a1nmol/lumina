@@ -7,6 +7,7 @@ import {
   CalendarDays,
   Inbox,
   LayoutDashboard,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   Users,
@@ -34,10 +35,16 @@ export const WORKSPACE_NAV: NavItem[] = [
   { href: "/growth", label: "Growth", icon: TrendingUp },
 ]
 
+export const ADMIN_NAV: NavItem = {
+  href: "/admin",
+  label: "Admin",
+  icon: ShieldCheck,
+}
+
 export const SETTINGS_NAV: NavItem = {
   href: "/settings",
   label: "Settings & Brain",
   icon: BrainCircuit,
 }
 
-export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, SETTINGS_NAV]
+export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, ADMIN_NAV, SETTINGS_NAV]

@@ -36,7 +36,13 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { PRIMARY_NAV, SETTINGS_NAV, WORKSPACE_NAV, type NavItem } from "@/components/nav-items"
+import {
+  ADMIN_NAV,
+  PRIMARY_NAV,
+  SETTINGS_NAV,
+  WORKSPACE_NAV,
+  type NavItem,
+} from "@/components/nav-items"
 import { DEMO_ORG } from "@/lib/demo"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { cn } from "@/lib/utils"
@@ -50,7 +56,12 @@ function getInitials(name: string) {
     .join("")
 }
 
-export function AppSidebar() {
+type AppSidebarProps = {
+  /** Whether the current user can see the Admin nav item / route. */
+  isAdmin: boolean
+}
+
+export function AppSidebar({ isAdmin }: AppSidebarProps) {
   const router = useRouter()
 
   async function handleSignOut() {
@@ -139,6 +150,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="gap-2 px-2 pb-2">
         <SidebarMenu>
+          {isAdmin && <SidebarNavItem item={ADMIN_NAV} />}
           <SidebarNavItem item={SETTINGS_NAV} />
         </SidebarMenu>
 
