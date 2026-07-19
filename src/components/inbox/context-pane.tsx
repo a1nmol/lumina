@@ -57,6 +57,7 @@ export function ContextPane({
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loadingAppointments, setLoadingAppointments] = useState(false)
   const [bookingOpen, setBookingOpen] = useState(false)
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null)
 
   const contactId = contact?.id
 
@@ -113,9 +114,11 @@ export function ContextPane({
   }
 
   async function handleAppointmentStatusChange(appointmentId: string, nextStatus: AppointmentStatus) {
+    if (pendingAppointmentId) return
     const previous = appointments.find((appointment) => appointment.id === appointmentId)?.status
     if (!previous || previous === nextStatus) return
 
+    setPendingAppointmentId(appointmentId)
     setAppointments((prev) =>
       prev.map((appointment) => (appointment.id === appointmentId ? { ...appointment, status: nextStatus } : appointment))
     )
@@ -127,6 +130,7 @@ export function ContextPane({
       )
       toast.error("Couldn't update appointment status", { description: "Reverted — please try again." })
     }
+    setPendingAppointmentId(null)
   }
 
   return (
@@ -255,6 +259,7 @@ export function ContextPane({
                   status={appointment.status}
                   onStatusChange={(status) => handleAppointmentStatusChange(appointment.id, status)}
                   label={`Status for ${appointment.service ?? "appointment"}`}
+                  disabled={pendingAppointmentId === appointment.id}
                 />
               </li>
             ))}

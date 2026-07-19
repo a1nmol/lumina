@@ -57,7 +57,9 @@ const MAX_FAQ_ANSWER = 1000
 const MAX_HOURS_VALUE = 20
 const MAX_LOGO_URL = 500
 
-const HOURS_TIME_PATTERN = /^\d{1,2}:\d{2}\s?(AM|PM)?$/i
+// Contract: strictly 24-hour "HH:MM" — matches `<input type="time">` output and
+// the parsing contract in src/lib/booking-slots.ts' parseTimeToMinutes. No AM/PM.
+const HOURS_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
 const DAY_KEYS = new Set(DAY_ORDER.map((day) => day.key))
@@ -115,7 +117,8 @@ function isValidServices(value: unknown): value is BusinessService[] {
   if (!Array.isArray(value) || value.length > MAX_SERVICES) return false
   return value.every((service) => {
     if (!isPlainObject(service)) return false
-    if (typeof service.name !== "string" || service.name.length > MAX_SERVICE_NAME) return false
+    if (typeof service.name !== "string" || service.name.trim().length === 0 || service.name.length > MAX_SERVICE_NAME)
+      return false
     if (
       service.price !== undefined &&
       (typeof service.price !== "string" || service.price.length > MAX_SERVICE_PRICE)
@@ -129,8 +132,10 @@ function isValidFaq(value: unknown): value is BusinessFaq[] {
   if (!Array.isArray(value) || value.length > MAX_FAQ) return false
   return value.every((item) => {
     if (!isPlainObject(item)) return false
-    if (typeof item.question !== "string" || item.question.length > MAX_FAQ_QUESTION) return false
-    if (typeof item.answer !== "string" || item.answer.length > MAX_FAQ_ANSWER) return false
+    if (typeof item.question !== "string" || item.question.trim().length === 0 || item.question.length > MAX_FAQ_QUESTION)
+      return false
+    if (typeof item.answer !== "string" || item.answer.trim().length === 0 || item.answer.length > MAX_FAQ_ANSWER)
+      return false
     return true
   })
 }

@@ -78,6 +78,10 @@ export function FaqCard({ initialFaq, isLive }: FaqCardProps) {
     setAdding(false)
     setDraftQuestion(item.question)
     setDraftAnswer(item.answer)
+    // Collapse any other expanded row — editing a different item while
+    // another stays expanded is confusing, and after a delete elsewhere in
+    // the list indices shift, so don't let a stale expandedIndex linger.
+    setExpandedIndex(null)
   }
 
   function cancelDraft() {
@@ -109,8 +113,12 @@ export function FaqCard({ initialFaq, isLive }: FaqCardProps) {
 
   async function removeFaq(index: number) {
     const next = faq.filter((_, i) => i !== index)
-    if (editingIndex === index) cancelDraft()
-    if (expandedIndex === index) setExpandedIndex(null)
+    // Deleting any item shifts every later index down by one, so an
+    // in-progress edit or expansion elsewhere in the list would silently
+    // point at the wrong (now-shifted) item — always clear both rather than
+    // only when they match the deleted index.
+    cancelDraft()
+    setExpandedIndex(null)
     await persist(next, "Question removed")
   }
 

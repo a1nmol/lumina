@@ -33,9 +33,15 @@ export function dayKeyForDate(date: Date): (typeof DAY_KEYS)[number] {
   return DAY_KEYS[date.getDay()]!
 }
 
-/** Parses a Brain-stored "HH:MM" (24-hour) hours value into minutes-since-midnight. Returns null if malformed. */
+/**
+ * Parses a Brain-stored "HH:MM" (24-hour) hours value into minutes-since-midnight.
+ * Contract: strictly 24-hour "HH:MM" (matching `<input type="time">` output and
+ * the HOURS_TIME_PATTERN enforced server-side in settings/brain/actions.ts) — the
+ * regex is fully anchored, so any AM/PM suffix or other trailing text fails to
+ * match and is treated as malformed (closed) rather than silently misparsed.
+ */
 function parseTimeToMinutes(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})/.exec(value.trim())
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
   if (!match) return null
   const hours = Number(match[1])
   const minutes = Number(match[2])
@@ -69,6 +75,8 @@ export function getTimeSlotsForDay(hours: BusinessHours | undefined, date: Date)
 
   const start = parseTimeToMinutes(day.open)
   const end = parseTimeToMinutes(day.close)
+  // TODO(V2): start >= end (including start === end) is treated as closed —
+  // overnight hours that cross midnight (e.g. 18:00–02:00) aren't supported yet.
   if (start == null || end == null || start >= end) return []
 
   const slots: TimeSlot[] = []

@@ -29,6 +29,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
   const [editOpen, setEditOpen] = useState(false)
   const [bookingOpen, setBookingOpen] = useState(false)
   const [timeline, setTimeline] = useState<ContactTimelineEvent[]>(initialTimeline)
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null)
 
   const SourceIcon = SOURCE_META[contact.source].icon
 
@@ -45,9 +46,11 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
   }
 
   async function handleAppointmentStatusChange(appointmentId: string, nextStatus: AppointmentStatus) {
+    if (pendingAppointmentId) return
     const previous = appointments.find((event) => event.appointment.id === appointmentId)?.appointment.status
     if (!previous || previous === nextStatus) return
 
+    setPendingAppointmentId(appointmentId)
     setTimeline((prev) =>
       prev.map((event) =>
         event.type === "appointment" && event.appointment.id === appointmentId
@@ -67,6 +70,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
       )
       toast.error("Couldn't update appointment status", { description: "Reverted — please try again." })
     }
+    setPendingAppointmentId(null)
   }
 
   return (
@@ -166,6 +170,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
                       status={appointment.status}
                       onStatusChange={(status) => handleAppointmentStatusChange(appointment.id, status)}
                       label={`Status for ${appointment.service ?? "appointment"}`}
+                      disabled={pendingAppointmentId === appointment.id}
                     />
                   </div>
                 ))

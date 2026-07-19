@@ -11,14 +11,19 @@
 
 import { randomUUID } from "node:crypto"
 
+import { APPOINTMENT_STATUSES } from "@/components/inbox/status-pill"
 import { createAppointment, updateAppointmentStatus } from "@/lib/frontdesk"
 import { DEMO_ORG } from "@/lib/demo"
 import { getCurrentOrgId } from "@/lib/org"
+import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { Appointment, AppointmentStatus } from "@/lib/types"
 
 const MAX_SERVICE_LENGTH = 120
 const MAX_NOTES_LENGTH = 2000
+// Booking a slot more than this far in the past is rejected outright — a
+// small grace window absorbs client/server clock drift around "now".
+const PAST_START_GRACE_MS = 5 * 60_000
 
 export interface CreateAppointmentActionInput {
   contactId: string
@@ -39,8 +44,17 @@ function isValidCreateInput(input: CreateAppointmentActionInput): boolean {
   if (typeof input.contactId !== "string" || input.contactId.length === 0) return false
   if (typeof input.service !== "string" || input.service.trim().length === 0 || input.service.length > MAX_SERVICE_LENGTH)
     return false
-  if (Number.isNaN(new Date(input.startsAt).getTime())) return false
-  if (input.endsAt != null && Number.isNaN(new Date(input.endsAt).getTime())) return false
+
+  const startsAtMs = new Date(input.startsAt).getTime()
+  if (Number.isNaN(startsAtMs)) return false
+  if (startsAtMs < Date.now() - PAST_START_GRACE_MS) return false
+
+  if (input.endsAt != null) {
+    const endsAtMs = new Date(input.endsAt).getTime()
+    if (Number.isNaN(endsAtMs)) return false
+    if (endsAtMs <= startsAtMs) return false
+  }
+
   if (input.notes != null && input.notes.length > MAX_NOTES_LENGTH) return false
   return true
 }
@@ -72,6 +86,18 @@ export async function createAppointmentAction(
   if (!orgId) return { ok: false, appointment: null }
 
   try {
+    // Cross-org guard: the contactId comes from the client, so confirm it
+    // actually belongs to the caller's org before ever inserting an
+    // appointment against it.
+    const supabase = await createClient()
+    const { data: existingContact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("id", input.contactId)
+      .eq("org_id", orgId)
+      .maybeSingle()
+    if (!existingContact) return { ok: false, appointment: null }
+
     const appointment = await createAppointment(orgId, {
       contactId: input.contactId,
       startsAt: input.startsAt,
@@ -95,6 +121,7 @@ export async function updateAppointmentStatusAction(
   status: AppointmentStatus
 ): Promise<UpdateAppointmentStatusResult> {
   if (typeof appointmentId !== "string" || appointmentId.length === 0) return { ok: false }
+  if (!APPOINTMENT_STATUSES.includes(status)) return { ok: false }
 
   if (!isSupabaseConfigured()) return { ok: true }
 

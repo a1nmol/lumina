@@ -98,6 +98,7 @@ export function BookingDialog({ contact, open, onOpenChange, onBooked }: Booking
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (pending) return
     if (!contact || !service || !date || !time) return
 
     const startsAtDate = combineDateAndTime(date, time)
