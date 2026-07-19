@@ -269,6 +269,130 @@ export type Appointment = {
   updated_at: string
 }
 
+// ---------------------------------------------------------------------------
+// Analytics loop + Reviews (Phase 3) — mirrors supabase/migrations/0004_analytics.sql.
+// ---------------------------------------------------------------------------
+
+/**
+ * What an analytics_events row represents. 'post_published'/'post_metric'
+ * are the outbound (Content) half of the loop; the rest are the inbound
+ * (FrontDesk) half — see MASTER_PLAN.md §1's loop diagram.
+ */
+export type AnalyticsEventKind =
+  | "post_published"
+  | "post_metric"
+  | "widget_open"
+  | "conversation_started"
+  | "lead_captured"
+  | "booking_created"
+  | "review_received"
+
+export type AnalyticsEvent = {
+  id: number
+  org_id: string
+  kind: AnalyticsEventKind
+  content_id: string | null
+  contact_id: string | null
+  conversation_id: string | null
+  value: number
+  metadata: Record<string, unknown>
+  occurred_at: string
+}
+
+export type ReviewPlatform = "google" | "facebook"
+
+export type ReviewSentiment = "positive" | "neutral" | "negative"
+
+export type ReviewReplyStatus = "none" | "ai_draft" | "replied" | "auto_replied"
+
+export type Review = {
+  id: string
+  org_id: string
+  platform: ReviewPlatform
+  reviewer_name: string | null
+  rating: 1 | 2 | 3 | 4 | 5
+  body: string | null
+  sentiment: ReviewSentiment | null
+  reply: string | null
+  reply_status: ReviewReplyStatus
+  received_at: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Composed (non-table) analytics shapes returned by src/lib/analytics.ts and
+ * mirrored by the DEMO_* fallbacks in src/lib/demo.ts — kept here (rather
+ * than as local interfaces in analytics.ts) so demo.ts can type its exports
+ * without importing the server-only analytics.ts module.
+ */
+
+export type AnalyticsOverviewStats = {
+  rangeDays: number
+  postsPublished: number
+  reach: number
+  leads: number
+  bookings: number
+  reviewsCount: number
+  /** Percent change vs. the immediately preceding period of the same length (e.g. 20 = +20%, -15 = -15%). */
+  deltas: {
+    postsPublished: number
+    reach: number
+    leads: number
+    bookings: number
+    reviewsCount: number
+  }
+}
+
+export type LoopOutcomeKind = "lead" | "booking" | "call"
+
+/** One inbound outcome (call/lead/booking) attributed to a post. */
+export type LoopOutcome = {
+  kind: LoopOutcomeKind
+  contactName: string | null
+  channel: ConversationChannel
+  occurredAt: string
+  /** Hours between the post's publishedAt and this outcome's occurredAt — always shown, never a bare count (design brief "credibility maker"). */
+  deltaHours: number
+}
+
+/** The minimal post summary shown on the source side of a loop pair. */
+export type LoopPostSummary = {
+  id: string
+  caption: string | null
+  format: ContentFormat
+  platforms: string[]
+  publishedAt: string
+}
+
+/** One source-post + outcome-chips pair for the Analytics "Loop" view. */
+export type LoopPair = {
+  post: LoopPostSummary
+  outcomes: LoopOutcome[]
+  /** Human-readable attribution transparency caption, e.g. "matched by lead within 48h of post". */
+  matchMethod: string
+}
+
+/** Per-post metric card data (max 3 numbers on the face + loop-outcome count, per the design brief). */
+export type PostMetrics = {
+  contentId: string
+  caption: string | null
+  format: ContentFormat
+  platforms: string[]
+  publishedAt: string
+  reach: number
+  engagement: number
+  clicks: number
+  loopOutcomeCount: number
+}
+
+/** One rule-based, plain-English AI insight with a single specific CTA. */
+export type AnalyticsInsight = {
+  id: string
+  text: string
+  cta: { label: string; href: string }
+}
+
 /** A conversation joined with a few contact fields, for thread-list rendering. */
 export type ConversationWithContact = Conversation & {
   contact_name: string | null
@@ -378,6 +502,18 @@ export interface Database {
         Row: Appointment
         Insert: Partial<Appointment> & Pick<Appointment, "org_id" | "contact_id" | "starts_at">
         Update: Partial<Appointment>
+        Relationships: []
+      }
+      analytics_events: {
+        Row: AnalyticsEvent
+        Insert: Partial<AnalyticsEvent> & Pick<AnalyticsEvent, "org_id" | "kind">
+        Update: Partial<AnalyticsEvent>
+        Relationships: []
+      }
+      reviews: {
+        Row: Review
+        Insert: Partial<Review> & Pick<Review, "org_id" | "platform" | "rating">
+        Update: Partial<Review>
         Relationships: []
       }
     }

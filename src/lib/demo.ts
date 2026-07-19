@@ -2,7 +2,18 @@
 // connects Supabase and completes onboarding. Never used for real accounts —
 // gate all reads behind isSupabaseConfigured() checks upstream.
 
-import type { Appointment, BusinessBrain, Contact, ConversationDetail, Message, Org } from "@/lib/types"
+import type {
+  AnalyticsInsight,
+  AnalyticsOverviewStats,
+  Appointment,
+  BusinessBrain,
+  Contact,
+  ConversationDetail,
+  LoopPair,
+  Message,
+  Org,
+  Review,
+} from "@/lib/types"
 
 export const DEMO_ORG: Org = {
   id: "demo-org",
@@ -641,5 +652,273 @@ export const DEMO_APPOINTMENTS: Appointment[] = [
     notes: "Rescheduled from Friday 7/17.",
     created_at: "2026-07-09T08:10:00.000Z",
     updated_at: "2026-07-09T08:10:00.000Z",
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Analytics loop + Reviews (Phase 3) demo data — mirrors
+// supabase/migrations/0004_analytics.sql / src/lib/types.ts. Existing demo
+// items above are untouched; loop pairs reference the same contacts/
+// timestamps already established in DEMO_CONTACTS/DEMO_CONVERSATIONS/
+// DEMO_APPOINTMENTS rather than inventing new ones.
+// ---------------------------------------------------------------------------
+
+export const DEMO_REVIEWS: Review[] = [
+  {
+    id: "demo-review-1",
+    org_id: DEMO_ORG.id,
+    platform: "google",
+    reviewer_name: "Daniel Okafor",
+    rating: 5,
+    body: "The cinnamon rolls are seriously the best in town. Friendly staff, always fresh, never disappoints.",
+    sentiment: "positive",
+    reply:
+      "Thank you so much for the kind words, Daniel! We really appreciate it \u{1F64F} hope to see you again soon!",
+    reply_status: "replied",
+    received_at: "2026-07-12T13:10:00.000Z",
+    created_at: "2026-07-12T13:10:00.000Z",
+    updated_at: "2026-07-12T13:24:00.000Z",
+  },
+  {
+    id: "demo-review-2",
+    org_id: DEMO_ORG.id,
+    platform: "facebook",
+    reviewer_name: "Bill Anderson",
+    rating: 2,
+    body: "Waited almost 20 minutes to be helped on a Saturday morning even though the line wasn't that long. Cake was good once I got it.",
+    sentiment: "negative",
+    reply: null,
+    reply_status: "none",
+    received_at: "2026-07-15T10:05:00.000Z",
+    created_at: "2026-07-15T10:05:00.000Z",
+    updated_at: "2026-07-15T10:05:00.000Z",
+  },
+  {
+    id: "demo-review-3",
+    org_id: DEMO_ORG.id,
+    platform: "google",
+    reviewer_name: "Rachel Nguyen",
+    rating: 4,
+    body: "Great sourdough, love that it's fermented 24 hours. Wish they had a few more seats to sit and eat in.",
+    sentiment: "positive",
+    reply: null,
+    reply_status: "none",
+    received_at: "2026-07-16T09:20:00.000Z",
+    created_at: "2026-07-16T09:20:00.000Z",
+    updated_at: "2026-07-16T09:20:00.000Z",
+  },
+  {
+    id: "demo-review-4",
+    org_id: DEMO_ORG.id,
+    platform: "facebook",
+    reviewer_name: "Owen Park",
+    rating: 3,
+    body: "Pastries are solid but the catering tray we ordered for our office was smaller than I expected for the price.",
+    sentiment: "neutral",
+    reply:
+      "Hi Owen, thanks for the feedback and for trying our catering trays! Sorry the tray felt smaller than expected — we'd love to make it right on your next order, just mention this review when you call.",
+    reply_status: "ai_draft",
+    received_at: "2026-07-14T17:45:00.000Z",
+    created_at: "2026-07-14T17:45:00.000Z",
+    updated_at: "2026-07-14T17:45:00.000Z",
+  },
+  {
+    id: "demo-review-5",
+    org_id: DEMO_ORG.id,
+    platform: "google",
+    reviewer_name: "Latoya Freeman",
+    rating: 5,
+    body: "Ordered a custom birthday cake with 48 hours notice and it came out perfect, exactly what we asked for. Will be back!",
+    sentiment: "positive",
+    reply: null,
+    reply_status: "none",
+    received_at: "2026-07-17T14:30:00.000Z",
+    created_at: "2026-07-17T14:30:00.000Z",
+    updated_at: "2026-07-17T14:30:00.000Z",
+  },
+  {
+    id: "demo-review-6",
+    org_id: DEMO_ORG.id,
+    platform: "google",
+    reviewer_name: "Victor Ibarra",
+    rating: 2,
+    body: "Ordered ahead online and half the order wasn't ready at pickup time. Had to wait around while they finished it.",
+    sentiment: "negative",
+    reply:
+      "Hi Victor, I'm really sorry your order wasn't ready when you arrived — that's on us. We'd like to make this right; please reach out so we can fix it for your next visit.",
+    reply_status: "ai_draft",
+    received_at: "2026-07-13T08:15:00.000Z",
+    created_at: "2026-07-13T08:15:00.000Z",
+    updated_at: "2026-07-13T08:15:00.000Z",
+  },
+  {
+    id: "demo-review-7",
+    org_id: DEMO_ORG.id,
+    platform: "facebook",
+    reviewer_name: "Hannah Voss",
+    rating: 4,
+    body: "The kids baking class was a hit with my son, he hasn't stopped talking about it. Would love to see more weekend sessions.",
+    sentiment: "positive",
+    reply: null,
+    reply_status: "none",
+    received_at: "2026-07-11T16:00:00.000Z",
+    created_at: "2026-07-11T16:00:00.000Z",
+    updated_at: "2026-07-11T16:00:00.000Z",
+  },
+  {
+    id: "demo-review-8",
+    org_id: DEMO_ORG.id,
+    platform: "facebook",
+    reviewer_name: "Carlos Mendez",
+    rating: 3,
+    body: "Coffee subscription is good value but a couple of the bags arrived later than the promised weekly schedule.",
+    sentiment: "neutral",
+    reply: null,
+    reply_status: "none",
+    received_at: "2026-07-10T12:40:00.000Z",
+    created_at: "2026-07-10T12:40:00.000Z",
+    updated_at: "2026-07-10T12:40:00.000Z",
+  },
+]
+
+/**
+ * 4 source-post + outcome pairs for the Analytics "Loop" view. Posts here
+ * are demo-only summaries (not real content_items — this app has no
+ * DEMO_CONTENT_ITEMS export yet); outcomes reference the real contacts/
+ * timestamps already in DEMO_CONTACTS/DEMO_CONVERSATIONS/DEMO_APPOINTMENTS
+ * above, with deltaHours computed from those exact timestamps (see
+ * src/lib/analytics.ts for the live 48h-window attribution heuristic this
+ * mirrors).
+ */
+export const DEMO_LOOP_PAIRS: LoopPair[] = [
+  {
+    post: {
+      id: "demo-loop-post-1",
+      caption:
+        "Dinosaur-themed birthday cakes are our specialty right now \u{1F995} chocolate, vanilla, or a custom flavor — just tell us the theme!",
+      format: "single",
+      platforms: ["instagram", "facebook"],
+      publishedAt: "2026-07-13T14:00:00.000Z",
+    },
+    outcomes: [
+      {
+        kind: "lead",
+        contactName: "Emma Rodriguez",
+        channel: "web_chat",
+        occurredAt: "2026-07-14T15:02:00.000Z",
+        deltaHours: 25,
+      },
+      {
+        kind: "booking",
+        contactName: "Emma Rodriguez",
+        channel: "web_chat",
+        occurredAt: "2026-07-14T15:06:00.000Z",
+        deltaHours: 25,
+      },
+    ],
+    matchMethod: "matched by lead + booking within 48h of post",
+  },
+  {
+    post: {
+      id: "demo-loop-post-2",
+      caption:
+        "Saturday Kids Baking Class has 3 spots left this week — ages 6-12, cupcake decorating included!",
+      format: "single",
+      platforms: ["facebook", "google_business"],
+      publishedAt: "2026-07-09T11:00:00.000Z",
+    },
+    outcomes: [
+      {
+        kind: "lead",
+        contactName: "Grace Kim",
+        channel: "web_chat",
+        occurredAt: "2026-07-10T16:20:00.000Z",
+        deltaHours: 29,
+      },
+      {
+        kind: "booking",
+        contactName: "Grace Kim",
+        channel: "web_chat",
+        occurredAt: "2026-07-10T16:24:00.000Z",
+        deltaHours: 29,
+      },
+    ],
+    matchMethod: "matched by lead + booking within 48h of post",
+  },
+  {
+    post: {
+      id: "demo-loop-post-3",
+      caption:
+        "New this week: bright Ethiopian single-origin coffee subscription \u{2615} first pick goes to subscribers.",
+      format: "carousel",
+      platforms: ["instagram"],
+      publishedAt: "2026-07-12T09:00:00.000Z",
+    },
+    outcomes: [
+      {
+        kind: "call",
+        contactName: "Marcus Chen",
+        channel: "sms",
+        occurredAt: "2026-07-13T18:41:00.000Z",
+        deltaHours: 34,
+      },
+    ],
+    matchMethod: "matched by missed-call-to-text within 48h of post",
+  },
+  {
+    post: {
+      id: "demo-loop-post-4",
+      caption:
+        "Catering season is here — mixed pastry trays for your next office meeting, 24hr notice and we've got you covered.",
+      format: "single",
+      platforms: ["facebook"],
+      publishedAt: "2026-07-14T12:00:00.000Z",
+    },
+    outcomes: [
+      {
+        kind: "lead",
+        contactName: "Priya Patel",
+        channel: "instagram",
+        occurredAt: "2026-07-15T20:10:00.000Z",
+        deltaHours: 32,
+      },
+    ],
+    matchMethod: "matched by lead within 48h of post",
+  },
+]
+
+/** Roll-up stat strip for the default 30-day Analytics view. Deltas are percent change vs. the previous 30 days. */
+export const DEMO_OVERVIEW_STATS: AnalyticsOverviewStats = {
+  rangeDays: 30,
+  postsPublished: 12,
+  reach: 18400,
+  leads: 8,
+  bookings: 3,
+  reviewsCount: 8,
+  deltas: {
+    postsPublished: 20,
+    reach: 14,
+    leads: 33,
+    bookings: 50,
+    reviewsCount: 100,
+  },
+}
+
+/** 3 rule-based insights computed from the demo data above (DEMO_LOOP_PAIRS) — numeric, specific, no fabricated claims. */
+export const DEMO_INSIGHTS: AnalyticsInsight[] = [
+  {
+    id: "demo-insight-1",
+    text: "Your Kids Baking Class post (Jul 9) turned into a lead and a booking within 29 hours — the fastest turnaround of your last 4 tracked posts.",
+    cta: { label: "Create a similar post", href: "/studio" },
+  },
+  {
+    id: "demo-insight-2",
+    text: "All 4 of your loop-linked posts this month converted into a lead, booking, or call within 34 hours of publishing.",
+    cta: { label: "Plan next week's posts", href: "/calendar" },
+  },
+  {
+    id: "demo-insight-3",
+    text: "Single-image posts drove 5 of your 6 tracked outcomes this month, all within 34 hours of publishing.",
+    cta: { label: "Make another single-image post", href: "/studio" },
   },
 ]
