@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table"
 import { isPlatformAdmin } from "@/lib/admin"
 import { DEMO_ORG } from "@/lib/demo"
+import { formatMonthlyPrice, PLAN_CATALOG, PLAN_LIMIT_LABELS, PLAN_ORDER } from "@/lib/plans"
 
 export const metadata: Metadata = { title: "Admin" }
 
@@ -89,6 +90,79 @@ export default async function AdminPage() {
                   </Badge>
                 </TableCell>
               </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Plans</CardTitle>
+          <CardDescription>
+            The subscription tiers structured in <code className="rounded bg-muted px-1 py-0.5 text-xs">src/lib/plans.ts</code> — pricing and limits are indicative only, billing isn&apos;t turned on yet. Every account is on Free (Test Phase) during the invite-only phase.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Plan</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead>Limits</TableHead>
+                <TableHead>Flags</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {PLAN_ORDER.map((planId) => {
+                const plan = PLAN_CATALOG[planId]
+                return (
+                  <TableRow key={plan.id}>
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 font-medium text-foreground">
+                          {plan.name}
+                          {planId === "free_test" && (
+                            <Badge variant="secondary" className="bg-success/10 text-success">
+                              Current
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{plan.tagline}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top text-foreground tabular-nums">
+                      {formatMonthlyPrice(plan.monthly_price_cents)}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-wrap gap-1.5">
+                        {(Object.keys(PLAN_LIMIT_LABELS) as (keyof typeof PLAN_LIMIT_LABELS)[]).map((key) => {
+                          const value = plan.limits[key]
+                          if (value === undefined) return null
+                          const display = key === "spend_cap_usd" ? `$${value}` : value
+                          return (
+                            <Badge key={key} variant="outline" className="font-normal">
+                              {PLAN_LIMIT_LABELS[key]}: <span className="tabular-nums">{display}</span>
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(plan.featureFlags).map(([flag, enabled]) => (
+                          <Badge
+                            key={flag}
+                            variant={enabled ? "secondary" : "outline"}
+                            className={enabled ? "bg-primary/10 text-primary font-normal" : "font-normal text-muted-foreground"}
+                          >
+                            {flag.replace(/_/g, " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </CardContent>

@@ -8,9 +8,10 @@
 
 import { useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { Check, Copy, Link2, MessageSquareText, QrCode, Send, Sparkles } from "lucide-react"
+import { Check, Copy, Download, Link2, MessageSquareText, QrCode as QrCodeIcon, Send, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
+import { QrCode, downloadQrPng } from "@/components/qr-code"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { buildReviewLink } from "@/lib/growth"
 import { duration, easing, fadeUp } from "@/lib/motion"
 import type { BusinessBrain } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -43,7 +45,7 @@ const CHANNEL_OPTIONS: {
     value: "qr",
     label: "QR code",
     description: "Print or display a code customers can scan in-store.",
-    icon: QrCode,
+    icon: QrCodeIcon,
   },
   {
     value: "link",
@@ -55,26 +57,12 @@ const CHANNEL_OPTIONS: {
 
 const STEP_LABELS = ["Channel", "Message", "Send"]
 
-// Demo-scale placeholder — a real deployment would resolve a Google/Facebook
-// short review link once listings are connected (MASTER_PLAN.md §4.F,
-// [V2] Google Business posting/listings) and a real contact count from the
-// CRM (filtered to consented phone numbers).
+// Demo-scale placeholder — a real contact count from the CRM (filtered to
+// consented phone numbers) once SMS review requests are wired to a live
+// provider. buildReviewLink lives in src/lib/growth.ts so this dialog and
+// the Growth page's QR codes card always build the same link.
 const DEMO_RECIPIENT_COUNT = 24
 const COPIED_RESET_MS = 2000
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "your-business"
-  )
-}
-
-function buildReviewLink(businessName: string | null): string {
-  return `https://loc.al/r/${slugify(businessName ?? "your-business")}`
-}
 
 function buildDefaultMessage(businessName: string | null, link: string): string {
   const name = businessName ?? "us"
@@ -283,18 +271,31 @@ function ResultStep({
   onCopyLink: () => void
 }) {
   if (channel === "qr") {
+    async function handleDownload() {
+      try {
+        await downloadQrPng(link, "review-request-qr.png")
+        toast.success("QR code downloaded")
+      } catch {
+        toast.error("Couldn't generate the QR download — try again.")
+      }
+    }
+
     return (
       <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
-        {/* Real QR rendering lands later with a dedicated lib — this is a styled placeholder frame, per the design brief's DECISION. */}
-        <div className="flex size-32 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-foreground/20 bg-card p-3">
-          <QrCode aria-hidden="true" className="size-10 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">QR preview</span>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card p-3">
+          <QrCode value={link} size={128} ariaLabel={`QR code linking to your review page: ${link}`} />
         </div>
         <p className="max-w-xs text-xs break-all text-muted-foreground">{link}</p>
-        <Button type="button" variant="outline" size="sm" onClick={onCopyLink} className="gap-1.5">
-          {copied ? <Check aria-hidden="true" className="size-3.5" /> : <Copy aria-hidden="true" className="size-3.5" />}
-          Copy link
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onCopyLink} className="gap-1.5">
+            {copied ? <Check aria-hidden="true" className="size-3.5" /> : <Copy aria-hidden="true" className="size-3.5" />}
+            Copy link
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="gap-1.5">
+            <Download aria-hidden="true" className="size-3.5" />
+            Download PNG
+          </Button>
+        </div>
       </div>
     )
   }

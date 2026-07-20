@@ -3,7 +3,8 @@ import { headers } from "next/headers"
 
 import { PageHeader } from "@/components/page-header"
 import { listReviews } from "@/lib/analytics"
-import { DEMO_REVIEWS } from "@/lib/demo"
+import { DEMO_ORG, DEMO_REVIEWS } from "@/lib/demo"
+import { buildReviewLink } from "@/lib/growth"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { Review } from "@/lib/types"
@@ -11,6 +12,7 @@ import type { Review } from "@/lib/types"
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
 import { getReviewAutoReplySettings } from "./actions"
+import { QrCodesCard } from "./qr-codes-card"
 import { ReviewRequestDialog } from "./review-request-dialog"
 import { ReviewsSection } from "./review-list"
 import { WidgetEmbedCard } from "./widget-embed-card"
@@ -68,6 +70,15 @@ export default async function GrowthPage() {
           <WidgetEmbedCard origin={origin} />
         </div>
       </section>
+
+      <QrCodesCard
+        reviewLink={buildReviewLink(businessBrain.business_name)}
+        // No dedicated public booking page yet — booking happens inside the
+        // chat widget (MASTER_PLAN.md §4.D), so this reuses the widget link
+        // until a standalone booking URL ships.
+        bookingLink={`${origin}/widget/${DEMO_ORG.slug}`}
+        chatLink={`${origin}/widget/${DEMO_ORG.slug}`}
+      />
     </div>
   )
 }

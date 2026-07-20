@@ -7,6 +7,7 @@ import { getBusinessBrain } from "./brain/actions"
 import { computeBrainCompleteness } from "./brain-completeness"
 import { BrainSummaryCard } from "./brain-summary-card"
 import { FaqCard } from "./faq-card"
+import { UsageCard } from "./usage-card"
 
 export const metadata: Metadata = { title: "Settings & Brain" }
 
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
       />
       <BrainSummaryCard brain={brain} completeness={completeness} />
       <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
+      <UsageCard />
     </div>
   )
 }
