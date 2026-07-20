@@ -68,7 +68,7 @@ function SourceCard({ pair }: { pair: LoopPairType }) {
   const publishedAt = format(parseISO(pair.post.publishedAt), "MMM d, h:mm a")
 
   return (
-    <div className="flex flex-1 items-start gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30 group-focus-visible/pair:ring-primary/30">
+    <div className="flex flex-1 items-start gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30">
       <div
         style={thumbnailStyle(pair.post.id)}
         className="relative size-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10"
@@ -100,7 +100,7 @@ function OutcomeChip({ outcome }: { outcome: LoopOutcome }) {
   const time = format(parseISO(outcome.occurredAt), "MMM d, h:mm a")
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-card p-2.5 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30 group-focus-visible/pair:ring-primary/30">
+    <div className="flex items-center gap-2 rounded-xl bg-card p-2.5 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <ChannelGlyph channel={outcome.channel} className="size-4" />
       </span>
@@ -133,13 +133,13 @@ function ConnectorThread() {
           stroke="var(--chart-1)"
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
-          className="opacity-40 stroke-[1.5] transition-[opacity,stroke-width] duration-200 ease-out group-hover/pair:opacity-70 group-hover/pair:stroke-[2.5] group-focus-visible/pair:opacity-70 group-focus-visible/pair:stroke-[2.5]"
+          className="opacity-40 stroke-[1.5] transition-[opacity,stroke-width] duration-200 ease-out group-hover/pair:opacity-70 group-hover/pair:stroke-[2.5]"
           initial={{ pathLength: reduceMotion ? 1 : 0 }}
           animate={{ pathLength: 1 }}
           transition={{ duration: duration.slow, ease: easing.out }}
         />
-        <circle cx="2" cy="50" r="2.5" fill="var(--chart-1)" className="opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70 group-focus-visible/pair:opacity-70" />
-        <circle cx="98" cy="50" r="2.5" fill="var(--chart-1)" className="opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70 group-focus-visible/pair:opacity-70" />
+        <circle cx="2" cy="50" r="2.5" fill="var(--chart-1)" className="opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70" />
+        <circle cx="98" cy="50" r="2.5" fill="var(--chart-1)" className="opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70" />
       </svg>
     </div>
   )
@@ -148,7 +148,7 @@ function ConnectorThread() {
 function MobileConnector() {
   return (
     <div className="flex items-center justify-center py-1 sm:hidden" aria-hidden="true">
-      <span className="h-5 w-px bg-[var(--chart-1)] opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70 group-focus-visible/pair:opacity-70" />
+      <span className="h-5 w-px bg-[var(--chart-1)] opacity-40 transition-opacity duration-200 group-hover/pair:opacity-70" />
     </div>
   )
 }
@@ -169,21 +169,17 @@ type LoopPairProps = {
 
 /**
  * The Loop's signature moment: source post card ↔ animated thread ↔ outcome
- * chip stack. The whole pair is one focusable/hoverable unit (`group/pair`)
- * — hovering or focusing anywhere highlights both cards and the thread
- * together, per the design brief.
+ * chip stack. The whole pair is one hoverable unit (`group/pair`) — hovering
+ * anywhere highlights both cards and the thread together, per the design
+ * brief. The wrapper itself isn't a focusable/interactive control (its
+ * content — cards, captions — reads naturally in document order), so it
+ * carries no role/tabIndex/aria-label; there's no keyboard-reachable dead
+ * element here.
  */
 export function LoopPair({ pair }: LoopPairProps) {
-  const publishedDate = format(parseISO(pair.post.publishedAt), "MMMM d")
-
   return (
     <div className="flex flex-col gap-2">
-      <div
-        role="group"
-        tabIndex={0}
-        aria-label={`Post published ${publishedDate}, drove ${pair.outcomes.length} outcome${pair.outcomes.length === 1 ? "" : "s"}`}
-        className="group/pair relative flex flex-col gap-0 rounded-2xl outline-none sm:flex-row sm:items-center focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
+      <div className="group/pair relative flex flex-col gap-0 rounded-2xl sm:flex-row sm:items-center">
         <SourceCard pair={pair} />
         <MobileConnector />
         <ConnectorThread />

@@ -225,15 +225,25 @@ function mapEventToOutcomeKind(
   return null
 }
 
+/** True when `iso` falls in the half-open window [startIso, endIso) — mirrors fetchPeriodCounts' interval semantics, used to filter DEMO_* data by range in demo mode (see getLoopPairs/getPostMetrics). */
+function isWithinWindow(iso: string, startIso: string, endIso: string): boolean {
+  const time = new Date(iso).getTime()
+  return time >= new Date(startIso).getTime() && time < new Date(endIso).getTime()
+}
+
 /**
  * Builds the Analytics "Loop" feed: one entry per published post (within
  * `rangeDays`) that had at least one lead/booking/call attributed to it.
  * Attribution heuristic (MVP, see docs/backend-notes.md): an outcome is
  * attributed to a post when it occurred within 48h after the post's publish
- * time. Falls back to DEMO_LOOP_PAIRS in demo mode.
+ * time. Falls back to DEMO_LOOP_PAIRS (filtered by `rangeDays`, so the range
+ * control visibly works in demo mode too) when Supabase isn't configured.
  */
 export async function getLoopPairs(orgId: string, rangeDays: number): Promise<LoopPair[]> {
-  if (!isSupabaseConfigured()) return DEMO_LOOP_PAIRS
+  if (!isSupabaseConfigured()) {
+    const { startIso, endIso } = rangeWindowIso(rangeDays)
+    return DEMO_LOOP_PAIRS.filter((pair) => isWithinWindow(pair.post.publishedAt, startIso, endIso))
+  }
 
   const supabase = await createClient()
   const { startIso, endIso } = rangeWindowIso(rangeDays)
@@ -244,7 +254,7 @@ export async function getLoopPairs(orgId: string, rangeDays: number): Promise<Lo
     .eq("org_id", orgId)
     .eq("kind", "post_published")
     .gte("occurred_at", startIso)
-    .lte("occurred_at", endIso)
+    .lt("occurred_at", endIso)
     .not("content_id", "is", null)
     .order("occurred_at", { ascending: false })
 
@@ -269,7 +279,7 @@ export async function getLoopPairs(orgId: string, rangeDays: number): Promise<Lo
       .eq("org_id", orgId)
       .in("kind", ["lead_captured", "booking_created", "conversation_started"])
       .gte("occurred_at", startIso)
-      .lte("occurred_at", outcomeEndIso),
+      .lt("occurred_at", outcomeEndIso),
   ])
 
   if (contentResult.error) {
@@ -384,9 +394,9 @@ function hashSeed(value: string): number {
   return hash
 }
 
-/** Deterministic, illustrative reach/engagement/click numbers for demo post cards — NOT real platform data (live mode reads real post_metric events instead). */
-function deriveDemoPostMetrics(): PostMetrics[] {
-  return DEMO_LOOP_PAIRS.map((pair) => {
+/** Deterministic, illustrative reach/engagement/click numbers for demo post cards — NOT real platform data (live mode reads real post_metric events instead). Takes the already-range-filtered loop pairs so the range control visibly works in demo mode too. */
+function deriveDemoPostMetrics(pairs: LoopPair[]): PostMetrics[] {
+  return pairs.map((pair) => {
     const seed = hashSeed(pair.post.id)
     const reach = 900 + (seed % 2600)
     const engagement = Math.round(reach * (0.04 + (seed % 12) / 200))
@@ -411,10 +421,25 @@ function deriveDemoPostMetrics(): PostMetrics[] {
  * (from Ayrshare-sourced 'post_metric' events — TODO(docs/backend-notes.md),
  * currently only populated once a publish/metrics-sync job writes them) plus
  * the loop-outcome count for that post. Falls back to deterministic demo
- * numbers (see deriveDemoPostMetrics) in demo mode.
+ * numbers (see deriveDemoPostMetrics, filtered by `rangeDays`) in demo mode.
+ *
+ * `precomputedPairs`, when given, is used in place of a fresh getLoopPairs
+ * call (both to derive loopOutcomeCount and, in demo mode, the range-filtered
+ * post set) — callers that already fetched pairs for the same `rangeDays`
+ * (e.g. the Analytics page) should pass them to avoid a duplicate fetch.
+ * Falls back to fetching its own when omitted, so existing callers keep
+ * working unchanged.
  */
-export async function getPostMetrics(orgId: string, rangeDays: number): Promise<PostMetrics[]> {
-  if (!isSupabaseConfigured()) return deriveDemoPostMetrics()
+export async function getPostMetrics(
+  orgId: string,
+  rangeDays: number,
+  precomputedPairs?: LoopPair[]
+): Promise<PostMetrics[]> {
+  if (!isSupabaseConfigured()) {
+    if (precomputedPairs) return deriveDemoPostMetrics(precomputedPairs)
+    const { startIso, endIso } = rangeWindowIso(rangeDays)
+    return deriveDemoPostMetrics(DEMO_LOOP_PAIRS.filter((pair) => isWithinWindow(pair.post.publishedAt, startIso, endIso)))
+  }
 
   const supabase = await createClient()
   const { startIso, endIso } = rangeWindowIso(rangeDays)
@@ -446,7 +471,7 @@ export async function getPostMetrics(orgId: string, rangeDays: number): Promise<
       .eq("org_id", orgId)
       .eq("kind", "post_metric")
       .in("content_id", contentIds),
-    getLoopPairs(orgId, rangeDays),
+    precomputedPairs ? Promise.resolve(precomputedPairs) : getLoopPairs(orgId, rangeDays),
   ])
 
   if (contentResult.error) {
@@ -572,14 +597,26 @@ function capitalize(value: string): string {
  * computation over real (or, in demo mode, DEMO_*) data, never a fabricated
  * claim. Returns at most 3 (design brief: "one at a time, queue the rest").
  * Falls back to DEMO_INSIGHTS in demo mode.
+ *
+ * Insights are always computed over a trailing 30-day window regardless of
+ * the page's selected range. `pairs30d`, when given, is used instead of a
+ * fresh getLoopPairs(orgId, 30) call — pass the caller's already-fetched
+ * pairs ONLY when the caller's own range is 30d (otherwise they cover a
+ * different window and computeInsights fetches its own).
  */
-export async function computeInsights(orgId: string): Promise<AnalyticsInsight[]> {
+export async function computeInsights(orgId: string, pairs30d?: LoopPair[]): Promise<AnalyticsInsight[]> {
   if (!isSupabaseConfigured()) return DEMO_INSIGHTS
 
-  const [loopPairs, reviews] = await Promise.all([getLoopPairs(orgId, 30), listReviews(orgId)])
+  const [loopPairs, reviews] = await Promise.all([
+    pairs30d ? Promise.resolve(pairs30d) : getLoopPairs(orgId, 30),
+    listReviews(orgId),
+  ])
   const insights: AnalyticsInsight[] = []
 
-  // Best weekday by outcome count.
+  // Best weekday by outcome count. Uses the local (process-tz) weekday for
+  // each outcome — day boundaries follow the server process tz for now (see
+  // the TODO in src/components/analytics/derive-daily-series.ts); an
+  // org-timezone setting is the proper future fix.
   const outcomeCountByWeekday = new Map<number, number>()
   for (const pair of loopPairs) {
     for (const outcome of pair.outcomes) {

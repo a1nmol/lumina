@@ -61,14 +61,20 @@ export type DraftReviewReplyResult =
   | { error: "not_found"; message: string }
 
 /**
- * Drafts a reply to one review. Demo mode returns the review's canned
- * `reply` (the ai_draft rows in DEMO_REVIEWS) or a plausible generated-style
- * line after a short simulated delay. Configured mode calls draftReviewReply
- * (Claude Haiku 4.5, PII-safe) — a quota denial is surfaced distinctly so
- * the composer can toast a real "out of quota" state.
+ * Drafts a reply to one review.
+ *
+ * - Supabase not configured (true demo mode): returns the review's canned
+ *   `reply` (the ai_draft rows in DEMO_REVIEWS) or a plausible generated-
+ *   style line after a short simulated delay.
+ * - Supabase configured but OpenRouter not configured: loads the REAL review
+ *   and falls back to genericDemoReviewDraft(review) built from that real
+ *   object, rather than looking up DEMO_REVIEWS (which won't have a match).
+ * - Both configured: calls draftReviewReply (Claude Haiku 4.5, PII-safe) — a
+ *   quota denial is surfaced distinctly so the composer can toast a real
+ *   "out of quota" state.
  */
 export async function draftReviewReplyAction(reviewId: string): Promise<DraftReviewReplyResult> {
-  if (!isSupabaseConfigured() || !isOpenRouterConfigured()) {
+  if (!isSupabaseConfigured()) {
     await sleep(DEMO_DRAFT_DELAY_MS)
     const demoReview = DEMO_REVIEWS.find((review) => review.id === reviewId)
     if (!demoReview) return { error: "not_found", message: "This review could not be found." }
@@ -84,6 +90,11 @@ export async function draftReviewReplyAction(reviewId: string): Promise<DraftRev
   const reviews = await listReviews(orgId)
   const review = reviews.find((item) => item.id === reviewId)
   if (!review) return { error: "not_found", message: "This review could not be found." }
+
+  if (!isOpenRouterConfigured()) {
+    await sleep(DEMO_DRAFT_DELAY_MS)
+    return { draft: genericDemoReviewDraft(review) }
+  }
 
   try {
     const businessBrain = await getBusinessBrain()

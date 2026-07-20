@@ -30,8 +30,10 @@ import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type {
   Appointment,
+  BusinessBrain,
   ContactStatus,
   ConversationAiState,
+  ConversationDetail,
   ConversationStatus,
   ConversationWithContact,
   Message,
@@ -49,9 +51,54 @@ const MAX_TAG_LENGTH = 40
 const GENERIC_DEMO_DRAFT =
   "Thanks so much for reaching out — let me take a look and get back to you shortly with the details!"
 const AI_FAILURE_MESSAGE = "I couldn't answer this — flagging for you."
+const MAX_SERVICES_IN_FALLBACK = 3
+const MAX_HOURS_IN_FALLBACK = 3
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function firstName(name: string | null | undefined): string {
+  if (!name) return "there"
+  return name.trim().split(/\s+/)[0] || "there"
+}
+
+/** A short, human-readable "open Mon 9-5, ..." summary from the Business Brain's hours, or null if none are set. */
+function summarizeHours(brain: BusinessBrain | null): string | null {
+  const entries = Object.entries(brain?.hours ?? {})
+    .filter((entry): entry is [string, { open: string; close: string; closed?: boolean }] => Boolean(entry[1]) && !entry[1]!.closed)
+    .slice(0, MAX_HOURS_IN_FALLBACK)
+    .map(([day, window]) => `${day} ${window.open}-${window.close}`)
+  return entries.length > 0 ? entries.join(", ") : null
+}
+
+/** A short "we offer X, Y, Z" summary from the Business Brain's services, or null if none are set. */
+function summarizeServices(brain: BusinessBrain | null): string | null {
+  const names = (brain?.services ?? [])
+    .slice(0, MAX_SERVICES_IN_FALLBACK)
+    .map((service) => service.name)
+    .filter(Boolean)
+  return names.length > 0 ? names.join(", ") : null
+}
+
+/**
+ * A graceful, non-AI fallback reply for when Supabase is configured but
+ * OpenRouter is not (finding 1): grounded in real Business Brain data
+ * (hours/services) and the real contact's name where available, but
+ * deliberately generic about anything it can't know for sure — it never
+ * fabricates specifics about the customer's actual question.
+ */
+function groundedFallbackDraft(conversation: ConversationDetail, businessBrain: BusinessBrain | null): string {
+  const name = firstName(conversation.contact?.name)
+  const hoursSummary = summarizeHours(businessBrain)
+  const servicesSummary = summarizeServices(businessBrain)
+
+  const parts = [`Hi ${name}, thanks so much for reaching out!`]
+  if (servicesSummary) parts.push(`We offer ${servicesSummary}, and we'll get you the exact details for your question shortly.`)
+  else parts.push("We'll take a look and get you the exact details shortly.")
+  if (hoursSummary) parts.push(`We're open ${hoursSummary}.`)
+  parts.push("Talk soon!")
+  return parts.join(" ")
 }
 
 /**
@@ -121,18 +168,25 @@ export type DraftReplyResult =
   | { error: "not_found"; message: string }
 
 /**
- * Drafts the next customer reply. Demo mode returns the thread's canned
- * pendingAiDraft (or a generic canned draft) after a short simulated delay.
- * Configured mode calls draftCustomerReply — a needsHuman result (or the
- * model failing to produce a usable draft) flips ai_state to "escalated" and
- * is surfaced as a typed error so the composer can toast + reflect the state
- * change; a spend-guard/quota denial is surfaced distinctly. A missing
- * conversation (e.g. raced with a delete, or a stale id) is its own distinct
- * "not_found" error — unlike a real escalation, there is no conversation
- * left to flip ai_state on, so it must not attempt that write.
+ * Drafts the next customer reply.
+ *
+ * - Supabase not configured (true demo mode): returns the thread's canned
+ *   pendingAiDraft (or a generic canned draft) after a short simulated delay.
+ * - Supabase configured but OpenRouter not configured: loads the REAL
+ *   conversation + Business Brain and returns a graceful, generic-but-
+ *   grounded fallback draft (see groundedFallbackDraft) instead of a demo
+ *   placeholder — there is no AI available, but the org's own data still is.
+ * - Both configured: calls draftCustomerReply — a needsHuman result (or the
+ *   model failing to produce a usable draft) flips ai_state to "escalated"
+ *   and is surfaced as a typed error so the composer can toast + reflect the
+ *   state change; a spend-guard/quota denial is surfaced distinctly.
+ *
+ * A missing conversation (e.g. raced with a delete, or a stale id) is its
+ * own distinct "not_found" error — unlike a real escalation, there is no
+ * conversation left to flip ai_state on, so it must not attempt that write.
  */
 export async function draftReply(conversationId: string): Promise<DraftReplyResult> {
-  if (!isSupabaseConfigured() || !isOpenRouterConfigured()) {
+  if (!isSupabaseConfigured()) {
     await sleep(DEMO_DRAFT_DELAY_MS)
     const demoConversation = DEMO_CONVERSATIONS.find((conversation) => conversation.id === conversationId)
     return { draft: demoConversation?.pendingAiDraft ?? GENERIC_DEMO_DRAFT }
@@ -147,6 +201,11 @@ export async function draftReply(conversationId: string): Promise<DraftReplyResu
   const conversation = await getConversation(orgId, conversationId)
   if (!conversation) {
     return { error: "not_found", message: "This conversation could not be found." }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    const businessBrain = await getBusinessBrain()
+    return { draft: groundedFallbackDraft(conversation, businessBrain) }
   }
 
   try {

@@ -305,7 +305,7 @@ function ResultStep({
         <div className="rounded-xl bg-muted/40 p-3 text-sm text-foreground">{message}</div>
         <p className="text-xs text-muted-foreground">
           Sending to <span className="font-medium text-foreground">{DEMO_RECIPIENT_COUNT} customers</span> with a
-          phone number on file.
+          phone number on file (demo count — not wired to a live provider yet).
         </p>
         {sent && (
           <div className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-success">

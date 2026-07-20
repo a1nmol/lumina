@@ -35,14 +35,19 @@ type AnalyticsData = {
  * demo data when Supabase isn't configured (src/lib/analytics.ts already
  * falls back to DEMO_* internally — this just supplies a stable org id to
  * call it with, mirroring src/app/(app)/studio/page.tsx's pattern).
+ *
+ * Fetches loop pairs once and threads them into getPostMetrics (loop-outcome
+ * counts) and, when `rangeDays` is 30, into computeInsights (which otherwise
+ * needs its own trailing-30d fetch) — avoiding duplicate getLoopPairs calls
+ * for the same window.
  */
 async function loadAnalyticsData(rangeDays: number): Promise<AnalyticsData> {
   if (!isSupabaseConfigured()) {
-    const [overview, loopPairs, postMetrics, insights] = await Promise.all([
+    const loopPairs = await getLoopPairs(DEMO_ORG.id, rangeDays)
+    const [overview, postMetrics, insights] = await Promise.all([
       getOverviewStats(DEMO_ORG.id, rangeDays),
-      getLoopPairs(DEMO_ORG.id, rangeDays),
-      getPostMetrics(DEMO_ORG.id, rangeDays),
-      computeInsights(DEMO_ORG.id),
+      getPostMetrics(DEMO_ORG.id, rangeDays, loopPairs),
+      computeInsights(DEMO_ORG.id, rangeDays === 30 ? loopPairs : undefined),
     ])
     return { overview, loopPairs, postMetrics, insights }
   }
@@ -52,11 +57,11 @@ async function loadAnalyticsData(rangeDays: number): Promise<AnalyticsData> {
     return { overview: EMPTY_OVERVIEW(rangeDays), loopPairs: [], postMetrics: [], insights: [] }
   }
 
-  const [overview, loopPairs, postMetrics, insights] = await Promise.all([
+  const loopPairs = await getLoopPairs(orgId, rangeDays)
+  const [overview, postMetrics, insights] = await Promise.all([
     getOverviewStats(orgId, rangeDays),
-    getLoopPairs(orgId, rangeDays),
-    getPostMetrics(orgId, rangeDays),
-    computeInsights(orgId),
+    getPostMetrics(orgId, rangeDays, loopPairs),
+    computeInsights(orgId, rangeDays === 30 ? loopPairs : undefined),
   ])
   return { overview, loopPairs, postMetrics, insights }
 }

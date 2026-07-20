@@ -5,7 +5,7 @@
 export type RangeValue = "today" | "7d" | "30d";
 
 export const RANGE_OPTIONS: { value: RangeValue; label: string; days: number }[] = [
-  { value: "today", label: "Today", days: 1 },
+  { value: "today", label: "24h", days: 1 },
   { value: "7d", label: "7d", days: 7 },
   { value: "30d", label: "30d", days: 30 },
 ];
