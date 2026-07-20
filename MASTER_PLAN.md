@@ -3,7 +3,7 @@
 > This is the single anchor document for the whole project. Every agent (led by **Fable**) must read this before doing anything and must not deviate from it without the owner's explicit approval. If a decision isn't covered here, propose it, get approval, then update this file.
 
 Owner: Anmol · Building with Claude Code
-Status: **Phases 0–2 complete** (foundation · Content Studio/Calendar · Inbox/FrontDesk-text/CRM/widget/booking — all reviewed, demo-mode-first with real backend seams) · **Phase 3 in progress** (Analytics loop + Reviews) · Ethos: **ship fast, iterate continuously — no fixed deadline. Move as fast as possible and keep going.**
+Status: **Phases 0–3 complete** (foundation · Content Studio/Calendar · Inbox/FrontDesk-text/CRM/widget/booking · Analytics loop + Reviews — all reviewed, demo-mode-first with real backend seams; the full Content→FrontDesk→Analytics loop is demo-complete) · **Phase 4 next** (voice + growth add-ons + plans — most items gated on external keys/spend) · Ethos: **ship fast, iterate continuously — no fixed deadline. Move as fast as possible and keep going.**
 Deferred by design: voice → Phase 4; live channel connections (Twilio SMS/IG/FB/email webhooks) + Ayrshare once keys arrive; migrations 0001–0003 applied to live Supabase once keys arrive; Supabase Storage 'media' bucket provisioning; external calendar sync; audio bed for slideshows (licensed music).
 
 ---
