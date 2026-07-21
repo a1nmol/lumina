@@ -208,7 +208,7 @@ begin
     base_slug := 'business';
   end if;
 
-  new_org_id := public.gen_random_uuid();
+  new_org_id := pg_catalog.gen_random_uuid();
 
   -- Always attempt the insert; retry on unique_violation rather than
   -- check-then-insert (which races under concurrent signups). Max 3
