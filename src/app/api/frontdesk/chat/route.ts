@@ -20,6 +20,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Contact, Conversation, Message } from "@/lib/types"
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
 
     if (contactLookupError) throw new Error(contactLookupError.message)
     contact = existingContact
+    const isNewContact = !contact
 
     if (!contact) {
       const { data: createdContact, error: contactInsertError } = await admin
@@ -158,6 +160,7 @@ export async function POST(request: NextRequest) {
 
     if (conversationLookupError) throw new Error(conversationLookupError.message)
     conversation = existingConversation
+    const isNewConversation = !conversation
 
     if (!conversation) {
       const { data: createdConversation, error: conversationInsertError } = await admin
@@ -170,6 +173,36 @@ export async function POST(request: NextRequest) {
         throw new Error(conversationInsertError?.message ?? "failed to create conversation")
       }
       conversation = createdConversation
+    }
+
+    // Best-effort loop-data recording — never fail the customer reply over
+    // an analytics-recording error (see recordAnalyticsEvent's own header:
+    // events are recorded via the service-role admin client from trusted
+    // server paths). Deduped to only fire on first sight of a new
+    // contact/conversation, never on repeat messages in the same thread.
+    if (isNewContact) {
+      try {
+        await recordAnalyticsEvent(resolved.orgId, {
+          kind: "lead_captured",
+          contactId: contact.id,
+          conversationId: conversation.id,
+          metadata: { channel: "web_chat" },
+        })
+      } catch (analyticsError) {
+        console.error("[frontdesk/chat] failed to record lead_captured event", analyticsError)
+      }
+    }
+    if (isNewConversation) {
+      try {
+        await recordAnalyticsEvent(resolved.orgId, {
+          kind: "conversation_started",
+          contactId: contact.id,
+          conversationId: conversation.id,
+          metadata: { channel: "web_chat" },
+        })
+      } catch (analyticsError) {
+        console.error("[frontdesk/chat] failed to record conversation_started event", analyticsError)
+      }
     }
 
     const { data: inboundMessage, error: inboundError } = await admin

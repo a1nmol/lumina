@@ -196,6 +196,14 @@ export async function getContentItem(orgId: string, contentId: string): Promise<
 /**
  * Moves a content item into the queue: "scheduled" (with scheduled_at) when
  * a time is given, or "queued" (no fixed time yet) otherwise.
+ *
+ * TODO(Ayrshare publish path): queued/scheduled is NOT published — do not
+ * record a 'post_published' analytics_events row here. That event belongs
+ * on the real publish transition (status -> 'posted'), which lands once the
+ * Ayrshare auto-publish path exists (MASTER_PLAN.md §4.B "true auto-publish
+ * via Ayrshare"); until then, no code path flips content_items.status to
+ * 'posted', so no post_published events are recorded yet — the Analytics
+ * loop dashboard runs on DEMO_* data for that side until it does.
  */
 export async function queueContentItem(
   orgId: string,

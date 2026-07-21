@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto"
 
 import { APPOINTMENT_STATUSES } from "@/components/inbox/status-pill"
+import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAppointment, updateAppointmentStatus } from "@/lib/frontdesk"
 import { DEMO_ORG } from "@/lib/demo"
 import { getCurrentOrgId } from "@/lib/org"
@@ -105,6 +106,23 @@ export async function createAppointmentAction(
       service: input.service,
       notes: input.notes,
     })
+
+    if (appointment) {
+      // Best-effort — recordAnalyticsEvent uses the service-role admin
+      // client internally (analytics_events is service-role-insert-only),
+      // so this is correct to call from an RLS-scoped server action. Never
+      // fail the booking over an analytics-recording error.
+      try {
+        await recordAnalyticsEvent(orgId, {
+          kind: "booking_created",
+          contactId: input.contactId,
+          metadata: { service: input.service },
+        })
+      } catch (analyticsError) {
+        console.error("[booking-actions] failed to record booking_created event", analyticsError)
+      }
+    }
+
     return { ok: appointment !== null, appointment }
   } catch {
     return { ok: false, appointment: null }

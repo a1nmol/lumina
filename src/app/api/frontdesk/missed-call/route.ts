@@ -13,6 +13,7 @@
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { resolveWidgetOrg, ORG_SLUG_RE } from "@/app/widget/resolve-org"
@@ -103,6 +104,7 @@ export async function POST(request: NextRequest) {
     if (contactLookupError) throw new Error(contactLookupError.message)
 
     let contact = existingContact
+    const isNewContact = !contact
     if (!contact) {
       const { data: createdContact, error: contactInsertError } = await admin
         .from("contacts")
@@ -132,6 +134,7 @@ export async function POST(request: NextRequest) {
     if (conversationLookupError) throw new Error(conversationLookupError.message)
 
     let conversation = existingConversation
+    const isNewConversation = !conversation
     if (!conversation) {
       const { data: createdConversation, error: conversationInsertError } = await admin
         .from("conversations")
@@ -143,6 +146,34 @@ export async function POST(request: NextRequest) {
         throw new Error(conversationInsertError?.message ?? "failed to create conversation")
       }
       conversation = createdConversation
+    }
+
+    // Best-effort loop-data recording — never fail the missed-call text over
+    // an analytics-recording error. Deduped to only fire on first sight of a
+    // new contact/conversation.
+    if (isNewContact) {
+      try {
+        await recordAnalyticsEvent(resolved.orgId, {
+          kind: "lead_captured",
+          contactId: contact.id,
+          conversationId: conversation.id,
+          metadata: { channel: "missed_call" },
+        })
+      } catch (analyticsError) {
+        console.error("[frontdesk/missed-call] failed to record lead_captured event", analyticsError)
+      }
+    }
+    if (isNewConversation) {
+      try {
+        await recordAnalyticsEvent(resolved.orgId, {
+          kind: "conversation_started",
+          contactId: contact.id,
+          conversationId: conversation.id,
+          metadata: { channel: "sms" },
+        })
+      } catch (analyticsError) {
+        console.error("[frontdesk/missed-call] failed to record conversation_started event", analyticsError)
+      }
     }
 
     const { data: outboundMessage, error: outboundError } = await admin
