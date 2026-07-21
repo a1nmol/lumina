@@ -5,13 +5,31 @@ import { getSupabaseAnonKey, getSupabaseUrl, isSupabaseConfigured } from "@/lib/
 
 // Next.js 16 renamed the `middleware.ts` file convention to `proxy.ts`
 // (middleware.ts still works but is deprecated and warns at build time).
-// This is a pure session-refresh proxy: it refreshes the Supabase auth
-// session cookie on every request so Server Components always see a fresh
-// session. It deliberately does NOT do any redirect/route-protection logic
-// yet — that's a separate, later concern.
+// This proxy refreshes the Supabase auth session cookie on every request so
+// Server Components always see a fresh session, and — once Supabase is
+// configured — protects the (app) route group by redirecting signed-out
+// requests to /login. /login, /widget, /api, and static assets stay public.
+
+/** Route prefixes gated behind the (app) layout — mirrors src/app/(app)'s route folders. */
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/studio",
+  "/calendar",
+  "/inbox",
+  "/contacts",
+  "/analytics",
+  "/growth",
+  "/admin",
+  "/settings",
+]
+
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
+
 export async function proxy(request: NextRequest) {
   // No-op cleanly when Supabase isn't configured, so local/demo dev never
-  // breaks before env vars are set.
+  // breaks before env vars are set — demo mode stays fully open.
   if (!isSupabaseConfigured()) {
     return NextResponse.next()
   }
@@ -39,7 +57,14 @@ export async function proxy(request: NextRequest) {
   // which can't write cookies themselves — this proxy is what keeps them in
   // sync. Do not remove this call or run other logic between the client
   // creation and this call (see the official @supabase/ssr guidance).
-  await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user && isProtectedPath(request.nextUrl.pathname)) {
+    const loginUrl = new URL("/login", request.url)
+    return NextResponse.redirect(loginUrl)
+  }
 
   return supabaseResponse
 }

@@ -8,9 +8,18 @@ import { RouteTransition } from "@/components/route-transition"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { isPlatformAdmin } from "@/lib/admin"
+import { DEMO_ORG } from "@/lib/demo"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { createClient } from "@/lib/supabase/server"
-import { ensureOrgBootstrap } from "@/lib/org"
+import { ensureOrgBootstrap, getOrgSidebarContext } from "@/lib/org"
+
+const DEMO_SIDEBAR_CONTEXT = {
+  orgName: DEMO_ORG.name,
+  orgSlug: DEMO_ORG.slug,
+  planName: "Free test plan",
+  userEmail: "demo@localos.app",
+  userName: "Demo User",
+}
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   // Repair path: a signed-in user can end up orphaned (no org_members row)
@@ -28,12 +37,24 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     }
   }
 
-  const isAdmin = await isPlatformAdmin()
+  const [isAdmin, sidebarContext] = await Promise.all([
+    isPlatformAdmin(),
+    isSupabaseConfigured() ? getOrgSidebarContext() : Promise.resolve(null),
+  ])
+
+  const sidebarProps = sidebarContext
+    ? {
+        orgName: sidebarContext.orgName,
+        orgSlug: sidebarContext.orgSlug,
+        planName: sidebarContext.planName,
+        userEmail: sidebarContext.userEmail,
+      }
+    : DEMO_SIDEBAR_CONTEXT
 
   return (
     <NotificationsProvider>
       <SidebarProvider>
-        <AppSidebar isAdmin={isAdmin} />
+        <AppSidebar isAdmin={isAdmin} {...sidebarProps} />
         <SidebarInset>
           <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
             <SidebarTrigger />

@@ -43,7 +43,6 @@ import {
   WORKSPACE_NAV,
   type NavItem,
 } from "@/components/nav-items"
-import { DEMO_ORG } from "@/lib/demo"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { cn } from "@/lib/utils"
 
@@ -56,13 +55,30 @@ function getInitials(name: string) {
     .join("")
 }
 
+/** Best-effort display name from an email when there's no real profile name yet — e.g. "anmol.subedi@x.com" → "Anmol Subedi". */
+function displayNameFromEmail(email: string) {
+  const localPart = email.split("@")[0] ?? email
+  const words = localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+  return words.length > 0 ? words.join(" ") : email
+}
+
 type AppSidebarProps = {
   /** Whether the current user can see the Admin nav item / route. */
   isAdmin: boolean
+  orgName: string
+  orgSlug: string
+  planName: string
+  userEmail: string
+  /** Optional real display name; falls back to a name derived from userEmail. */
+  userName?: string
 }
 
-export function AppSidebar({ isAdmin }: AppSidebarProps) {
+export function AppSidebar({ isAdmin, orgName, orgSlug, planName, userEmail, userName }: AppSidebarProps) {
   const router = useRouter()
+  const userDisplayName = userName ?? displayNameFromEmail(userEmail)
 
   async function handleSignOut() {
     if (isSupabaseConfigured()) {
@@ -79,6 +95,7 @@ export function AppSidebar({ isAdmin }: AppSidebarProps) {
       <SidebarHeader className="gap-3 px-2 pt-2">
         <DropdownMenu>
           <DropdownMenuTrigger
+            title={orgSlug ? `${orgName} (${orgSlug})` : orgName}
             className={cn(
               "flex w-full items-center gap-2 rounded-lg p-1.5 text-left ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent focus-visible:ring-2",
               "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1"
@@ -86,14 +103,14 @@ export function AppSidebar({ isAdmin }: AppSidebarProps) {
           >
             <Avatar size="sm" className="rounded-md">
               <AvatarFallback className="rounded-md bg-primary/15 text-xs font-semibold text-primary">
-                {getInitials(DEMO_ORG.name)}
+                {getInitials(orgName)}
               </AvatarFallback>
             </Avatar>
             <div className="flex min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-medium text-sidebar-foreground">
-                {DEMO_ORG.name}
+                {orgName}
               </span>
-              <span className="truncate text-xs text-sidebar-foreground/60">Free test plan</span>
+              <span className="truncate text-xs text-sidebar-foreground/60">{planName}</span>
             </div>
             <ChevronsUpDown
               aria-hidden="true"
@@ -104,7 +121,7 @@ export function AppSidebar({ isAdmin }: AppSidebarProps) {
             <DropdownMenuLabel>Switch business</DropdownMenuLabel>
             <DropdownMenuItem>
               <Check aria-hidden="true" className="size-4 text-primary" />
-              {DEMO_ORG.name}
+              {orgName}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href="/settings" />}>
@@ -157,14 +174,14 @@ export function AppSidebar({ isAdmin }: AppSidebarProps) {
         <div className="flex items-center justify-between gap-2 rounded-lg px-1 py-1 group-data-[collapsible=icon]:flex-col">
           <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
             <Avatar size="sm">
-              <AvatarFallback>DU</AvatarFallback>
+              <AvatarFallback>{getInitials(userDisplayName)}</AvatarFallback>
             </Avatar>
             <div className="flex min-w-0 flex-col">
               <span className="truncate text-xs font-medium text-sidebar-foreground">
-                Demo User
+                {userDisplayName}
               </span>
               <span className="truncate text-xs text-sidebar-foreground/60">
-                demo@localos.app
+                {userEmail}
               </span>
             </div>
           </div>

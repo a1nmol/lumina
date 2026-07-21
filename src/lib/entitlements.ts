@@ -85,3 +85,16 @@ export async function hasFeature(orgId: string, flag: string): Promise<boolean> 
   const entitlements = await getEntitlements(orgId)
   return Boolean(entitlements.featureFlags[flag])
 }
+
+/**
+ * Turns a plan id (e.g. `free_test`) into a friendly label (`Free test
+ * plan`) when there's no `plans.name` to use instead — see
+ * src/lib/org.ts#getOrgSidebarContext, which prefers the real plan name and
+ * falls back to this. Idempotent for ids that already end in "plan".
+ */
+export function prettifyPlanId(planId: string): string {
+  const spaced = planId.replace(/[_-]+/g, " ").trim()
+  if (!spaced) return "Free plan"
+  const capitalized = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase()
+  return /plan$/i.test(capitalized) ? capitalized : `${capitalized} plan`
+}

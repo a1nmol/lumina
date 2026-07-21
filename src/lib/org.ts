@@ -14,9 +14,25 @@ import "server-only"
 // the two stay equivalent.
 
 import { randomUUID } from "node:crypto"
+import { cache } from "react"
 
+import { prettifyPlanId } from "@/lib/entitlements"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+/** Shared org_members lookup used by both getCurrentOrgId and getOrgSidebarContext, given an already-created client + user id (avoids a redundant auth.getUser() round trip when the caller already has one). */
+async function lookupOrgIdForUser(supabase: SupabaseServerClient, userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("org_members")
+    .select("org_id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle()
+
+  return data?.org_id ?? null
+}
 
 /**
  * The signed-in user's first org, via org_members. Null if unauthenticated,
@@ -36,15 +52,58 @@ export async function getCurrentOrgId(): Promise<string | null> {
   } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle()
-
-  return data?.org_id ?? null
+  return lookupOrgIdForUser(supabase, user.id)
 }
+
+export interface OrgSidebarContext {
+  orgId: string
+  orgName: string
+  orgSlug: string
+  /** Friendly plan label — real plans.name when available, else prettifyPlanId(plan_id). */
+  planName: string
+  userEmail: string
+}
+
+/**
+ * Everything the app shell (sidebar business switcher/footer + Command
+ * Center greeting) needs about the signed-in user's org, in one place.
+ * Null when Supabase isn't configured (demo mode — callers fall back to
+ * DEMO_ORG constants) or when the request is unauthenticated/orphaned (no
+ * org yet — src/proxy.ts route protection should prevent the former; the
+ * app layout's ensureOrgBootstrap call prevents the latter for real users).
+ *
+ * Wrapped in React's `cache()` so the layout and any page rendered under it
+ * (e.g. the dashboard) share one fetch per request instead of duplicating
+ * the auth + org + entitlements round trips.
+ */
+export const getOrgSidebarContext = cache(async (): Promise<OrgSidebarContext | null> => {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const orgId = await lookupOrgIdForUser(supabase, user.id)
+  if (!orgId) return null
+
+  const [{ data: org }, { data: entitlements }] = await Promise.all([
+    supabase.from("orgs").select("name, slug").eq("id", orgId).maybeSingle(),
+    supabase.from("entitlements").select("plan_id").eq("org_id", orgId).maybeSingle(),
+  ])
+
+  const planId = entitlements?.plan_id ?? "free_test"
+  const { data: plan } = await supabase.from("plans").select("name").eq("id", planId).maybeSingle()
+
+  return {
+    orgId,
+    orgName: org?.name ?? "My Business",
+    orgSlug: org?.slug ?? "",
+    planName: plan?.name ?? prettifyPlanId(planId),
+    userEmail: user.email ?? "",
+  }
+})
 
 export interface OrgBootstrapResult {
   orgId: string
