@@ -46,6 +46,10 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Main Street at Dusk — brand accents (docs/design-briefs/brand-redesign-plan.md §3) */
+  --color-flame: var(--flame);
+  --color-flame-foreground: var(--flame-foreground);
+  --color-amber-glow: var(--amber-glow);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -60,56 +64,73 @@
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
   --shadow-glow: var(--shadow-glow);
+  --shadow-flame-glow: var(--shadow-flame-glow);
 }
 
 :root {
-  /* LocalOS neutrals — near-neutral with a whisper of the brand's cool cast */
-  --background: oklch(0.988 0.002 277);
-  --foreground: oklch(0.16 0.01 277);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.16 0.01 277);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.16 0.01 277);
-  /* Brand primary — electric indigo-violet */
+  /* LocalOS neutrals — "Daylight" register: warm paper, not blue-white.
+     docs/design-briefs/brand-redesign-plan.md §3/§7. Hue band 60 (ink/text)
+     to 85 (paper/surfaces), chroma low throughout — never pure gray. */
+  --background: oklch(0.97 0.015 85); /* paper cream */
+  --foreground: oklch(0.24 0.03 60); /* espresso */
+  --card: oklch(0.985 0.01 85);
+  --card-foreground: oklch(0.24 0.03 60);
+  --popover: oklch(0.985 0.01 85);
+  --popover-foreground: oklch(0.24 0.03 60);
+  /* Brand primary — electric indigo-violet. Unchanged: the thread across both registers. */
   --primary: oklch(0.54 0.21 277);
   --primary-foreground: oklch(0.985 0.005 277);
-  --secondary: oklch(0.965 0.005 277);
-  --secondary-foreground: oklch(0.25 0.02 277);
-  --muted: oklch(0.965 0.005 277);
-  --muted-foreground: oklch(0.5 0.015 277);
-  --accent: oklch(0.955 0.012 277);
-  --accent-foreground: oklch(0.32 0.06 277);
-  --destructive: oklch(0.577 0.215 27);
+  --secondary: oklch(0.93 0.02 78);
+  --secondary-foreground: oklch(0.3 0.03 60);
+  --muted: oklch(0.93 0.02 78);
+  --muted-foreground: oklch(0.48 0.025 65);
+  --accent: oklch(0.91 0.03 75);
+  --accent-foreground: oklch(0.32 0.045 60);
+  /* Semantic — hue/chroma unchanged from the pre-retune palette; lightness
+     nudged down only as far as the new warmer, slightly lighter paper
+     background demands for AA text contrast (see contrast table in the
+     Gate 1 build report). */
+  --destructive: oklch(0.56 0.215 27);
   --destructive-foreground: oklch(0.985 0 0);
-  --success: oklch(0.6 0.13 155);
+  --success: oklch(0.52 0.13 155);
   --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.72 0.14 75);
-  --warning-foreground: oklch(0.2 0.02 75);
-  --info: oklch(0.58 0.13 240);
+  --warning: oklch(0.52 0.14 75);
+  --warning-foreground: oklch(0.985 0.01 85);
+  --info: oklch(0.52 0.13 240);
   --info-foreground: oklch(0.985 0 0);
-  --border: oklch(0.915 0.005 277);
-  --input: oklch(0.915 0.005 277);
+  --border: oklch(0.88 0.02 78);
+  --input: oklch(0.88 0.02 78);
   --ring: oklch(0.54 0.21 277);
-  /* Dataviz — categorical, hue-spaced, AA-friendly on light */
+  /* Dataviz — categorical, hue-spaced, AA-friendly on light. Unchanged. */
   --chart-1: oklch(0.54 0.21 277); /* brand violet */
   --chart-2: oklch(0.6 0.11 200); /* teal-cyan */
   --chart-3: oklch(0.7 0.13 75); /* amber */
   --chart-4: oklch(0.62 0.18 350); /* magenta */
   --chart-5: oklch(0.6 0.13 155); /* green */
   --radius: 0.625rem;
-  --sidebar: oklch(0.975 0.004 277);
-  --sidebar-foreground: oklch(0.3 0.015 277);
+  --sidebar: oklch(0.945 0.02 80);
+  --sidebar-foreground: oklch(0.32 0.03 60);
   --sidebar-primary: oklch(0.54 0.21 277);
   --sidebar-primary-foreground: oklch(0.985 0.005 277);
-  --sidebar-accent: oklch(0.94 0.01 277);
-  --sidebar-accent-foreground: oklch(0.25 0.04 277);
-  --sidebar-border: oklch(0.915 0.005 277);
+  --sidebar-accent: oklch(0.91 0.03 76);
+  --sidebar-accent-foreground: oklch(0.28 0.045 60);
+  --sidebar-border: oklch(0.88 0.02 78);
   --sidebar-ring: oklch(0.54 0.21 277);
-  /* Elevation — soft layered in light */
-  --shadow-soft: 0 1px 2px oklch(0.2 0.02 277 / 0.06), 0 1px 3px oklch(0.2 0.02 277 / 0.08);
-  --shadow-raised: 0 2px 4px oklch(0.2 0.02 277 / 0.05), 0 6px 16px oklch(0.2 0.02 277 / 0.1);
-  --shadow-overlay: 0 8px 16px oklch(0.2 0.02 277 / 0.08), 0 20px 48px oklch(0.2 0.02 277 / 0.16);
+  /* Main Street at Dusk — brand accents (new, additive). Light register:
+     CTA flame terracotta lightened from the plan's literal 0.62 to 0.58 so
+     white button text clears 4.5:1 (see contrast table); amber-glow is
+     decorative-only (icon strokes/gradient stops/badges), never body text. */
+  --flame: oklch(0.58 0.15 45);
+  --flame-foreground: oklch(1 0 0);
+  --amber-glow: oklch(0.78 0.14 80);
+  /* Elevation — soft layered in light. Re-tinted to the warm hue family (60)
+     for cohesion with the daylight register; chroma is negligible so the
+     visual change is imperceptible. */
+  --shadow-soft: 0 1px 2px oklch(0.22 0.02 60 / 0.07), 0 1px 3px oklch(0.22 0.02 60 / 0.09);
+  --shadow-raised: 0 2px 4px oklch(0.22 0.02 60 / 0.06), 0 6px 16px oklch(0.22 0.02 60 / 0.11);
+  --shadow-overlay: 0 8px 16px oklch(0.22 0.02 60 / 0.09), 0 20px 48px oklch(0.22 0.02 60 / 0.17);
   --shadow-glow: 0 0 0 1px oklch(0.54 0.21 277 / 0.12), 0 4px 24px oklch(0.54 0.21 277 / 0.18);
+  --shadow-flame-glow: 0 0 0 1px oklch(0.58 0.15 45 / 0.18), 0 6px 20px oklch(0.58 0.15 45 / 0.3);
   /* Motion */
   --duration-fast: 150ms;
   --duration-base: 250ms;
@@ -156,11 +177,20 @@
   --sidebar-accent-foreground: oklch(0.92 0.02 277);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.68 0.17 277);
+  /* Main Street at Dusk — brand accents (new, additive). Dark register:
+     flame brightens (same pattern as --primary light→dark) so it reads as
+     a glowing terracotta ember against the dusk background; foreground
+     flips to dark ink because the brighter swatch fails AA with white text
+     (see contrast table). */
+  --flame: oklch(0.68 0.16 45);
+  --flame-foreground: oklch(0.15 0.02 45);
+  --amber-glow: oklch(0.8 0.15 82);
   /* Elevation — glow-aware in dark */
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.35);
   --shadow-raised: 0 2px 4px oklch(0 0 0 / 0.3), 0 8px 20px oklch(0 0 0 / 0.4);
   --shadow-overlay: 0 8px 16px oklch(0 0 0 / 0.4), 0 24px 56px oklch(0 0 0 / 0.55);
   --shadow-glow: 0 0 0 1px oklch(0.68 0.17 277 / 0.25), 0 4px 28px oklch(0.68 0.17 277 / 0.25);
+  --shadow-flame-glow: 0 0 0 1px oklch(0.68 0.16 45 / 0.3), 0 6px 24px oklch(0.68 0.16 45 / 0.35);
 }
 
 /* Studio composer — text shimmer sweep for "still generating" copy.
@@ -196,4 +226,42 @@
       scroll-behavior: auto !important;
     }
   }
+}
+
+/* Receipt toast — "toasts print like receipts" (brand-redesign-plan.md §5
+   micro-signatures). Namespaced to `.receipt-toast`, wired once via the
+   `toastOptions.classNames.toast` prop in src/components/ui/sonner.tsx —
+   every existing `toast()` call site is untouched.
+   `--receipt-time` is a live quoted-string custom property set inline by
+   the Toaster wrapper (updates every ~30s), which is why it can be spliced
+   straight into `content` here. Paper-vs-dusk surface comes for free from
+   `--popover` (already retuned per register above) — no extra rule needed. */
+.receipt-toast {
+  position: relative;
+}
+.receipt-toast::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--border) 0 4px,
+    transparent 4px 8px
+  );
+}
+.receipt-toast [data-content] {
+  width: 100%;
+}
+.receipt-toast [data-content]::before {
+  content: "LocalOS · " var(--receipt-time, "");
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }

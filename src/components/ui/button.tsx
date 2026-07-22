@@ -18,6 +18,10 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // Main Street at Dusk CTA accent — decisive moments only (early
+        // access, "book now"), not a general-purpose primary swap.
+        flame:
+          "bg-flame text-flame-foreground hover:bg-flame/90 hover:shadow-flame-glow focus-visible:border-flame/50 focus-visible:ring-flame/30",
       },
       size: {
         default:

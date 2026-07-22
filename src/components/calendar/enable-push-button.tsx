@@ -5,6 +5,7 @@ import { BellCheck, BellPlus, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { subscribeToPush } from "@/app/(app)/calendar/push-actions"
+import { useWickCelebration } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 import { urlBase64ToUint8Array } from "@/lib/push-client"
 import { cn } from "@/lib/utils"
@@ -30,6 +31,7 @@ function readEnabledFlag(): boolean {
 export function EnablePushButton({ className }: { className?: string }) {
   const [enabled, setEnabled] = useState(readEnabledFlag)
   const [loading, setLoading] = useState(false)
+  const { celebrate } = useWickCelebration()
 
   async function handleClick() {
     if (enabled || loading) return
@@ -59,6 +61,7 @@ export function EnablePushButton({ className }: { className?: string }) {
         // server-push subscription to create.
         window.localStorage.setItem(ENABLED_STORAGE_KEY, "1")
         setEnabled(true)
+        celebrate()
         toast.success("Reminders enabled 🎉", {
           description: "You'll get in-app reminders 10 minutes before each post.",
         })
@@ -82,6 +85,7 @@ export function EnablePushButton({ className }: { className?: string }) {
 
       window.localStorage.setItem(ENABLED_STORAGE_KEY, "1")
       setEnabled(true)
+      celebrate()
 
       if (result.live) {
         toast.success("Reminders enabled 🎉", {
