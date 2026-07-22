@@ -1,11 +1,26 @@
 // Section 4 · HOW IT WORKS — three streetlamps (landing-copy.md §4). Plain-
 // English pillars, no AI jargon. Each pillar is a streetlamp SVG (pole +
-// head + amber glow ellipse); glow is static-on for Gate 2 (Gate 3 lights
-// them in on scroll via the `data-scene` hook).
+// head + amber glow ellipse); as the column scrolls into view the lamp
+// "flicks on" (glow flicker-springs to full) and the copy fades up right
+// after, staggered column to column.
 
+"use client"
+
+import { motion, useReducedMotion } from "framer-motion"
 import { CalendarCheck2, MessageCircleHeart, Sparkles, type LucideIcon } from "lucide-react"
 
+import { duration, easing } from "@/lib/motion"
+
 import { ScrollReveal } from "./scroll-reveal"
+
+/** Delay added per column so lamps light left-to-right even when they enter view together. */
+const COLUMN_STAGGER = 0.15
+/** Extra delay after a lamp's flicker starts before its copy fades up ("right after"). */
+const COPY_DELAY_AFTER_LAMP = 0.15
+/** Flicker duration: two quick under/over-shoots before settling fully lit. */
+const FLICKER_DURATION = 0.9
+const FLICKER_OPACITY = [0, 0.4, 0.15, 1]
+const FLICKER_TIMES = [0, 0.3, 0.55, 1]
 
 const PILLARS: { title: string; body: string; icon: LucideIcon }[] = [
   {
@@ -35,11 +50,7 @@ export function Lamps() {
 
         <div className="mt-16 grid gap-12 sm:grid-cols-3 sm:gap-6">
           {PILLARS.map((pillar, index) => (
-            <ScrollReveal key={pillar.title} delay={index * 0.08} className="flex flex-col items-center text-center">
-              <StreetLamp icon={pillar.icon} />
-              <h3 className="mt-5 text-lg font-semibold text-foreground">{pillar.title}</h3>
-              <p className="mt-2 max-w-[22ch] text-sm text-muted-foreground">{pillar.body}</p>
-            </ScrollReveal>
+            <Pillar key={pillar.title} pillar={pillar} index={index} />
           ))}
         </div>
       </div>
@@ -47,17 +58,119 @@ export function Lamps() {
   )
 }
 
-function StreetLamp({ icon: Icon }: { icon: LucideIcon }) {
+/** unlit → lit variants, keyed off the column index via the `custom` prop for the stagger. */
+const glowVariants = {
+  unlit: { opacity: 0 },
+  lit: (i: number) => ({
+    opacity: FLICKER_OPACITY,
+    transition: { delay: i * COLUMN_STAGGER, duration: FLICKER_DURATION, times: FLICKER_TIMES, ease: easing.out },
+  }),
+}
+
+const lampHeadVariants = {
+  unlit: { opacity: 0.5 },
+  lit: (i: number) => ({
+    opacity: 1,
+    transition: { delay: i * COLUMN_STAGGER, duration: duration.base, ease: easing.out },
+  }),
+}
+
+const copyVariants = {
+  unlit: { opacity: 0, y: 16 },
+  lit: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * COLUMN_STAGGER + COPY_DELAY_AFTER_LAMP,
+      duration: duration.base,
+      ease: easing.out,
+    },
+  }),
+}
+
+function Pillar({
+  pillar,
+  index,
+}: {
+  pillar: { title: string; body: string; icon: LucideIcon }
+  index: number
+}) {
+  const reduceMotion = useReducedMotion()
+
+  if (reduceMotion) {
+    return (
+      <div className="flex flex-col items-center text-center">
+        <StreetLampStatic icon={pillar.icon} />
+        <h3 className="mt-5 text-lg font-semibold text-foreground">{pillar.title}</h3>
+        <p className="mt-2 max-w-[22ch] text-sm text-muted-foreground">{pillar.body}</p>
+      </div>
+    )
+  }
+
+  return (
+    <motion.div
+      className="flex flex-col items-center text-center"
+      custom={index}
+      initial="unlit"
+      whileInView="lit"
+      viewport={{ once: true, margin: "-40%" }}
+    >
+      <StreetLampAnimated icon={pillar.icon} />
+      <motion.div variants={copyVariants}>
+        <h3 className="mt-5 text-lg font-semibold text-foreground">{pillar.title}</h3>
+        <p className="mt-2 max-w-[22ch] text-sm text-muted-foreground">{pillar.body}</p>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+function StreetLampAnimated({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <div className="relative flex flex-col items-center" aria-hidden="true">
       <svg width="72" height="130" viewBox="0 0 72 130" className="overflow-visible">
-        {/* Glow */}
-        <ellipse cx="36" cy="28" rx="30" ry="24" className="fill-amber-glow/25 glow-pulse" style={{ filter: "blur(10px)" }} />
-        <ellipse cx="36" cy="28" rx="14" ry="12" className="fill-amber-glow/50 glow-pulse" style={{ filter: "blur(4px)" }} />
-        {/* Lamp head */}
+        {/* Glow — unlit until the column scrolls into view, then flickers on */}
+        <motion.ellipse
+          cx="36"
+          cy="28"
+          rx="30"
+          ry="24"
+          variants={glowVariants}
+          className="fill-amber-glow/25"
+          style={{ filter: "blur(10px)" }}
+        />
+        <motion.ellipse
+          cx="36"
+          cy="28"
+          rx="14"
+          ry="12"
+          variants={glowVariants}
+          className="fill-amber-glow/50"
+          style={{ filter: "blur(4px)" }}
+        />
+        {/* Lamp head — dim until lit */}
+        <motion.g variants={lampHeadVariants}>
+          <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" className="fill-foreground/80" />
+          <rect x="30" y="34" width="12" height="6" rx="1.5" className="fill-foreground/80" />
+        </motion.g>
+        {/* Pole — structural, not part of the light */}
+        <rect x="33.5" y="40" width="5" height="80" rx="2" className="fill-foreground/70" />
+        <rect x="26" y="118" width="20" height="6" rx="2" className="fill-foreground/70" />
+      </svg>
+      <span className="absolute top-5 flex size-8 items-center justify-center rounded-full bg-background/80 text-flame ring-1 ring-amber-glow/40 backdrop-blur-sm">
+        <Icon aria-hidden="true" className="size-4" />
+      </span>
+    </div>
+  )
+}
+
+function StreetLampStatic({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <div className="relative flex flex-col items-center" aria-hidden="true">
+      <svg width="72" height="130" viewBox="0 0 72 130" className="overflow-visible">
+        <ellipse cx="36" cy="28" rx="30" ry="24" className="fill-amber-glow/25" style={{ filter: "blur(10px)" }} />
+        <ellipse cx="36" cy="28" rx="14" ry="12" className="fill-amber-glow/50" style={{ filter: "blur(4px)" }} />
         <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" className="fill-foreground/80" />
         <rect x="30" y="34" width="12" height="6" rx="1.5" className="fill-foreground/80" />
-        {/* Pole */}
         <rect x="33.5" y="40" width="5" height="80" rx="2" className="fill-foreground/70" />
         <rect x="26" y="118" width="20" height="6" rx="2" className="fill-foreground/70" />
       </svg>

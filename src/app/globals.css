@@ -150,6 +150,16 @@
   --chalkboard: oklch(0.22 0.02 155);
   --chalkboard-border: oklch(0.32 0.03 60);
   --chalkboard-foreground: oklch(0.94 0.01 90);
+  /* Day strip pinned scroll story (Gate 3) — the sky band that sweeps
+     dawn → noon → dusk → night → dawn as the section scrubs. Theme-
+     invariant like --chalkboard above: this is a literal time-of-day
+     depiction, not a surface color, so it doesn't participate in the
+     light/dark registers. Dusk/night reuse the existing brand indigo hue
+     (277) so the "signature gradient" thread stays consistent. */
+  --sky-dawn: oklch(0.9 0.05 75);
+  --sky-noon: oklch(0.97 0.02 90);
+  --sky-dusk: oklch(0.55 0.13 300);
+  --sky-night: oklch(0.16 0.03 277);
   /* Elevation — soft layered in light. Re-tinted to the warm hue family (60)
      for cohesion with the daylight register; chroma is negligible so the
      visual change is imperceptible. */
@@ -326,6 +336,40 @@
   animation: glow-pulse 3.2s ease-in-out infinite;
 }
 
+/* Loop board — idle shimmer that travels along one connector string every
+   ~6s (docs/design-briefs/brand-redesign-plan.md §5.7 hover-thread spec).
+   Uses CSS `offset-path`/`offset-distance` so the dot rides the exact same
+   bezier as the SVG path it's paired with. Travel happens in the first
+   ~30% of the cycle, then the dot stays hidden for the remainder — that
+   "off" portion is what reads as a ~6s cadence rather than a continuous
+   loop. The global prefers-reduced-motion rule above (animation-duration
+   forced to 0.01ms, iteration-count forced to 1) neutralizes this
+   automatically, matching the .sign-buzz / .glow-pulse pattern. */
+@keyframes string-shimmer {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  4% {
+    opacity: 1;
+  }
+  26% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  32% {
+    opacity: 0;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+.shimmer-dot {
+  offset-rotate: 0deg;
+  animation: string-shimmer 6s ease-in-out infinite;
+}
+
 /* Studio composer — text shimmer sweep for "still generating" copy.
    Hoisted here (single definition) so components only need to reference the
    keyframe by name via inline style, no per-instance <style> injection. */
@@ -397,4 +441,33 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted-foreground);
+}
+
+/* Receipt card — Command Center "while you were away" digest
+   (src/components/brand/receipt-card.tsx, brand-redesign-plan.md §7).
+   Reuses .receipt-toast's dashed-perforation idea for the top edge. */
+.receipt-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--border) 0 4px,
+    transparent 4px 8px
+  );
+}
+/* Torn-paper divider: a strip of small triangular notches, colored with the
+   surrounding page background, cut out of the card's own surface — the
+   classic CSS "torn ticket" technique. Purely decorative (aria-hidden). */
+.receipt-card__tear {
+  height: 10px;
+  background-image:
+    linear-gradient(135deg, var(--background) 7px, transparent 0),
+    linear-gradient(225deg, var(--background) 7px, transparent 0);
+  background-position: left bottom;
+  background-repeat: repeat-x;
+  background-size: 14px 14px;
 }

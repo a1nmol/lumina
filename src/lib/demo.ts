@@ -904,6 +904,13 @@ export const DEMO_OVERVIEW_STATS: AnalyticsOverviewStats = {
   },
 }
 
+/** Fixed rows for the Command Center's "while you were away" receipt (src/components/brand/receipt-card.tsx, src/lib/digest.ts) — always shown in demo mode so the design is visible without a live org/visit history. */
+export const DEMO_WHILE_YOU_WERE_AWAY_ROWS = [
+  { label: "New leads", value: "2" },
+  { label: "New bookings", value: "1" },
+  { label: "Unread conversations", value: "3" },
+]
+
 /** 3 rule-based insights computed from the demo data above (DEMO_LOOP_PAIRS) — numeric, specific, no fabricated claims. */
 export const DEMO_INSIGHTS: AnalyticsInsight[] = [
   {

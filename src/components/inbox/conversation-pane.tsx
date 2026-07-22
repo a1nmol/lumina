@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, type Ref } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { ArrowLeft, Info, MessageCircle } from "lucide-react"
+import { ArrowLeft, Info } from "lucide-react"
 
+import { Wick } from "@/components/brand/wick"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,9 +83,7 @@ export function ConversationPane({
   if (!detail) {
     return (
       <div className={cn("flex h-full flex-col items-center justify-center gap-3 p-8 text-center", className)}>
-        <span className="flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 via-primary/5 to-[var(--chart-2)]/10 text-primary ring-1 ring-primary/10">
-          <MessageCircle aria-hidden="true" className="size-5" />
-        </span>
+        <Wick state="idle" size={56} />
         <div className="flex max-w-xs flex-col gap-1">
           <h3 className="text-sm font-medium text-foreground">Select a conversation</h3>
           <p className="text-sm text-muted-foreground">

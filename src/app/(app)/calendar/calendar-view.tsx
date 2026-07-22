@@ -53,6 +53,7 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
           description="Drag, drop, and schedule posts across every channel from one queue — drafts, reminders, and evergreen posts included."
           actionLabel="Schedule a post"
           actionHref="/studio"
+          withWick
         />
       ) : view === "month" ? (
         <MonthView posts={posts} onPostsChange={setPosts} isLive={isLive} />

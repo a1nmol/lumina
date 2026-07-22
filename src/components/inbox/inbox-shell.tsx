@@ -228,6 +228,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
         title="Every conversation, one inbox"
         description="Comments, DMs, texts, and emails land here with AI-drafted replies ready to send."
         actionLabel="Connect a channel"
+        withWick
       />
     )
   }

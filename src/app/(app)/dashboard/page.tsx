@@ -2,11 +2,14 @@ import type { Metadata } from "next"
 import type { ReactNode } from "react"
 import { CalendarCheck2, Link2, Send, Star, UserPlus } from "lucide-react"
 
+import { ReceiptCard } from "@/components/brand/receipt-card"
+import { DigestSeenTracker } from "@/components/dashboard/digest-seen-tracker"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
 import { getOverviewStats } from "@/lib/analytics"
 import { DEMO_ORG } from "@/lib/demo"
+import { getWhileYouWereAwayDigest } from "@/lib/digest"
 import { getOrgSidebarContext } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { AnalyticsOverviewStats } from "@/lib/types"
@@ -131,7 +134,8 @@ async function loadDashboardData(): Promise<DashboardData> {
 }
 
 export default async function DashboardPage() {
-  const { orgName, stats } = await loadDashboardData()
+  const isLive = isSupabaseConfigured()
+  const [{ orgName, stats }, digestRows] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -139,6 +143,10 @@ export default async function DashboardPage() {
         title={`${getGreeting()}, ${orgName}`}
         description="Here's how your content and front desk loop performed this week."
       />
+
+      {digestRows && digestRows.length > 0 && (
+        <ReceiptCard title="While you were away" rows={digestRows} footer="Have a great day." />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat, index) => (
@@ -152,7 +160,10 @@ export default async function DashboardPage() {
         description="Link Google Business, Instagram, and SMS so LocalOS can post content and catch every lead automatically."
         actionLabel="Connect a channel"
         actionHref="/settings"
+        withWick
       />
+
+      {isLive && <DigestSeenTracker />}
     </div>
   )
 }

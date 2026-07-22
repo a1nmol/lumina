@@ -5,12 +5,13 @@ import type { ReactNode } from "react"
 import { motion, useReducedMotion } from "framer-motion"
 import { toast } from "sonner"
 
+import { Wick, type WickState } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { duration, easing } from "@/lib/motion"
 
 type EmptyStateProps = {
-  /** Pre-rendered Lucide icon, e.g. `<Sparkles aria-hidden className="size-6" />`. */
+  /** Pre-rendered Lucide icon, e.g. `<Sparkles aria-hidden className="size-6" />`. Still required even when `withWick` is true, since Wick only replaces the ring's contents. */
   icon: ReactNode
   title: string
   description: string
@@ -18,9 +19,18 @@ type EmptyStateProps = {
   /** If provided, the CTA navigates here. Otherwise it surfaces a "coming soon" toast. */
   actionHref?: string
   className?: string
+  /**
+   * When true, Wick hovers above the empty state instead of the icon ring
+   * (which hides) — an emotional-edge moment per brand-redesign-plan.md §4.
+   * Off by default. Never enable on admin/settings/dense-table surfaces
+   * (Wick's own dev-only guard also warns for `/admin` and `/settings`).
+   */
+  withWick?: boolean
+  /** Only meaningful when `withWick` is true — which Wick state to render. Defaults to "idle". */
+  wickState?: WickState
 }
 
-/** Illustrated (monochrome, gradient-ring) empty state with a single primary CTA. */
+/** Illustrated (monochrome, gradient-ring — or Wick) empty state with a single primary CTA. */
 export function EmptyState({
   icon,
   title,
@@ -28,6 +38,8 @@ export function EmptyState({
   actionLabel,
   actionHref,
   className,
+  withWick = false,
+  wickState = "idle",
 }: EmptyStateProps) {
   const reduceMotion = useReducedMotion()
 
@@ -41,12 +53,16 @@ export function EmptyState({
         className
       )}
     >
-      <span
-        aria-hidden="true"
-        className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 via-primary/5 to-[var(--chart-2)]/10 text-primary ring-1 ring-primary/10"
-      >
-        {icon}
-      </span>
+      {withWick ? (
+        <Wick state={wickState} size={56} />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 via-primary/5 to-[var(--chart-2)]/10 text-primary ring-1 ring-primary/10"
+        >
+          {icon}
+        </span>
+      )}
       <div className="flex max-w-sm flex-col gap-1.5">
         <h3 className="text-base font-medium text-foreground">{title}</h3>
         <p className="text-sm text-muted-foreground">{description}</p>
