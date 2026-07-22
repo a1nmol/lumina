@@ -63,17 +63,17 @@ export function FaqSigns() {
   )
 }
 
-/** A tiny OPEN/CLOSED flip sign — driven purely by the ancestor Trigger's `data-panel-open` state (group/accordion-trigger, declared in ui/accordion.tsx). Decorative. */
+/** A tiny OPEN/CLOSED flip sign — driven purely by the ancestor Trigger's `data-panel-open` state (group/accordion-trigger, declared in ui/accordion.tsx). Decorative. Ink outlines (hand-painted sign feel) instead of semantic success/destructive borders — the state is still legible via label + fill tint alone. */
 function FlipSignChip() {
   return (
     <span aria-hidden="true" className="relative inline-block h-5 w-11 shrink-0 [perspective:400px]">
       <span
-        className="absolute inset-0 flex items-center justify-center rounded-sm border border-success/40 bg-success/10 text-[9px] font-bold tracking-wide text-success uppercase transition-transform duration-base [backface-visibility:hidden] group-data-panel-open/accordion-trigger:[transform:rotateX(180deg)]"
+        className="absolute inset-0 flex items-center justify-center rounded-sm border border-foreground/25 bg-success/10 text-[9px] font-bold tracking-wide text-success uppercase transition-transform duration-base [backface-visibility:hidden] group-data-panel-open/accordion-trigger:[transform:rotateX(180deg)]"
       >
         Open
       </span>
       <span
-        className="absolute inset-0 flex items-center justify-center rounded-sm border border-destructive/40 bg-destructive/10 text-[9px] font-bold tracking-wide text-destructive uppercase transition-transform duration-base [backface-visibility:hidden] [transform:rotateX(180deg)] group-data-panel-open/accordion-trigger:[transform:rotateX(0deg)]"
+        className="absolute inset-0 flex items-center justify-center rounded-sm border border-foreground/25 bg-destructive/10 text-[9px] font-bold tracking-wide text-destructive uppercase transition-transform duration-base [backface-visibility:hidden] [transform:rotateX(180deg)] group-data-panel-open/accordion-trigger:[transform:rotateX(0deg)]"
       >
         Closed
       </span>

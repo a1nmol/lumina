@@ -1,8 +1,9 @@
 // Section 4 · HOW IT WORKS — three streetlamps (landing-copy.md §4). Plain-
-// English pillars, no AI jargon. Each pillar is a streetlamp SVG (pole +
-// head + amber glow ellipse); as the column scrolls into view the lamp
-// "flicks on" (glow flicker-springs to full) and the copy fades up right
-// after, staggered column to column.
+// English pillars, no AI jargon. Each pillar is a streetlamp SVG — ink
+// line-art strokes for the post/head (light-register restyle), amber glow
+// ellipse stays filled; as the column scrolls into view the lamp "flicks
+// on" (glow flicker-springs to full) and the copy fades up right after,
+// staggered column to column.
 
 "use client"
 
@@ -147,14 +148,23 @@ function StreetLampAnimated({ icon: Icon }: { icon: LucideIcon }) {
           className="fill-amber-glow/50"
           style={{ filter: "blur(4px)" }}
         />
-        {/* Lamp head — dim until lit */}
-        <motion.g variants={lampHeadVariants}>
-          <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" className="fill-foreground/80" />
-          <rect x="30" y="34" width="12" height="6" rx="1.5" className="fill-foreground/80" />
+        {/* Lamp head — ink line-art, dim until lit */}
+        <motion.g
+          variants={lampHeadVariants}
+          className="text-foreground/75"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+        >
+          <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" />
+          <rect x="30" y="34" width="12" height="6" rx="1.5" />
         </motion.g>
-        {/* Pole — structural, not part of the light */}
-        <rect x="33.5" y="40" width="5" height="80" rx="2" className="fill-foreground/70" />
-        <rect x="26" y="118" width="20" height="6" rx="2" className="fill-foreground/70" />
+        {/* Pole — ink line-art, structural, not part of the light */}
+        <g className="text-foreground/60" fill="none" stroke="currentColor" strokeWidth={1.5}>
+          <line x1="36" y1="40" x2="36" y2="120" />
+          <rect x="26" y="118" width="20" height="6" rx="2" />
+        </g>
       </svg>
       <span className="absolute top-5 flex size-8 items-center justify-center rounded-full bg-background/80 text-flame ring-1 ring-amber-glow/40 backdrop-blur-sm">
         <Icon aria-hidden="true" className="size-4" />
@@ -169,10 +179,14 @@ function StreetLampStatic({ icon: Icon }: { icon: LucideIcon }) {
       <svg width="72" height="130" viewBox="0 0 72 130" className="overflow-visible">
         <ellipse cx="36" cy="28" rx="30" ry="24" className="fill-amber-glow/25" style={{ filter: "blur(10px)" }} />
         <ellipse cx="36" cy="28" rx="14" ry="12" className="fill-amber-glow/50" style={{ filter: "blur(4px)" }} />
-        <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" className="fill-foreground/80" />
-        <rect x="30" y="34" width="12" height="6" rx="1.5" className="fill-foreground/80" />
-        <rect x="33.5" y="40" width="5" height="80" rx="2" className="fill-foreground/70" />
-        <rect x="26" y="118" width="20" height="6" rx="2" className="fill-foreground/70" />
+        <g className="text-foreground/75" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round">
+          <path d="M 20 26 Q 36 6 52 26 L 46 34 L 26 34 Z" />
+          <rect x="30" y="34" width="12" height="6" rx="1.5" />
+        </g>
+        <g className="text-foreground/60" fill="none" stroke="currentColor" strokeWidth={1.5}>
+          <line x1="36" y1="40" x2="36" y2="120" />
+          <rect x="26" y="118" width="20" height="6" rx="2" />
+        </g>
       </svg>
       <span className="absolute top-5 flex size-8 items-center justify-center rounded-full bg-background/80 text-flame ring-1 ring-amber-glow/40 backdrop-blur-sm">
         <Icon aria-hidden="true" className="size-4" />

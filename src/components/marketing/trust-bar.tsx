@@ -33,9 +33,15 @@ export function TrustBar() {
           {CHIPS.map(({ label, icon: Icon }) => (
             <span
               key={label}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-awning px-3.5 py-1.5 text-sm font-medium text-foreground"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pr-3.5 pl-1.5 text-sm font-medium text-foreground shadow-soft"
             >
-              <Icon aria-hidden="true" className="size-3.5 text-flame" />
+              {/* Icon is purely decorative (the label text already carries the
+                  meaning), so the reduced-opacity ink line-art treatment
+                  called for in the brief is safe here without an AA
+                  obligation — see the builder's contrast report. */}
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-awning">
+                <Icon aria-hidden="true" strokeWidth={1.5} className="size-3.5 text-foreground/60" />
+              </span>
               {label}
             </span>
           ))}

@@ -42,6 +42,14 @@ const TIMELINE = [
   { phase: "reset" as const, holdMs: 400 },
 ]
 
+export type HeroPhonePhase = (typeof TIMELINE)[number]["phase"]
+
+/** Springier bubble-entrance feel called for by the daylight hero brief —
+ * a touch looser than the shared `springGentle` token (260/30). Kept local
+ * (not hoisted into src/lib/motion.ts, out of this pass's scope) since it's
+ * a one-off tuned specifically for these chat bubbles. */
+const bubbleSpring = { type: "spring", stiffness: 300, damping: 24 } as const
+
 /** Word-by-word reveal, reusing the Composer's per-word cadence token. */
 function TypedBubbleText({ text, className }: { text: string; className?: string }) {
   const words = text.split(" ")
@@ -65,7 +73,16 @@ function TypedBubbleText({ text, className }: { text: string; className?: string
   return <span className={className}>{words.slice(0, count).join(" ")}</span>
 }
 
-export function HeroPhone() {
+interface HeroPhoneProps {
+  /** Fires whenever the timeline advances to a new phase — lets the hero
+   * choreograph Wick against the loop (curious at the customer message,
+   * thinking during the reply, one celebrating loop when the calendar chip
+   * lands). Never fires under reduced motion (the static scene has no
+   * phases to report). */
+  onPhaseChange?: (phase: HeroPhonePhase) => void
+}
+
+export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
   const reduceMotion = useReducedMotion()
   const containerRef = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -114,6 +131,12 @@ export function HeroPhone() {
     return () => clearTimeout(id)
   }, [index, isActive, reduceMotion])
 
+  // Report the current phase to the hero for its Wick choreography.
+  useEffect(() => {
+    if (reduceMotion) return
+    onPhaseChange?.(TIMELINE[index].phase)
+  }, [index, reduceMotion, onPhaseChange])
+
   if (reduceMotion) {
     return (
       <div className="mx-auto w-full max-w-[300px]" data-scene="hero-phone">
@@ -130,7 +153,36 @@ export function HeroPhone() {
     TIMELINE.findIndex((s) => s.phase === name) <= index
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-[300px]" data-scene="hero-phone">
+    <div ref={containerRef} className="relative mx-auto w-full max-w-[300px]" data-scene="hero-phone">
+      {/* Soft concentric ripple as the missed-call banner lands — two rings,
+          amber at 20%, expanding + fading out over 900ms. Sits behind the
+          phone shell (z-0), replays every loop via the cycleKey remount. */}
+      {phase === "call" && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+          <motion.span
+            key={`ripple-a-${cycleKey}`}
+            initial={{ opacity: 0.35, scale: 0.6 }}
+            animate={{ opacity: 0, scale: 1.5 }}
+            transition={{ duration: 0.9, ease: easing.out }}
+            className="absolute size-44 rounded-full border-2 border-amber-glow/20"
+          />
+          <motion.span
+            key={`ripple-b-${cycleKey}`}
+            initial={{ opacity: 0.3, scale: 0.6 }}
+            animate={{ opacity: 0, scale: 1.75 }}
+            transition={{ duration: 0.9, ease: easing.out, delay: 0.15 }}
+            className="absolute size-56 rounded-full border-2 border-amber-glow/20"
+          />
+        </div>
+      )}
+      {/* Subtle idle float on the shell itself — independent transform layer
+          so it composes cleanly with the hero's one-time spring entrance
+          wrapping this whole component. */}
+      <motion.div
+        className="relative z-10"
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 6, repeat: Infinity, ease: easing.inOut }}
+      >
       <PhoneShell>
         <motion.div
           className="flex h-[300px] flex-col justify-end gap-2 px-3 pb-4"
@@ -165,7 +217,7 @@ export function HeroPhone() {
                 key={`greeting-${cycleKey}`}
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={springGentle}
+                transition={bubbleSpring}
                 className="max-w-[85%] rounded-2xl rounded-br-md bg-primary/15 px-3.5 py-2.5 text-[13px] text-foreground"
               >
                 <TypedBubbleText text={GREETING_TEXT} />
@@ -179,7 +231,7 @@ export function HeroPhone() {
               key={`customer-${cycleKey}`}
               initial={{ opacity: 0, x: -12 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={springGentle}
+              transition={bubbleSpring}
               className="flex justify-start"
             >
               <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-muted px-3.5 py-2.5 text-[13px] text-foreground">
@@ -195,7 +247,7 @@ export function HeroPhone() {
                 key={`reply-${cycleKey}`}
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={springGentle}
+                transition={bubbleSpring}
                 className="max-w-[85%] rounded-2xl rounded-br-md bg-primary/15 px-3.5 py-2.5 text-[13px] text-foreground"
               >
                 <TypedBubbleText text={REPLY_TEXT} />
@@ -226,7 +278,7 @@ export function HeroPhone() {
                 key={`calendar-${cycleKey}`}
                 initial={{ opacity: 0, y: 6, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={springGentle}
+                transition={bubbleSpring}
                 className="relative inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-success"
               >
                 <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0" />
@@ -236,6 +288,7 @@ export function HeroPhone() {
           )}
         </motion.div>
       </PhoneShell>
+      </motion.div>
       <SrNarration />
     </div>
   )
@@ -245,7 +298,7 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       aria-hidden="true"
-      className="relative overflow-hidden rounded-[2.25rem] border-[6px] border-white/10 bg-card shadow-overlay"
+      className="relative overflow-hidden rounded-[2.25rem] border-[6px] border-white/10 bg-card shadow-raised"
     >
       {/* Notch */}
       <div className="absolute top-2.5 left-1/2 z-20 h-4 w-20 -translate-x-1/2 rounded-full bg-background/90 ring-1 ring-white/10" />

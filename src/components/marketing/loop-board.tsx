@@ -25,6 +25,8 @@ interface Post {
   top: string
   caption: string
   meta: string
+  /** Static idle tilt in degrees — alternates ±1.5° per polaroid, per the light-register restyle. */
+  tilt: number
   /** Indices into STRINGS this post's connectors belong to. */
   strings: number[]
   /** Indices into CUSTOMERS this post is connected to. */
@@ -45,6 +47,7 @@ const POSTS: Post[] = [
     top: "12%",
     caption: "Custom birthday cakes — book 48h ahead 🎂",
     meta: "Tue · Instagram",
+    tilt: -1.5,
     strings: [0, 1],
     customers: [0, 1],
   },
@@ -53,6 +56,7 @@ const POSTS: Post[] = [
     top: "58%",
     caption: "Weekend catering trays, made fresh 🧺",
     meta: "Thu · Facebook",
+    tilt: 1.5,
     strings: [2, 3],
     customers: [1, 2],
   },
@@ -122,8 +126,15 @@ export function LoopBoard() {
                     initial={false}
                     animate={{
                       pathLength: isActive ? [0, 1] : 1,
-                      opacity: isDimmed ? 0.2 : isActive ? 0.85 : 0.4,
-                      strokeWidth: isActive ? 2.5 : 1.5,
+                      // Bumped from the dusk-tuned 0.2/0.4/0.85 baseline —
+                      // indigo-on-awning tops out around 2.2:1 even at full
+                      // opacity (see the builder's contrast report), so this
+                      // is the best achievable read while staying "indigo,
+                      // not muddy ink"; the post↔customer relationship is
+                      // never conveyed by color alone (caption text +
+                      // aria-describedby carry it too).
+                      opacity: isDimmed ? 0.3 : isActive ? 1 : 0.55,
+                      strokeWidth: isActive ? 3 : 2,
                     }}
                     transition={{
                       pathLength: { duration: 0.5, ease: "easeOut" },
@@ -188,7 +199,7 @@ function PostCard({
       onBlur={onLeave}
       onClick={onToggle}
       initial={false}
-      animate={{ scale: isActive ? 1.03 : 1, rotate: isActive ? 0 : -2 }}
+      animate={{ scale: isActive ? 1.03 : 1, rotate: isActive ? 0 : post.tilt }}
       transition={spring}
       className="w-full max-w-[220px] rounded-lg border border-border bg-card p-3 text-left shadow-raised outline-none sm:absolute sm:left-0 focus-visible:ring-3 focus-visible:ring-ring/50"
       style={{ top: post.top }}

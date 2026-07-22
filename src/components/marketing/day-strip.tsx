@@ -3,7 +3,7 @@
 // Section 5-9 · THE DAY STRIP — landing-copy.md §5-9, brand-redesign-plan.md
 // §5.6 (the centerpiece). Gate 3: a pinned-scroll story on desktop (lg+) —
 // a sticky viewport-height stage whose ~400vh scroll driver scrubs a sky
-// gradient (dawn → noon → dusk → night → dawn) and crossfades five scene
+// arc (dawn → noon → dusk → night → dawn) and crossfades five scene
 // panels, each with a small scroll-scrubbed micro-motion (chalkboard
 // "write-on", a sliding ticket, an amber pulse, a typed-in reply, a
 // printing receipt). Below lg, and for anyone with prefers-reduced-motion,
@@ -13,18 +13,45 @@
 // Scroll mapping: `useScroll({ target: stageRef })` over the ~400vh driver
 // produces `scrollYProgress` (0→1). That single motion value is the only
 // scroll listener for the whole scene — everything else (`SkyLayer`,
-// `ScenePanel`, `RailDot`) derives its own crossfade/local-progress via
+// `ScenePanel`, `ChapterRail`) derives its own crossfade/local-progress via
 // `useTransform`, so there's no imperative scroll handling and no layout
-// thrash. Each of the 5 scenes owns an even 1/5 (20%) slice of progress;
-// `useSegmentOpacity` produces the shared crossfade curve (fade in over the
-// last ~4% of the previous slice, hold, fade out over the first ~4% of the
-// next) and each panel additionally derives its own `localT` (0→1 clamped
-// to its own slice) to drive that scene's specific micro-motion.
+// thrash. Each of the 5 scenes owns an even 1/5 (20%) slice of progress.
+//
+// Clarity rework (owner feedback: scenes were crossfading into each other
+// mid-scroll and reading as confusing). `computeSceneWindow` now carves
+// each scene's slice into three named zones instead of one soft bleed —
+// enter (fade 0→1, brief), plateau (~70% of the slice, held at full
+// opacity — the "readable" window), exit (fade 1→0, brief) — with an
+// explicit `GAP` between one scene's exit and the next scene's enter where
+// NEITHER panel is visible (only the sky arc + stage paper show). That's
+// the opposite of the old scheme, which let scene N's enter-fade run
+// *while* scene N-1 was still fully opaque (each panel's fade window
+// bled ~4% into its neighbor's slice), so both genuinely overlapped
+// on-screen. `clampMonotonic` keeps every resulting input array strictly
+// increasing and inside [0,1] — WAAPI keyframe offsets must be
+// non-decreasing, and edge scenes would otherwise produce out-of-range or
+// degenerate (zero-width) stops — the same epsilon-guard technique the
+// original crossfade used, just applied to the new enter/plateau/exit
+// windows instead of a bleed-into-neighbor one. Each panel additionally
+// derives its own `localT` (0→1 clamped to its own slice) to drive that
+// scene's specific micro-motion — unchanged by this rework, and its
+// existing thresholds all land comfortably inside the new plateau.
+//
+// Navigation: the left rail is a real chapter list (`ChapterRail`) — one
+// button per scene with its time stamp + short title, active/complete
+// states, and a click handler that smooth-scrolls the window to that
+// scene's plateau midpoint (computed from the stage driver's bounding
+// box; instant jump under reduced motion). An `aria-live="polite"` region
+// announces "Scene N of 5" on change. The mobile/stacked fallback gets a
+// lightweight companion: a `position: sticky` mini header (time + title)
+// that swaps via IntersectionObserver as you scroll past each card — no
+// pinning, no scroll-jacking, just a plain reactive label.
 
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   motion,
   useMotionValue,
+  useMotionValueEvent,
   useScroll,
   useTransform,
   type MotionValue,
@@ -38,16 +65,86 @@ import { cn } from "@/lib/utils"
 
 import { ScrollReveal } from "./scroll-reveal"
 
-/** Five equal scroll slices — one per scene, in on-page order. */
+/** Five equal scroll slices — one per scene, in on-page order. `chapter` is
+ *  the short label the chapter rail / mobile sticky header use (the full
+ *  `title` sentence stays reserved for the in-scene heading). */
 const SCENES = [
-  { key: "7am", stamp: "7:00 AM", title: "Your morning post, already written." },
-  { key: "12pm", stamp: "12:00 PM", title: "Your week, on the rail." },
-  { key: "6pm", stamp: "6:00 PM", title: "Ding — a customer at the digital door." },
-  { key: "11pm", stamp: "11:00 PM", title: "While Main Street sleeps, yours is answering." },
-  { key: "645am", stamp: "6:45 AM", title: "The morning receipt." },
+  { key: "7am", stamp: "7:00 AM", title: "Your morning post, already written.", chapter: "Morning post" },
+  { key: "12pm", stamp: "12:00 PM", title: "Your week, on the rail.", chapter: "Weekly queue" },
+  { key: "6pm", stamp: "6:00 PM", title: "Ding — a customer at the digital door.", chapter: "Front door" },
+  { key: "11pm", stamp: "11:00 PM", title: "While Main Street sleeps, yours is answering.", chapter: "After hours" },
+  { key: "645am", stamp: "6:45 AM", title: "The morning receipt.", chapter: "Morning receipt" },
 ] as const
 
 const SEGMENT_SIZE = 1 / SCENES.length
+
+/** The empty "only sky/stage shows" pause carved between every pair of
+ *  adjacent scenes, in total-scroll-progress units (~3% of the full range,
+ *  per the clarity rework). */
+const SCENE_GAP = 0.03
+/** How much of each scene's own slice stays a full-opacity "plateau". The
+ *  remainder is split evenly between its enter-fade and exit-fade. */
+const PLATEAU_RATIO = 0.7
+/** Enter/exit fade width, derived so `plateau + 2*fade + gap === segment`. */
+const SCENE_FADE = Math.max(0, ((1 - PLATEAU_RATIO) * SEGMENT_SIZE - SCENE_GAP) / 2)
+
+/** Clamp every value to [0,1] and nudge non-increasing neighbors up by a
+ *  hair so the array stays strictly increasing — WAAPI-compiled keyframe
+ *  offsets must be non-decreasing, and degenerate/duplicate stops (e.g. the
+ *  first scene has no "enter", so its enter-start === enter-end === 0)
+ *  otherwise break interpolation. Same epsilon-guard technique the sky
+ *  crossfade below already relies on. */
+function clampMonotonic(values: readonly number[]): number[] {
+  const eps = 0.0001
+  const out = values.map((v) => Math.min(1, Math.max(0, v)))
+  for (let i = 1; i < out.length; i++) {
+    if (out[i] <= out[i - 1]) out[i] = Math.min(1, out[i - 1] + eps)
+  }
+  return out
+}
+
+/** Pure (non-hook) math for one scene's enter/plateau/exit window, shared by
+ *  the opacity/y transform below AND the chapter rail's click-to-scroll
+ *  target — kept as plain numbers so the rail can use it outside a
+ *  MotionValue context. */
+function computeSceneWindow(index: number, total: number) {
+  const size = 1 / total
+  const boundaryStart = index * size
+  const boundaryEnd = boundaryStart + size
+  const isFirst = index === 0
+  const isLast = index === total - 1
+  const halfGap = SCENE_GAP / 2
+
+  // First scene needs no enter (visible from progress 0); last needs no
+  // exit (stays visible through progress 1) — mirrors the old scheme's
+  // edge handling.
+  const enterStart = isFirst ? 0 : boundaryStart + halfGap
+  const enterEnd = isFirst ? 0 : enterStart + SCENE_FADE
+  const exitEnd = isLast ? 1 : boundaryEnd - halfGap
+  const exitStart = isLast ? 1 : exitEnd - SCENE_FADE
+
+  return {
+    isFirst,
+    isLast,
+    enterStart,
+    enterEnd,
+    exitStart,
+    exitEnd,
+    /** Midpoint of the fully-visible plateau — the chapter rail's scroll target. */
+    plateauMid: (enterEnd + exitStart) / 2,
+  }
+}
+
+/** Opacity + y for one scene panel: 0 → 1 over `enter`, held at 1 across the
+ *  plateau, 1 → 0 over `exit` — fully resolved (opacity 0) before the next
+ *  scene's own enter window begins, because `SCENE_GAP` separates them. */
+function useSceneOpacityY(progress: MotionValue<number>, index: number, total: number) {
+  const w = computeSceneWindow(index, total)
+  const input = clampMonotonic([w.enterStart, w.enterEnd, w.exitStart, w.exitEnd])
+  const opacity = useTransform(progress, input, [w.isFirst ? 1 : 0, 1, 1, w.isLast ? 1 : 0])
+  const y = useTransform(progress, input, [w.isFirst ? 0 : 16, 0, 0, w.isLast ? 0 : -16])
+  return { opacity, y }
+}
 
 export function DayStrip() {
   return (
@@ -86,13 +183,7 @@ function DayStripBody() {
           fallback at every breakpoint, AND the universal pre-mount/SSR
           render ("stacked static everywhere" until proven otherwise). */}
       <div className={cn("mx-auto max-w-3xl px-4 sm:px-6 lg:px-8", showPinnedStage && "lg:hidden")}>
-        <div className="flex flex-col gap-16">
-          <MorningChalkboard />
-          <TicketRail />
-          <ShopBell />
-          <IndigoHours />
-          <MorningReceipt />
-        </div>
+        <DayStripStackedStory />
       </div>
 
       {/* Pinned scroll story — desktop only, motion allowed only, mounted only after hydration confirms both. */}
@@ -104,6 +195,73 @@ function DayStripBody() {
     </>
   )
 }
+
+/** The stacked/mobile companion to the desktop chapter rail: a `position:
+ *  sticky` mini header (current scene's time + short title) that swaps as
+ *  the visitor scrolls past each card, via IntersectionObserver watching a
+ *  thin band around the viewport's vertical center — no pinning, no scroll
+ *  hijacking, no framer scroll-linked transforms (so nothing here needs
+ *  reduced-motion gating beyond what `ScrollReveal` already does per-card). */
+function DayStripStackedStory() {
+  const sceneNodes = useRef<(HTMLDivElement | null)[]>([])
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  useEffect(() => {
+    const nodes = sceneNodes.current.filter((node): node is HTMLDivElement => node !== null)
+    if (nodes.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const intersecting = entries.filter((entry) => entry.isIntersecting)
+        if (intersecting.length === 0) return
+        // If more than one card straddles the center band, prefer the one
+        // closest to the top of the viewport — it's the one "in focus".
+        const topMost = intersecting.reduce((a, b) =>
+          a.boundingClientRect.top < b.boundingClientRect.top ? a : b
+        )
+        const index = nodes.indexOf(topMost.target as HTMLDivElement)
+        if (index !== -1) setActiveIndex(index)
+      },
+      // A thin horizontal band centered in the viewport — "current scene"
+      // means "the card currently crossing the middle of the screen".
+      { rootMargin: "-45% 0px -45% 0px", threshold: 0 }
+    )
+    nodes.forEach((node) => observer.observe(node))
+    return () => observer.disconnect()
+  }, [])
+
+  const active = SCENES[activeIndex]
+
+  return (
+    <div className="flex flex-col gap-16">
+      <div
+        aria-hidden="true"
+        className="sticky top-14 z-10 -mb-2 flex items-center gap-2.5 self-start rounded-full border border-border bg-card/95 px-4 py-2 shadow-soft backdrop-blur-sm"
+      >
+        <TimeStamp label={active.stamp} tone="flame" />
+        <span className="h-3 w-px bg-border" />
+        <span className="text-xs font-medium text-foreground">{active.chapter}</span>
+        <span className="ml-1 font-mono text-[10px] tracking-[0.15em] text-muted-foreground uppercase">
+          {activeIndex + 1}/{SCENES.length}
+        </span>
+      </div>
+
+      {STACKED_SCENES.map(({ key, Component }, index) => (
+        <div key={key} ref={(node) => { sceneNodes.current[index] = node }}>
+          <Component />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const STACKED_SCENES = [
+  { key: "7am", Component: MorningChalkboard },
+  { key: "12pm", Component: TicketRail },
+  { key: "6pm", Component: ShopBell },
+  { key: "11pm", Component: IndigoHours },
+  { key: "645am", Component: MorningReceipt },
+] as const
 
 function SceneHeading({ stamp, title, animated = true }: { stamp: string; title: string; animated?: boolean }) {
   const content = (
@@ -137,10 +295,13 @@ function PinnedDayStripStage() {
     // length, not a surface/UI dimension), per the brief's "~400vh tall".
     <div ref={stageRef} className="relative" style={{ height: "400vh" }}>
       {/* Sticky stage sits just below the sticky nav (top-14 / h-14, same
-          token nav.tsx already uses) so it never hides beneath it. */}
-      <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-hidden rounded-3xl border border-border shadow-overlay">
+          token nav.tsx already uses) so it never hides beneath it.
+          `bg-background` gives the stage its own paper surface (light-first
+          chrome) — the sky arc now floats as a soft banner near the top
+          instead of washing the whole stage. */}
+      <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-hidden rounded-3xl border border-border bg-background shadow-overlay">
         <SkyBand progress={scrollYProgress} />
-        <ProgressRail progress={scrollYProgress} />
+        <ChapterRail progress={scrollYProgress} stageRef={stageRef} />
 
         <div className="relative z-10 flex h-full items-center justify-center px-10 py-16 xl:px-20">
           <div className="relative h-96 w-full max-w-xl">
@@ -154,7 +315,10 @@ function PinnedDayStripStage() {
   )
 }
 
-/** Shared crossfade curve for a scene's 1/5 slice of scroll progress. */
+/** Shared crossfade curve for the sky arc's 1/5 slice of scroll progress —
+ *  a continuous ambient background wash, deliberately NOT subject to the
+ *  scene panels' enter/plateau/exit/gap treatment above (it's the "stage",
+ *  not a "scene" — it should keep drifting smoothly through the day). */
 function useSegmentOpacity(progress: MotionValue<number>, index: number, total: number) {
   const size = 1 / total
   const start = index * size
@@ -193,20 +357,18 @@ function ScenePanel({
 }) {
   const start = index * SEGMENT_SIZE
   const end = start + SEGMENT_SIZE
-  const fade = SEGMENT_SIZE * 0.2
-  const isFirst = index === 0
-  const isLast = index === SCENES.length - 1
 
-  const opacity = useSegmentOpacity(progress, index, SCENES.length)
-  const y = useTransform(
-    progress,
-    [start - fade, start, end, end + fade],
-    [isFirst ? 0 : 16, 0, 0, isLast ? 0 : -16]
-  )
+  const { opacity, y } = useSceneOpacityY(progress, index, SCENES.length)
   const localT = useTransform(progress, [start, end], [0, 1], { clamp: true })
+  // Only the (near-)fully-visible scene should be able to catch pointer
+  // interaction — the rest sit stacked underneath mid-crossfade.
+  const pointerEvents = useTransform(opacity, (v) => (v > 0.5 ? "auto" : "none"))
 
   return (
-    <motion.div style={{ opacity, y }} className="absolute inset-0 flex flex-col justify-center">
+    <motion.div
+      style={{ opacity, y, pointerEvents }}
+      className="absolute inset-0 flex flex-col justify-center"
+    >
       <SceneHeading stamp={scene.stamp} title={scene.title} animated={false} />
       <div className="mt-2">
         <ScenePanelContent sceneKey={scene.key} localT={localT} />
@@ -233,7 +395,12 @@ function ScenePanelContent({ sceneKey, localT }: { sceneKey: (typeof SCENES)[num
 }
 
 /* ------------------------------------------------------------------ */
-/* Sky band                                                            */
+/* Sky band — the light-first stage's time-of-day storyteller. Rendered as   */
+/* a soft, blurred arc/banner near the top of the stage rather than a        */
+/* full-bleed wash behind the copy, so it never competes with scene-card     */
+/* text contrast (the stage's own `bg-background` paper shows everywhere     */
+/* else). The 11PM scene keeps its own `.dusk-section` night vignette         */
+/* independently — this arc is purely ambient/decorative.                    */
 /* ------------------------------------------------------------------ */
 
 const SKY_LAYERS = [
@@ -246,10 +413,12 @@ const SKY_LAYERS = [
 
 function SkyBand({ progress }: { progress: MotionValue<number> }) {
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-      {SKY_LAYERS.map((layer, index) => (
-        <SkyLayer key={`${layer.token}-${index}`} index={index} token={layer.token} progress={progress} />
-      ))}
+    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-6 flex justify-center xl:top-10">
+      <div className="relative h-36 w-[65%] max-w-xl xl:h-44">
+        {SKY_LAYERS.map((layer, index) => (
+          <SkyLayer key={`${layer.token}-${index}`} index={index} token={layer.token} progress={progress} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -258,55 +427,136 @@ function SkyLayer({ index, token, progress }: { index: number; token: string; pr
   const opacity = useSegmentOpacity(progress, index, SKY_LAYERS.length)
   return (
     <motion.div
-      style={{
-        opacity,
-        backgroundImage: `linear-gradient(180deg, var(${token}) 0%, var(${token}) 40%, transparent 100%)`,
-      }}
-      className="absolute inset-0"
+      style={{ opacity, backgroundColor: `var(${token})` }}
+      className="absolute inset-0 rounded-full blur-2xl"
     />
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* Progress rail — the streetlamp-wire micro-signature, scoped to the   */
-/* day-strip stage (brand-redesign-plan.md §5 micro-signatures).        */
+/* Chapter rail — the streetlamp-wire micro-signature (brand-redesign-  */
+/* plan.md §5 micro-signatures), upgraded from plain dots into a real    */
+/* navigator: time stamp + short title per scene, active/complete state, */
+/* and click-to-scroll. The vertical wire keeps its own scroll-scrubbed  */
+/* fill so the "signature" motion survives the upgrade.                  */
 /* ------------------------------------------------------------------ */
 
-function ProgressRail({ progress }: { progress: MotionValue<number> }) {
+function ChapterRail({
+  progress,
+  stageRef,
+}: {
+  progress: MotionValue<number>
+  stageRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const reduceMotion = useReducedMotionSafe()
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  useMotionValueEvent(progress, "change", (value) => {
+    const index = Math.min(SCENES.length - 1, Math.max(0, Math.floor(value * SCENES.length)))
+    setActiveIndex((prev) => (prev === index ? prev : index))
+  })
+
+  const handleSelect = (index: number) => {
+    const stage = stageRef.current
+    if (!stage) return
+    const { plateauMid } = computeSceneWindow(index, SCENES.length)
+    const rect = stage.getBoundingClientRect()
+    const absoluteTop = rect.top + window.scrollY
+    const scrollRange = Math.max(0, stage.offsetHeight - window.innerHeight)
+    const targetY = absoluteTop + plateauMid * scrollRange
+    window.scrollTo({ top: targetY, behavior: reduceMotion ? "auto" : "smooth" })
+  }
+
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute top-1/2 left-6 z-10 hidden -translate-y-1/2 xl:left-10 lg:block"
-    >
-      <div className="relative flex h-64 flex-col justify-between">
-        <div className="absolute top-1 bottom-1 left-1/2 w-px -translate-x-1/2 bg-border" />
-        <motion.div
-          style={{ scaleY: progress }}
-          className="absolute top-1 bottom-1 left-1/2 w-px origin-top -translate-x-1/2 bg-primary"
-        />
-        {SCENES.map((scene, index) => (
-          <RailDot key={scene.key} index={index} progress={progress} />
-        ))}
+    <>
+      <nav
+        aria-label="Day strip chapters"
+        className="absolute top-1/2 left-6 z-10 hidden -translate-y-1/2 xl:left-10 lg:block"
+      >
+        <div className="relative">
+          <div aria-hidden="true" className="absolute top-2 bottom-2 left-5 w-px bg-border" />
+          <motion.div
+            aria-hidden="true"
+            style={{ scaleY: progress }}
+            className="absolute top-2 bottom-2 left-5 w-px origin-top bg-primary"
+          />
+          <ol className="relative flex w-36 flex-col gap-1">
+            {SCENES.map((scene, index) => (
+              <li key={scene.key}>
+                <ChapterRailItem
+                  scene={scene}
+                  state={index === activeIndex ? "active" : index < activeIndex ? "done" : "upcoming"}
+                  onSelect={() => handleSelect(index)}
+                />
+              </li>
+            ))}
+          </ol>
+        </div>
+      </nav>
+      {/* Announced on every chapter change, for screen-reader users tracking
+          the pinned story without relying on the visual crossfade. */}
+      <div aria-live="polite" className="sr-only">
+        Scene {activeIndex + 1} of {SCENES.length}: {SCENES[activeIndex].stamp} — {SCENES[activeIndex].title}
       </div>
-    </div>
+    </>
   )
 }
 
-function RailDot({ index, progress }: { index: number; progress: MotionValue<number> }) {
-  const threshold = index * SEGMENT_SIZE
-  // Degenerate [0,0] ranges (index 0) break interpolation/WAAPI offsets —
-  // keep the window strictly increasing.
-  const windowStart = Math.max(0, threshold - 0.02)
-  const windowEnd = Math.max(windowStart + 0.0001, threshold)
-  const filled = useTransform(progress, [windowStart, windowEnd], [0, 1], { clamp: true })
+function ChapterRailItem({
+  scene,
+  state,
+  onSelect,
+}: {
+  scene: (typeof SCENES)[number]
+  state: "active" | "done" | "upcoming"
+  onSelect: () => void
+}) {
+  const isActive = state === "active"
+  const isDone = state === "done"
   return (
-    <div className="relative z-10 flex size-2.5 items-center justify-center">
-      <span className="absolute inset-0 rounded-full border border-border bg-background" />
-      <motion.span
-        style={{ opacity: filled, scale: filled }}
-        className="absolute inset-0 rounded-full bg-primary shadow-glow"
-      />
-    </div>
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={isActive ? "true" : undefined}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left outline-none transition-colors",
+        "hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50",
+        isActive && "bg-muted/70"
+      )}
+    >
+      <span
+        className={cn(
+          "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border bg-background transition-colors",
+          isDone && "border-flame bg-flame text-flame-foreground",
+          isActive && "border-flame",
+          !isDone && !isActive && "border-border"
+        )}
+      >
+        {isDone ? (
+          <Check aria-hidden="true" className="size-3" />
+        ) : (
+          <span className={cn("size-1.5 rounded-full transition-colors", isActive ? "bg-flame" : "bg-border")} />
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span
+          className={cn(
+            "font-mono text-[10px] tracking-[0.18em] uppercase transition-colors",
+            isActive ? "text-flame" : "text-muted-foreground"
+          )}
+        >
+          {scene.stamp}
+        </span>
+        <span
+          className={cn(
+            "truncate text-xs font-medium transition-colors",
+            isActive ? "text-foreground" : "text-muted-foreground"
+          )}
+        >
+          {scene.chapter}
+        </span>
+      </span>
+    </button>
   )
 }
 

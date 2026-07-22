@@ -31,12 +31,27 @@ import {
   type ReactNode,
 } from "react"
 import { usePathname } from "next/navigation"
-import { motion, useReducedMotion, type Transition } from "framer-motion"
+import { motion, useAnimationControls, useReducedMotion, type Transition } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 import { easing, springGentle } from "@/lib/motion"
 
 export type WickState = "idle" | "curious" | "thinking" | "celebrating" | "sleeping" | "oops"
+
+/**
+ * Continuous flight behavior, layered UNDER the discrete `state` machine
+ * above (additive — landing brief §2). "perch" (default) is a no-op: Wick
+ * stays put, identical to pre-flight-prop behavior. "patrol" adds a gentle
+ * always-on figure-8 position drift while `state === "idle"` (paused
+ * automatically for curious/thinking/celebrating/sleeping/oops so it never
+ * fights those states' own motion), plus two small "alive" details that run
+ * for the whole time Wick is in patrol mode regardless of `state`: an
+ * occasional blink and a rare micro-dart hop.
+ */
+export type WickFlight = "perch" | "patrol"
+
+/** A custom drift waypoint (px, relative to Wick's resting position). */
+export type WickPathPoint = { x: number; y: number }
 
 export type WickProps = {
   /** Which state-machine state to render. Defaults to "idle". */
@@ -52,6 +67,14 @@ export type WickProps = {
    * "idle" here. Never fires for looping states.
    */
   onComplete?: () => void
+  /** Continuous flight behavior — see `WickFlight`. Defaults to "perch". */
+  flight?: WickFlight
+  /**
+   * Optional custom drift waypoints for "patrol" flight, in place of the
+   * built-in gentle figure-8. Looped in order (auto-closed back to the
+   * first point). Ignored when `flight` is "perch".
+   */
+  path?: WickPathPoint[]
 }
 
 const ONE_SHOT_STATES: ReadonlySet<WickState> = new Set(["celebrating", "oops"])
@@ -94,6 +117,22 @@ function buildLoopKeyframes(steps = 10, radius = 15) {
 const LOOP_KEYFRAMES = buildLoopKeyframes()
 const CELEBRATE_DURATION = 1.2
 const OOPS_DURATION = 0.6
+
+/** "patrol" flight — gentle default figure-8 drift (±12px x, ±8px y), one full loop ≈ 7s. */
+const PATROL_FIGURE8_X = [0, 8, 12, 8, 0, -8, -12, -8, 0]
+const PATROL_FIGURE8_Y = [0, -6, 0, 6, 8, 6, 0, -6, 0]
+const PATROL_DRIFT_DURATION = 7
+
+/** "patrol" flight — micro-dart hop cadence/shape (rare, quick hop + spring-ish settle). */
+const DART_INTERVAL_MS = 11_000
+const DART_OUT: Transition = { duration: 0.22, ease: easing.out }
+const DART_SETTLE: Transition = { duration: 0.45, ease: easing.spring }
+
+/** "patrol" flight — occasional blink cadence (randomized 4–6s) + squash shape (~120ms total). */
+const BLINK_MIN_MS = 4_000
+const BLINK_JITTER_MS = 2_000
+const BLINK_DOWN: Transition = { duration: 0.06, ease: easing.inOut }
+const BLINK_UP: Transition = { duration: 0.06, ease: easing.inOut }
 
 /** Fixed (non-random) sparkle offsets trailing the loop path — deterministic so there's no hydration/SSR mismatch risk if this ever renders during a transition. */
 const SPARKLE_OFFSETS: Array<{ dx: number; dy: number; delay: number }> = [
@@ -147,7 +186,15 @@ const STATIC_GLOW_OPACITY: Record<WickState, number> = {
  * friendly eye, two translucent indigo wings, and a layered amber tail-glow.
  * Always decorative — always `aria-hidden`.
  */
-export function Wick({ state = "idle", size = 90, lookAt = "right", className, onComplete }: WickProps) {
+export function Wick({
+  state = "idle",
+  size = 90,
+  lookAt = "right",
+  className,
+  onComplete,
+  flight = "perch",
+  path,
+}: WickProps) {
   useBannedSurfaceGuard()
   const reduceMotion = useReducedMotion()
   const filterId = useId()
@@ -163,6 +210,75 @@ export function Wick({ state = "idle", size = 90, lookAt = "right", className, o
   const pupilX = state === "curious" ? (lookAt === "left" ? 59.5 : 66.5) : 63
 
   const glow = glowSpecFor(state)
+
+  // "patrol" flight — see WickFlight doc. Timers (blink/dart) run for the
+  // whole time Wick is in patrol mode; the position drift itself only runs
+  // while `state === "idle"` so it never fights curious/thinking/
+  // celebrating/sleeping/oops's own motion.
+  const patrolTimersActive = flight === "patrol" && !reduceMotion
+  const driftActive = patrolTimersActive && state === "idle"
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const drift = useMemo(() => {
+    if (path && path.length > 1) {
+      const closed = [...path, path[0]]
+      return {
+        x: closed.map((p) => p.x),
+        y: closed.map((p) => p.y),
+        duration: Math.max(4, path.length * 1.4),
+      }
+    }
+    return { x: PATROL_FIGURE8_X, y: PATROL_FIGURE8_Y, duration: PATROL_DRIFT_DURATION }
+  }, [path])
+
+  const dartControls = useAnimationControls()
+  useEffect(() => {
+    if (!patrolTimersActive) return
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout>
+    const scheduleDart = () => {
+      timeoutId = setTimeout(async () => {
+        if (cancelled) return
+        // Only actually hop while resting/idle — skip (but keep the clock
+        // running) if Wick is mid curious/thinking/celebrating/etc.
+        if (stateRef.current === "idle") {
+          await dartControls.start({ x: 20, y: -6, transition: DART_OUT })
+          if (cancelled) return
+          await dartControls.start({ x: 0, y: 0, transition: DART_SETTLE })
+        }
+        if (!cancelled) scheduleDart()
+      }, DART_INTERVAL_MS)
+    }
+    scheduleDart()
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+    }
+  }, [patrolTimersActive, dartControls])
+
+  const blinkControls = useAnimationControls()
+  useEffect(() => {
+    if (!patrolTimersActive) return
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout>
+    const scheduleBlink = () => {
+      timeoutId = setTimeout(async () => {
+        if (cancelled) return
+        await blinkControls.start({ scaleY: 0.15, transition: BLINK_DOWN })
+        if (cancelled) return
+        await blinkControls.start({ scaleY: 1, transition: BLINK_UP })
+        if (!cancelled) scheduleBlink()
+      }, BLINK_MIN_MS + Math.random() * BLINK_JITTER_MS)
+    }
+    scheduleBlink()
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+    }
+  }, [patrolTimersActive, blinkControls])
 
   // Body motion targets (position/rotation) per looping state.
   const bodyAnimate = useMemo(() => {
@@ -256,29 +372,48 @@ export function Wick({ state = "idle", size = 90, lookAt = "right", className, o
   }
 
   return (
-    <span aria-hidden="true" className={cn("inline-block", className)} style={{ width: px, height: px }}>
-      <svg viewBox="0 0 90 90" width={size} height={size} style={{ overflow: "visible" }}>
-        <WickDefs
-          wingBlurId={wingBlurId}
-          glowBlurOuterId={glowBlurOuterId}
-          glowBlurMidId={glowBlurMidId}
-          bodyGradientId={bodyGradientId}
-        />
-        {showSparkles && <WickSparkleTrail />}
-        <motion.g
-          animate={bodyAnimate}
-          transition={bodyTransition}
-          onAnimationComplete={handleBodyAnimationComplete}
-        >
-          <WickWings wingBlurId={wingBlurId} />
-          <motion.g animate={{ opacity: glow.opacity }} transition={glow.transition}>
-            <WickGlow glowBlurOuterId={glowBlurOuterId} glowBlurMidId={glowBlurMidId} opacity={1} />
+    // Outer layer: "patrol" flight's continuous figure-8 (or custom `path`)
+    // drift — a plain CSS transform on its own compositing layer, so it
+    // never collides with the state machine's own y/x/rotate below.
+    <motion.span
+      aria-hidden="true"
+      className={cn("inline-block", className)}
+      style={{ width: px, height: px }}
+      animate={driftActive ? { x: drift.x, y: drift.y } : { x: 0, y: 0 }}
+      transition={driftActive ? { duration: drift.duration, repeat: Infinity, ease: easing.inOut } : springGentle}
+    >
+      {/* Middle layer: the rare micro-dart hop, imperatively triggered — see
+          the dartControls effect above. Independent transform layer so it
+          composes with the drift above instead of fighting over the same
+          motion value. */}
+      <motion.span className="inline-block" style={{ width: px, height: px }} initial={{ x: 0, y: 0 }} animate={dartControls}>
+        <svg viewBox="0 0 90 90" width={size} height={size} style={{ overflow: "visible" }}>
+          <WickDefs
+            wingBlurId={wingBlurId}
+            glowBlurOuterId={glowBlurOuterId}
+            glowBlurMidId={glowBlurMidId}
+            bodyGradientId={bodyGradientId}
+          />
+          {showSparkles && <WickSparkleTrail />}
+          <motion.g
+            animate={bodyAnimate}
+            transition={bodyTransition}
+            onAnimationComplete={handleBodyAnimationComplete}
+          >
+            <WickWings wingBlurId={wingBlurId} />
+            <motion.g animate={{ opacity: glow.opacity }} transition={glow.transition}>
+              <WickGlow glowBlurOuterId={glowBlurOuterId} glowBlurMidId={glowBlurMidId} opacity={1} />
+            </motion.g>
+            <WickBody bodyGradientId={bodyGradientId} />
+            {/* Occasional blink, imperatively triggered — see the
+                blinkControls effect above. */}
+            <motion.g initial={{ scaleY: 1 }} animate={blinkControls} style={{ transformOrigin: "63px 39px" }}>
+              <WickEye closed={isSleeping} pupilX={pupilX} />
+            </motion.g>
           </motion.g>
-          <WickBody bodyGradientId={bodyGradientId} />
-          <WickEye closed={isSleeping} pupilX={pupilX} />
-        </motion.g>
-      </svg>
-    </span>
+        </svg>
+      </motion.span>
+    </motion.span>
   )
 }
 

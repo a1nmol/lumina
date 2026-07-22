@@ -13,6 +13,7 @@ import { LoopBoard } from "@/components/marketing/loop-board"
 import { OutcomeCards } from "@/components/marketing/outcome-cards"
 import { PilotMenu } from "@/components/marketing/pilot-menu"
 import { Problem } from "@/components/marketing/problem"
+import { ScallopDivider } from "@/components/marketing/scallop-divider"
 import { ShopPicker } from "@/components/marketing/shop-picker"
 import { ShopWindows } from "@/components/marketing/shop-windows"
 import { TrustBar } from "@/components/marketing/trust-bar"
@@ -52,8 +53,10 @@ export default async function MarketingHomePage() {
     <>
       <Hero />
       <TrustBar />
+      <ScallopDivider />
       <Problem />
       <Lamps />
+      <ScallopDivider />
       <DayStrip />
       <LoopBoard />
       <OutcomeCards />
@@ -61,6 +64,7 @@ export default async function MarketingHomePage() {
       <ShopWindows />
       <PilotMenu />
       <FaqSigns />
+      <ScallopDivider />
       <FinalCta />
     </>
   )

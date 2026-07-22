@@ -1,9 +1,11 @@
 "use client"
 
 // Section 3 · PROBLEM — landing-copy.md §3 (stamp "6:02 PM"). Day fades:
-// split composition — a CLOSED flip-sign on the left, a phone card with 3
-// missed-item rows on the right. The DM row swaps per the "Pick your shop"
-// tab (shop-context.tsx); call/review rows stay generic.
+// split composition — a CLOSED flip-sign on the left, an illustrated
+// "counter phone" on the right: a line-art phone outline (ink strokes)
+// framing the 3 missed-item rows as real DOM components. The DM row swaps
+// per the "Pick your shop" tab (shop-context.tsx); call/review rows stay
+// generic.
 
 import { MessageCircle, Phone, Star } from "lucide-react"
 
@@ -52,7 +54,7 @@ export function Problem() {
 
           <ScrollReveal delay={0.15} className="flex flex-col items-center gap-8 sm:flex-row sm:items-start sm:justify-center lg:justify-end">
             <ClosedSign />
-            <MissedItemsCard missedQuestion={example.missedQuestion} />
+            <CounterPhone missedQuestion={example.missedQuestion} />
           </ScrollReveal>
         </div>
       </div>
@@ -63,27 +65,46 @@ export function Problem() {
 function ClosedSign() {
   return (
     <div
-      className="flex w-40 shrink-0 -rotate-3 flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 shadow-raised transition-transform duration-slow ease-out hover:rotate-0"
+      className="flex w-40 shrink-0 -rotate-3 flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 shadow-soft transition-transform duration-slow ease-out hover:rotate-0"
       style={{ perspective: "600px" }}
     >
       <span className="h-1 w-8 rounded-full bg-border" aria-hidden="true" />
-      <div className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-destructive/30 bg-destructive/10">
-        <span className="text-xs font-bold tracking-[0.25em] text-destructive uppercase">Closed</span>
+      {/* Lighter treatment: a paper/awning card with full-strength ink text
+          (not the destructive/red tint the dusk-first version used) — the
+          "closed" idea reads through shape + label alone, so no semantic
+          color is needed and none is spent. Full-opacity ink keeps this at
+          5.7:1 on --awning, comfortably AA. */}
+      <div className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-xl border border-foreground/15 bg-awning">
+        <span className="text-xs font-bold tracking-[0.25em] text-foreground uppercase">Closed</span>
       </div>
       <span className="text-[11px] text-muted-foreground">Back at 8:00 AM</span>
     </div>
   )
 }
 
-function MissedItemsCard({ missedQuestion }: { missedQuestion: string }) {
+/** Illustrated "counter phone" — a line-art phone outline (ink strokes) framing the 3 missed-item rows as real components, replacing the plain card. */
+function CounterPhone({ missedQuestion }: { missedQuestion: string }) {
   return (
-    <div className="w-full max-w-[280px] rounded-2xl border border-border bg-card p-4 shadow-raised">
-      <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">On the counter</p>
-      <ul className="flex flex-col gap-2.5">
-        <MissedRow icon={Phone} label="Missed call" detail="(555) 812-4076" />
-        <MissedRow icon={MessageCircle} label="New DM" detail={missedQuestion} />
-        <MissedRow icon={Star} label="New review" detail="★★★★ needs a reply" />
-      </ul>
+    <div className="w-full max-w-[280px]">
+      <div
+        className="rounded-[1.75rem] p-2"
+        style={{ border: "1.5px solid color-mix(in oklch, var(--foreground) 30%, transparent)" }}
+      >
+        <div aria-hidden="true" className="flex justify-center pt-1 pb-1.5">
+          <span
+            className="h-1 w-9 rounded-full"
+            style={{ backgroundColor: "color-mix(in oklch, var(--foreground) 20%, transparent)" }}
+          />
+        </div>
+        <div className="rounded-[1.25rem] bg-card p-4 shadow-raised">
+          <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">On the counter</p>
+          <ul className="flex flex-col gap-2.5">
+            <MissedRow icon={Phone} label="Missed call" detail="(555) 812-4076" />
+            <MissedRow icon={MessageCircle} label="New DM" detail={missedQuestion} />
+            <MissedRow icon={Star} label="New review" detail="★★★★ needs a reply" />
+          </ul>
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,10 +1,15 @@
-// FOOTER — landing-copy.md "FOOTER". Dusk, street silhouette bottom edge,
-// links with amber "lit window" dots, contact email.
+// FOOTER — landing-copy.md "FOOTER". Light paper register (owner-approved
+// light-first flip): espresso text on the paper background, and a thin
+// line-art skyline strip (1.5px ink strokes at ~30%, a handful of amber
+// window accents) instead of the full-bleed dusk StreetSilhouette. This
+// strip is intentionally its own small local component rather than a new
+// StreetSilhouette variant — street-silhouette.tsx is owned by another
+// agent this pass — but it echoes the same hand-placed, deterministic
+// building layout so the footer still reads as "the same street."
 
 import Link from "next/link"
 
 import { Wordmark } from "./wordmark"
-import { StreetSilhouette } from "./street-silhouette"
 
 const LINKS = [
   { href: "#how-it-works", label: "How it works" },
@@ -15,7 +20,7 @@ const LINKS = [
 
 export function MarketingFooter() {
   return (
-    <footer id="footer" data-scene="footer" className="dusk-section bg-background">
+    <footer id="footer" data-scene="footer" className="bg-background">
       <div className="mx-auto max-w-6xl px-4 pt-12 sm:px-6 lg:px-8">
         <div className="flex flex-col items-center gap-6 pb-10 text-center sm:flex-row sm:justify-between sm:text-left">
           <div>
@@ -36,7 +41,77 @@ export function MarketingFooter() {
           </nav>
         </div>
       </div>
-      <StreetSilhouette variant="scattered" className="h-16 sm:h-20" />
+      <FooterSkylineStrip />
     </footer>
+  )
+}
+
+/** Building outline (x, width, height) — deterministic, hand-placed to loosely echo street-silhouette.tsx's skyline rhythm at a much thinner scale. */
+const STRIP_BUILDINGS: Array<{ x: number; width: number; height: number }> = [
+  { x: 4, width: 44, height: 30 },
+  { x: 56, width: 34, height: 20 },
+  { x: 98, width: 52, height: 40 },
+  { x: 158, width: 32, height: 24 },
+  { x: 198, width: 46, height: 34 },
+  { x: 252, width: 30, height: 18 },
+  { x: 290, width: 48, height: 36 },
+  { x: 346, width: 34, height: 22 },
+  { x: 388, width: 50, height: 38 },
+  { x: 446, width: 32, height: 20 },
+  { x: 486, width: 40, height: 28 },
+]
+
+/** (building index, offset-x-within-building, offset-y-from-baseline) — 3 tiny amber "lit window" accents scattered across the strip. */
+const LIT_ACCENTS: Array<{ building: number; dx: number; dy: number }> = [
+  { building: 2, dx: 22, dy: -22 },
+  { building: 4, dx: 18, dy: -18 },
+  { building: 8, dx: 24, dy: -20 },
+]
+
+const STRIP_VIEW_WIDTH = 540
+const STRIP_VIEW_HEIGHT = 42
+const STRIP_BASELINE = STRIP_VIEW_HEIGHT
+
+function FooterSkylineStrip() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox={`0 0 ${STRIP_VIEW_WIDTH} ${STRIP_VIEW_HEIGHT}`}
+      preserveAspectRatio="none"
+      className="block h-9 w-full sm:h-11"
+    >
+      <g
+        className="text-foreground/30"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      >
+        {STRIP_BUILDINGS.map((building, index) => (
+          <rect
+            key={index}
+            x={building.x}
+            y={STRIP_BASELINE - building.height}
+            width={building.width}
+            height={building.height}
+          />
+        ))}
+      </g>
+      {LIT_ACCENTS.map((accent, index) => {
+        const building = STRIP_BUILDINGS[accent.building]
+        return (
+          <rect
+            key={index}
+            x={building.x + accent.dx}
+            y={STRIP_BASELINE + accent.dy}
+            width={4}
+            height={4}
+            rx={0.6}
+            className="fill-amber-glow"
+            style={{ filter: "drop-shadow(0 0 2px var(--amber-glow))" }}
+          />
+        )
+      })}
+    </svg>
   )
 }

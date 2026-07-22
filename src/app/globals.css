@@ -377,6 +377,77 @@
   animation: string-shimmer 6s ease-in-out infinite;
 }
 
+/* HERO — "Morning on Main Street" daylight backdrop (owner-approved flip to
+   light-first; see docs/design-briefs/brand-redesign-plan.md — the hero no
+   longer scene-locks to dusk). Two soft, static color washes layered under
+   the hero content — never a gradient wall. Values match the design brief
+   (~0.14 amber sun-glow top-right, ~0.06 indigo tint top-left). Built with
+   color-mix so the wash always tracks the live --amber-glow/--primary
+   tokens (light or dark) instead of a hardcoded color. */
+.morning-sky {
+  background-image:
+    radial-gradient(
+      620px circle at 88% 6%,
+      color-mix(in oklch, var(--amber-glow) 14%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      760px circle at 4% 2%,
+      color-mix(in oklch, var(--primary) 6%, transparent),
+      transparent 72%
+    );
+}
+
+/* Fine, static paper-grain texture — SVG fractal noise blended at ~3%
+   opacity so it reads as tooth on the paper rather than a visible pattern.
+   Never animates (grain is a texture, not a motion effect), so it's
+   intentionally outside the reduced-motion guard above — there's nothing to
+   neutralize. */
+.paper-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  mix-blend-mode: overlay;
+  opacity: 0.03;
+}
+
+/* Softened OPEN-sign buzz for the daylight hero's line-art door sign — same
+   neon-flicker shape as .sign-buzz (still used by the night scenes: final
+   CTA / shop windows), stretched to a slower, quieter cadence since the
+   sign is now a small line-art detail rather than the hero's focal glow.
+   Kept additive (own class, own keyframe) rather than editing .sign-buzz so
+   those night scenes are untouched. Forced static under reduced-motion via
+   the same global override above. */
+@keyframes sign-buzz-soft {
+  0%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px var(--amber-glow));
+  }
+  94% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px var(--amber-glow));
+  }
+  95% {
+    opacity: 0.5;
+    filter: none;
+  }
+  96.5% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px var(--amber-glow));
+  }
+  97.5% {
+    opacity: 0.6;
+    filter: none;
+  }
+  99% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px var(--amber-glow));
+  }
+}
+.sign-buzz-soft {
+  animation: sign-buzz-soft 8s ease-in-out infinite;
+}
+
 /* Studio composer — text shimmer sweep for "still generating" copy.
    Hoisted here (single definition) so components only need to reference the
    keyframe by name via inline style, no per-instance <style> injection. */
