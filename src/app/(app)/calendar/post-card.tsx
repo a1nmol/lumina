@@ -39,10 +39,18 @@ type PostCardProps = {
   className?: string
   /** Extra actions row (e.g. reminder-to-post) — "full" variant only. */
   actions?: ReactNode
+  /**
+   * "full" variant only — makes the card itself a click/keyboard target that
+   * opens the post-detail sheet (see queue-view.tsx). The card becomes a
+   * `role="button"` wrapper around everything except `actions`, which stops
+   * propagation so its nested real buttons (Remind me / Copy caption) keep
+   * working independently without also opening the sheet.
+   */
+  onOpenDetail?: () => void
 }
 
 /** Calendar post card — compact (month grid) or full (week / queue). Plain img+badge, no phone-frame DOM. */
-export function PostCard({ post, variant, isDragging, className, actions }: PostCardProps) {
+export function PostCard({ post, variant, isDragging, className, actions, onOpenDetail }: PostCardProps) {
   const time = format(parseISO(post.date), "h:mm a")
   const fullDate = format(parseISO(post.date), "EEEE, MMMM d 'at' h:mm a")
   const primaryPlatform = post.platforms[0]
@@ -106,10 +114,26 @@ export function PostCard({ post, variant, isDragging, className, actions }: Post
 
   return (
     <div
+      role={onOpenDetail ? "button" : undefined}
+      tabIndex={onOpenDetail ? 0 : undefined}
+      onClick={onOpenDetail}
+      onKeyDown={
+        onOpenDetail
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                onOpenDetail()
+              }
+            }
+          : undefined
+      }
+      aria-label={onOpenDetail ? `Open post details: ${snippet(post.caption, 60)}` : undefined}
       className={cn(
         "group/post flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left shadow-soft transition-shadow duration-150 hover:shadow-raised",
         isDraft && "border-dashed",
         isDragging && "shadow-raised",
+        onOpenDetail &&
+          "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         className
       )}
     >
@@ -163,7 +187,15 @@ export function PostCard({ post, variant, isDragging, className, actions }: Post
             )
           })}
         </div>
-        {actions && <div className="flex items-center gap-1 pt-1">{actions}</div>}
+        {actions && (
+          <div
+            className="flex items-center gap-1 pt-1"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {actions}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -290,6 +290,40 @@ export async function saveSlideshowMediaAsset(
   return !insertError
 }
 
+/**
+ * Sets a content item's status directly — used by the Queue's post-detail
+ * sheet "Mark as posted" action (MASTER_PLAN.md §4.B reminder-to-post: the
+ * manual push → copy → paste loop still needs a way to tell LocalOS the post
+ * actually went out). Deliberately does NOT touch scheduled_at.
+ *
+ * TODO(Ayrshare publish path): same caveat as queueContentItem — this is a
+ * user-asserted "posted", not a verified publish, so it still does not
+ * record a 'post_published' analytics_events row. See that function's
+ * comment for the real publish path this will align with later.
+ */
+export async function updateContentStatus(
+  orgId: string,
+  contentId: string,
+  status: ContentStatus
+): Promise<ContentItem | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("content_items")
+    .update({ status })
+    .eq("id", contentId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`updateContentStatus: failed to update content item ${contentId}: ${error.message}`)
+  }
+
+  return data
+}
+
 /** Lists an org's scheduled content items falling within the calendar month containing `month`. */
 export async function listScheduledItems(orgId: string, month: Date): Promise<ContentItem[]> {
   if (!isSupabaseConfigured()) return []

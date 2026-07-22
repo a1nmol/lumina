@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
@@ -20,6 +20,20 @@ export const metadata: Metadata = {
   },
   description:
     "Everything a local business needs to get customers and never miss one — content, front desk, and analytics in one AI-run dashboard.",
+  manifest: "/manifest.webmanifest",
+  // TODO(icons): raster PNG icons — ffmpeg on this machine has no SVG decoder
+  // (no librsvg), so app/maskable icons are SVG-only for now. iOS's "Add to
+  // Home Screen" and some Android launchers prefer/require PNG; swap in real
+  // 192/512 PNGs (e.g. via sharp or resvg) before relying on installability
+  // there. Desktop Chrome/Edge PWA install works fine with SVG today.
+  icons: {
+    icon: [{ url: "/icons/icon-512.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/icon-512.svg", type: "image/svg+xml" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#17171d",
 };
 
 // Flash-of-wrong-theme prevention. This is a plain string rendered by a

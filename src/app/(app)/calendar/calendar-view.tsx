@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { CalendarDays } from "lucide-react"
 
+import { EnablePushButton } from "@/components/calendar/enable-push-button"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -32,13 +33,16 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
         title="Calendar"
         description="Plan, drag-drop, and schedule posts across every channel."
         actions={
-          <Tabs value={view} onValueChange={(value) => setView(value as ViewMode)}>
-            <TabsList aria-label="Calendar view">
-              <TabsTrigger value="month">Month</TabsTrigger>
-              <TabsTrigger value="week">Week</TabsTrigger>
-              <TabsTrigger value="queue">Queue</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center gap-2">
+            <EnablePushButton />
+            <Tabs value={view} onValueChange={(value) => setView(value as ViewMode)}>
+              <TabsList aria-label="Calendar view">
+                <TabsTrigger value="month">Month</TabsTrigger>
+                <TabsTrigger value="week">Week</TabsTrigger>
+                <TabsTrigger value="queue">Queue</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         }
       />
 
@@ -55,7 +59,7 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
       ) : view === "week" ? (
         <WeekView posts={posts} />
       ) : (
-        <QueueView posts={posts} />
+        <QueueView posts={posts} onPostsChange={setPosts} />
       )}
     </div>
   )

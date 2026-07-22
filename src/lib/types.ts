@@ -320,6 +320,22 @@ export type Review = {
   updated_at: string
 }
 
+/** The Push API's PushSubscriptionJSON["keys"] shape — always exactly these two, base64url-encoded. */
+export type PushSubscriptionKeys = {
+  p256dh: string
+  auth: string
+}
+
+/** supabase/migrations/0006_push_subscriptions.sql — one row per browser/device Web Push subscription. */
+export type PushSubscriptionRow = {
+  id: string
+  org_id: string
+  user_id: string
+  endpoint: string
+  keys: PushSubscriptionKeys
+  created_at: string
+}
+
 /**
  * Composed (non-table) analytics shapes returned by src/lib/analytics.ts and
  * mirrored by the DEMO_* fallbacks in src/lib/demo.ts — kept here (rather
@@ -514,6 +530,12 @@ export interface Database {
         Row: Review
         Insert: Partial<Review> & Pick<Review, "org_id" | "platform" | "rating">
         Update: Partial<Review>
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: PushSubscriptionRow
+        Insert: Partial<PushSubscriptionRow> & Pick<PushSubscriptionRow, "org_id" | "user_id" | "endpoint" | "keys">
+        Update: Partial<PushSubscriptionRow>
         Relationships: []
       }
     }
