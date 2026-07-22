@@ -336,6 +336,14 @@ export type PushSubscriptionRow = {
   created_at: string
 }
 
+/** supabase/migrations/0007_early_access_leads.sql — one row per landing-page "pilot menu" form submission. */
+export type EarlyAccessLead = {
+  id: string
+  business_name: string
+  email: string
+  created_at: string
+}
+
 /**
  * Composed (non-table) analytics shapes returned by src/lib/analytics.ts and
  * mirrored by the DEMO_* fallbacks in src/lib/demo.ts — kept here (rather
@@ -536,6 +544,12 @@ export interface Database {
         Row: PushSubscriptionRow
         Insert: Partial<PushSubscriptionRow> & Pick<PushSubscriptionRow, "org_id" | "user_id" | "endpoint" | "keys">
         Update: Partial<PushSubscriptionRow>
+        Relationships: []
+      }
+      early_access_leads: {
+        Row: EarlyAccessLead
+        Insert: Partial<EarlyAccessLead> & Pick<EarlyAccessLead, "business_name" | "email">
+        Update: Partial<EarlyAccessLead>
         Relationships: []
       }
     }
