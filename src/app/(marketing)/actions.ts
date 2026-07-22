@@ -24,9 +24,21 @@ export interface SaveEarlyAccessLeadResult {
 
 async function getClientKey(): Promise<string> {
   const headerList = await headers()
-  // Standard proxy header chain (Vercel et al.) — first hop is the client.
+  // x-forwarded-for is a client-appended, spoofable list ("client, proxy1,
+  // proxy2, ...") — anyone can send their own fabricated first entry. On
+  // Vercel-style edge/proxy infrastructure, each hop APPENDS itself to the
+  // end of the header rather than replacing it, so the trustworthy value is
+  // the LAST entry: the IP the platform's own edge network observed the
+  // request coming from, which a client cannot forge. Everything before
+  // that last entry is attacker-controlled and must not be trusted for
+  // rate-limiting. Falls back to x-real-ip (also platform-set), then a
+  // fixed bucket for the rare case neither header is present.
   const forwardedFor = headerList.get("x-forwarded-for")
-  if (forwardedFor) return forwardedFor.split(",")[0]!.trim()
+  if (forwardedFor) {
+    const hops = forwardedFor.split(",")
+    const lastHop = hops[hops.length - 1]?.trim()
+    if (lastHop) return lastHop
+  }
   return headerList.get("x-real-ip") ?? "unknown"
 }
 

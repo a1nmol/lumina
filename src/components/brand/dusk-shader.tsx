@@ -38,6 +38,13 @@ interface DuskShaderProps {
 // magenta/red rather than the short way through cyan/green — that's what
 // reads as a dusk sky rather than a random rainbow). Converted to linear
 // sRGB once, at module scope, for the shader uniforms.
+//
+// Cross-reference: this is a DIFFERENT token family from globals.css's
+// --sky-dawn/--sky-noon/--sky-dusk/--sky-night (day-strip's time-of-day
+// scroll band) — that set depicts a full day cycle, this one is the fixed
+// three-stop dusk gradient used everywhere else (hero/login/empty states).
+// Not a single source on purpose (different color counts, different
+// purposes) — see the matching comment in globals.css if either changes.
 const SKY_STOPS_OKLCH: [l: number, c: number, h: number][] = [
   [0.22, 0.09, 277], // deep indigo (zenith)
   [0.4, 0.19, 315], // violet
@@ -120,7 +127,17 @@ float snoise(vec2 v) {
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   float drift = snoise(uv * 1.6 + vec2(0.0, u_time * 0.02)) * u_amplitude;
-  float t = clamp(uv.y + drift, 0.0, 1.0);
+  // gl_FragCoord.y (and so uv.y) increases UPWARD (WebGL/GL screen space has
+  // its origin at the bottom-left) — so uv.y=1 is the top of the canvas
+  // (the "zenith") and uv.y=0 is the bottom (the "horizon"). t=0 -> colorA
+  // (indigo), t=1 -> colorC (amber), so we invert with (1.0 - uv.y): indigo
+  // lands at the top, amber at the bottom, matching CSS_FALLBACK_GRADIENT's
+  // linear-gradient(160deg, indigo, violet, amber) (160deg runs top ->
+  // bottom, indigo first). Without this flip the two disagreed: the WebGL
+  // canvas painted amber-on-top/indigo-on-bottom while the CSS fallback
+  // beneath it painted the opposite, so the canvas fade-in visibly "flipped
+  // the sky" once WebGL took over.
+  float t = clamp((1.0 - uv.y) + drift, 0.0, 1.0);
   vec3 color = t < 0.5
     ? mix(u_colorA, u_colorB, smoothstep(0.0, 0.5, t))
     : mix(u_colorB, u_colorC, smoothstep(0.5, 1.0, t));
@@ -227,27 +244,31 @@ export function DuskShader({ className, intensity = "ambient" }: DuskShaderProps
     const container = containerRef.current
     if (!canvas || !container) return
 
-    const ctx = initGl(canvas)
-    if (!ctx) return
-    const { gl, uniforms } = ctx
-
     const amplitude = intensity === "hero" ? 0.18 : 0.08
     const speed = intensity === "hero" ? 1 : 0.55
 
+    // `glCtx` is reassigned across GPU context loss/restore, so both
+    // `resize` and `render` read it fresh each call rather than closing
+    // over a single `initGl` result. `resizeObserver` is created once and
+    // reused across a restore (only the underlying GL context needs
+    // reinitializing, not the DOM-level observer).
+    let glCtx: ReturnType<typeof initGl> | null = null
+    let resizeObserver: ResizeObserver | null = null
+    let frame = 0
+    const start = performance.now()
+
     const resize = () => {
+      if (!glCtx) return
       const rect = container.getBoundingClientRect()
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       canvas.width = Math.max(1, Math.round(rect.width * dpr))
       canvas.height = Math.max(1, Math.round(rect.height * dpr))
-      gl.viewport(0, 0, canvas.width, canvas.height)
+      glCtx.gl.viewport(0, 0, canvas.width, canvas.height)
     }
-    resize()
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(container)
 
-    const start = performance.now()
-    let frame = 0
     const render = (now: number) => {
+      if (!glCtx) return
+      const { gl, uniforms } = glCtx
       const t = ((now - start) / 1000) * speed
       gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
       gl.uniform1f(uniforms.time, t)
@@ -260,11 +281,53 @@ export function DuskShader({ className, intensity = "ambient" }: DuskShaderProps
       if (frame === 2) setReady(true) // first real frame is on screen — safe to fade in
       rafRef.current = requestAnimationFrame(render)
     }
-    rafRef.current = requestAnimationFrame(render)
+
+    /** (Re)initializes GL and starts the render loop. Used both on mount and after a context restore. */
+    const startRendering = () => {
+      glCtx = initGl(canvas)
+      if (!glCtx) return
+      frame = 0
+      resize()
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(resize)
+        resizeObserver.observe(container)
+      }
+      rafRef.current = requestAnimationFrame(render)
+    }
+
+    // A lost GPU context (driver crash/reset, GPU process kill, tab
+    // backgrounding on some mobile browsers) invalidates every WebGL
+    // object we hold. `preventDefault()` on the event is required for the
+    // browser to ever fire `webglcontextrestored` at all — without it the
+    // context is lost permanently. We stop the render loop, drop our GL
+    // handle, and hide the canvas (`setReady(false)`) so the always-present
+    // CSS gradient underneath is what's visible — the same graceful
+    // fallback as "WebGL never became available" in the first place.
+    const handleContextLost = (event: Event) => {
+      event.preventDefault()
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+      glCtx = null
+      setReady(false)
+    }
+
+    // The browser has a fresh context ready — recompile the program,
+    // rebind the buffer, and resume. `startRendering` fades back in via the
+    // existing `ready` flag once the first real frame lands again.
+    const handleContextRestored = () => {
+      startRendering()
+    }
+
+    canvas.addEventListener("webglcontextlost", handleContextLost, false)
+    canvas.addEventListener("webglcontextrestored", handleContextRestored, false)
+
+    startRendering()
 
     return () => {
+      canvas.removeEventListener("webglcontextlost", handleContextLost)
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      resizeObserver.disconnect()
+      resizeObserver?.disconnect()
     }
   }, [canAnimate, intensity])
 

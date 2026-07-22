@@ -61,6 +61,14 @@ export function LoginForm({ configured }: LoginFormProps) {
       })
       if (error) throw error
       setStatus("sent")
+      // Toast + the SuccessState card swap both announce success (matches
+      // the codebase pattern of pairing an in-place UI change with a toast,
+      // e.g. reminder-button.tsx, enable-push-button.tsx) — the toast is
+      // the more reliable a11y announcement (an aria-live region) since the
+      // card swap alone isn't guaranteed to be announced by every AT.
+      toast.success("Check your inbox", {
+        description: `We sent a magic link to ${email}.`,
+      })
     } catch (error) {
       setStatus("idle")
       toast.error("Couldn't sign in", {

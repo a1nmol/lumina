@@ -4,6 +4,12 @@ import "server-only"
 // routes (chat, missed-call). Colocated here rather than in src/lib/** —
 // these are HTTP-layer concerns (request shape, abuse limiting) specific to
 // these two public, unauthenticated endpoints, not general business logic.
+// The rate-limit primitives themselves are thin re-exports of the shared
+// core (src/lib/rate-limit.ts, also used by src/lib/marketing/rate-limit.ts)
+// so both public surfaces share one implementation — the names stay the
+// same as before so callers (chat/route.ts) don't need to change.
+
+import { createRateLimiter } from "@/lib/rate-limit"
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const MAX_MESSAGE_LENGTH = 1000
@@ -23,42 +29,17 @@ export function isValidPhone(value: unknown): value is string {
   return typeof value === "string" && PHONE_RE.test(value.trim())
 }
 
-interface RateLimitEntry {
-  count: number
-  windowStart: number
-}
-
-/**
- * Process-local in-memory rate limit. Resets on cold start/redeploy and
- * isn't shared across serverless instances — acceptable for the invite-only
- * test phase per MASTER_PLAN.md §3 ("cost obsession... at test scale"). A
- * durable per-org/per-visitor limiter (e.g. a Postgres or Redis counter)
- * is the natural upgrade once this runs on multiple instances.
- */
-const rateLimitBuckets = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_LIMIT_MAX = 10
 
-/** True if `key` (e.g. `${orgSlug}:${visitorId}`) is still under the 10-messages-per-minute cap. */
+const limiter = createRateLimiter(RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX)
+
+/** True if `key` (e.g. `${orgSlug}:${visitorId}`) is still under the 10-messages-per-minute cap. Also sweeps stale buckets (see `sweepStaleRateLimitBuckets`) on every call. */
 export function checkRateLimit(key: string): boolean {
-  const now = Date.now()
-  const entry = rateLimitBuckets.get(key)
-
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitBuckets.set(key, { count: 1, windowStart: now })
-    return true
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX) return false
-
-  entry.count += 1
-  return true
+  return limiter.check(key)
 }
 
-/** Opportunistic cleanup so the map doesn't grow unbounded across a long-lived process. */
+/** Thin re-export of the shared limiter's sweep — kept for callers (chat/route.ts) that sweep explicitly once per request; `checkRateLimit` above also sweeps on every call, so this is now belt-and-suspenders rather than load-bearing. */
 export function sweepStaleRateLimitBuckets(): void {
-  const now = Date.now()
-  for (const [key, entry] of rateLimitBuckets) {
-    if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) rateLimitBuckets.delete(key)
-  }
+  limiter.sweep()
 }

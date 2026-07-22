@@ -155,7 +155,14 @@
      invariant like --chalkboard above: this is a literal time-of-day
      depiction, not a surface color, so it doesn't participate in the
      light/dark registers. Dusk/night reuse the existing brand indigo hue
-     (277) so the "signature gradient" thread stays consistent. */
+     (277) so the "signature gradient" thread stays consistent.
+     Cross-reference: NOT the same token family as DuskShader's
+     SKY_STOPS_OKLCH (src/components/brand/dusk-shader.tsx) — that's a
+     separate fixed three-stop indigo→violet→amber gradient used for the
+     hero/login/empty-state surface, this is a five-stop full-day cycle
+     scoped to the day-strip section. Deliberately not single-sourced
+     (different stop counts/purposes); see the matching comment there if
+     either changes. */
   --sky-dawn: oklch(0.9 0.05 75);
   --sky-noon: oklch(0.97 0.02 90);
   --sky-dusk: oklch(0.55 0.13 300);

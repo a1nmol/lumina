@@ -25,7 +25,6 @@ import { useRef } from "react"
 import {
   motion,
   useMotionValue,
-  useReducedMotion,
   useScroll,
   useTransform,
   type MotionValue,
@@ -33,6 +32,8 @@ import {
 import { CalendarDays, Check, DoorOpen, MessageCircleWarning, Scissors, Sparkles, Star, ThumbsUp } from "lucide-react"
 
 import { TimeStamp } from "@/components/brand/time-stamp"
+import { useMounted } from "@/hooks/use-mounted"
+import { useReducedMotionSafe } from "@/hooks/use-reduced-motion-safe"
 import { cn } from "@/lib/utils"
 
 import { ScrollReveal } from "./scroll-reveal"
@@ -65,16 +66,26 @@ export function DayStrip() {
 }
 
 function DayStripBody() {
-  const reduceMotion = useReducedMotion()
+  // Structural switch (an entirely different subtree: the pinned scroll
+  // stage vs. the static stacked cards — not just animation props), so this
+  // uses the mount-gated useReducedMotionSafe rather than framer's
+  // useReducedMotion. `mounted` starts false on both SSR and the client's
+  // first paint, so the static stacked layout is what renders — and is all
+  // that ever renders — until hydration has fully committed; only then,
+  // once the real matchMedia value is known, does the pinned stage mount
+  // (and only if motion is actually allowed). This intentionally trades a
+  // one-effect-tick delay before the pinned stage appears on desktop for
+  // zero risk of a reduced-motion visitor ever seeing it flash in first.
+  const reduceMotion = useReducedMotionSafe()
+  const mounted = useMounted()
+  const showPinnedStage = mounted && !reduceMotion
 
   return (
     <>
-      {/* Static stacked story — always the mobile/tablet layout; also the
-          reduced-motion fallback at every breakpoint ("stacked static
-          everywhere"). */}
-      <div
-        className={cn("mx-auto max-w-3xl px-4 sm:px-6 lg:px-8", !reduceMotion && "lg:hidden")}
-      >
+      {/* Static stacked story — the mobile/tablet layout, the reduced-motion
+          fallback at every breakpoint, AND the universal pre-mount/SSR
+          render ("stacked static everywhere" until proven otherwise). */}
+      <div className={cn("mx-auto max-w-3xl px-4 sm:px-6 lg:px-8", showPinnedStage && "lg:hidden")}>
         <div className="flex flex-col gap-16">
           <MorningChalkboard />
           <TicketRail />
@@ -84,8 +95,8 @@ function DayStripBody() {
         </div>
       </div>
 
-      {/* Pinned scroll story — desktop only, motion allowed only. */}
-      {!reduceMotion && (
+      {/* Pinned scroll story — desktop only, motion allowed only, mounted only after hydration confirms both. */}
+      {showPinnedStage && (
         <div className="hidden lg:block">
           <PinnedDayStripStage />
         </div>
@@ -149,9 +160,24 @@ function useSegmentOpacity(progress: MotionValue<number>, index: number, total: 
   const start = index * size
   const end = start + size
   const fade = size * 0.2
+  // Framer v12 may compile scroll-linked transforms to WAAPI keyframes, whose
+  // offsets must be non-decreasing AND within [0,1] — so the edge segments'
+  // fade windows must be clamped (index 0 would otherwise start at -fade,
+  // the last segment would end at 1+fade, and WAAPI throws). Epsilon keeps
+  // the four stops strictly increasing so interpolation never degenerates.
+  const eps = 0.0001
+  const input = [
+    Math.max(0, start - fade),
+    Math.max(eps, start),
+    Math.min(1 - eps, end),
+    Math.min(1, end + fade),
+  ]
+  for (let i = 1; i < input.length; i++) {
+    if (input[i] <= input[i - 1]) input[i] = input[i - 1] + eps
+  }
   return useTransform(
     progress,
-    [start - fade, start, end, end + fade],
+    input,
     [index === 0 ? 1 : 0, 1, 1, index === total - 1 ? 1 : 0]
   )
 }
@@ -268,7 +294,11 @@ function ProgressRail({ progress }: { progress: MotionValue<number> }) {
 
 function RailDot({ index, progress }: { index: number; progress: MotionValue<number> }) {
   const threshold = index * SEGMENT_SIZE
-  const filled = useTransform(progress, [Math.max(0, threshold - 0.02), threshold], [0, 1], { clamp: true })
+  // Degenerate [0,0] ranges (index 0) break interpolation/WAAPI offsets —
+  // keep the window strictly increasing.
+  const windowStart = Math.max(0, threshold - 0.02)
+  const windowEnd = Math.max(windowStart + 0.0001, threshold)
+  const filled = useTransform(progress, [windowStart, windowEnd], [0, 1], { clamp: true })
   return (
     <div className="relative z-10 flex size-2.5 items-center justify-center">
       <span className="absolute inset-0 rounded-full border border-border bg-background" />
