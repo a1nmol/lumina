@@ -45,7 +45,7 @@ const POSTS: Post[] = [
   {
     id: "post-cake",
     top: "12%",
-    caption: "Custom birthday cakes — book 48h ahead 🎂",
+    caption: "Custom birthday cakes — book 48h ahead",
     meta: "Tue · Instagram",
     tilt: -1.5,
     strings: [0, 1],
@@ -54,7 +54,7 @@ const POSTS: Post[] = [
   {
     id: "post-catering",
     top: "58%",
-    caption: "Weekend catering trays, made fresh 🧺",
+    caption: "Weekend catering trays, made fresh",
     meta: "Thu · Facebook",
     tilt: 1.5,
     strings: [2, 3],

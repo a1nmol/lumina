@@ -46,7 +46,10 @@ export function Problem() {
                 of calls to small businesses ring out unanswered.
                 <sup>&dagger;</sup>
               </p>
-              <p className="mt-1 text-xs text-muted-foreground/70">
+              {/* Full-strength muted-foreground, not /70 — the opacity dip
+                  fails 4.5:1 even with the darkened token (3.67:1); see
+                  the readability-audit build report. */}
+              <p className="mt-1 text-xs text-muted-foreground">
                 &dagger; industry studies; verify/replace with pilot data before GA
               </p>
             </ScrollReveal>
@@ -101,7 +104,7 @@ function CounterPhone({ missedQuestion }: { missedQuestion: string }) {
           <ul className="flex flex-col gap-2.5">
             <MissedRow icon={Phone} label="Missed call" detail="(555) 812-4076" />
             <MissedRow icon={MessageCircle} label="New DM" detail={missedQuestion} />
-            <MissedRow icon={Star} label="New review" detail="★★★★ needs a reply" />
+            <MissedRow icon={Star} label="New review" detail="4-star review needs a reply" />
           </ul>
         </div>
       </div>

@@ -20,22 +20,43 @@
 // Clarity rework (owner feedback: scenes were crossfading into each other
 // mid-scroll and reading as confusing). `computeSceneWindow` now carves
 // each scene's slice into three named zones instead of one soft bleed —
-// enter (fade 0→1, brief), plateau (~70% of the slice, held at full
-// opacity — the "readable" window), exit (fade 1→0, brief) — with an
-// explicit `GAP` between one scene's exit and the next scene's enter where
-// NEITHER panel is visible (only the sky arc + stage paper show). That's
-// the opposite of the old scheme, which let scene N's enter-fade run
-// *while* scene N-1 was still fully opaque (each panel's fade window
-// bled ~4% into its neighbor's slice), so both genuinely overlapped
-// on-screen. `clampMonotonic` keeps every resulting input array strictly
-// increasing and inside [0,1] — WAAPI keyframe offsets must be
-// non-decreasing, and edge scenes would otherwise produce out-of-range or
-// degenerate (zero-width) stops — the same epsilon-guard technique the
-// original crossfade used, just applied to the new enter/plateau/exit
-// windows instead of a bleed-into-neighbor one. Each panel additionally
-// derives its own `localT` (0→1 clamped to its own slice) to drive that
-// scene's specific micro-motion — unchanged by this rework, and its
-// existing thresholds all land comfortably inside the new plateau.
+// enter (fade 0→1), plateau (held at full opacity — the "readable"
+// window), exit (fade 1→0) — with an explicit `SCENE_GAP` between one
+// scene's exit and the next scene's enter where NEITHER panel is visible
+// (only the sky arc + stage paper show). `clampMonotonic` keeps every
+// resulting input array strictly increasing and inside [0,1] — WAAPI
+// keyframe offsets must be non-decreasing, and edge scenes would otherwise
+// produce out-of-range or degenerate (zero-width) stops.
+//
+// Remnant-elimination rework (owner feedback round 2: even with the gap,
+// an exiting panel was still faintly visible behind/around the incoming
+// one). Three changes close that gap for good:
+//  1. Opacity alone isn't enough to guarantee zero pixels — a panel sitting
+//     at opacity 0.01–0.05 can still show a faint shadow edge. Each panel
+//     now also derives a `visibility` MotionValue from its own opacity
+//     (hidden once opacity drops under 0.02) so a fully-exited panel is
+//     removed from paint entirely, not just made translucent. The opacity
+//     lives on ONE wrapper (`ScenePanel`'s outer `motion.div`, which is
+//     also where `shadow-raised`/`shadow-overlay` children live) so the
+//     card's shadow fades as part of the same compositing layer instead of
+//     lingering at a different rate than its content.
+//  2. Enter/exit are no longer symmetric. Exits are the faster, "departure"
+//     beat (`EXIT_FADE`, slides up as it fades — y 0 → -24); entries are
+//     the slower, "arrival" beat (`ENTER_FADE`, rises up as it fades in —
+//     y +24 → 0). `SCENE_GAP` was widened so the two fade windows plus the
+//     gap between them can never leave two panels simultaneously above 0.5
+//     opacity — guaranteed by construction (exit hits 0 at the gap's start
+//     edge, entry doesn't begin until the gap's end edge), not by tuning.
+//  3. A scene's own micro-motion (`localT`, e.g. chalk write-on, ticket
+//     slide) used to keep animating across the entire slice, including
+//     during the exit fade — so a half-finished write-on could visibly
+//     freeze mid-stroke while fading out. `localT` is now mapped over
+//     `[sliceStart, exitStart]` instead of the full slice, so every
+//     micro-motion is guaranteed complete (clamped to 1) by the moment the
+//     exit fade begins — nothing mid-motion is ever seen leaving.
+// Each panel's `localT` still drives that scene's specific micro-motion,
+// and its existing internal thresholds (all ≤ 1) land comfortably before
+// that new, earlier finish line.
 //
 // Navigation: the left rail is a real chapter list (`ChapterRail`) — one
 // button per scene with its time stamp + short title, active/complete
@@ -56,7 +77,7 @@ import {
   useTransform,
   type MotionValue,
 } from "framer-motion"
-import { CalendarDays, Check, DoorOpen, MessageCircleWarning, Scissors, Sparkles, Star, ThumbsUp } from "lucide-react"
+import { CalendarDays, Check, DoorOpen, MessageCircleWarning, Scissors, Sparkles, Star, Sun, ThumbsUp } from "lucide-react"
 
 import { TimeStamp } from "@/components/brand/time-stamp"
 import { useMounted } from "@/hooks/use-mounted"
@@ -79,14 +100,26 @@ const SCENES = [
 const SEGMENT_SIZE = 1 / SCENES.length
 
 /** The empty "only sky/stage shows" pause carved between every pair of
- *  adjacent scenes, in total-scroll-progress units (~3% of the full range,
- *  per the clarity rework). */
-const SCENE_GAP = 0.03
+ *  adjacent scenes, in total-scroll-progress units. Widened from the first
+ *  clarity pass's 3% to 4.5% (~18vh of the 400vh driver) so the exit fade,
+ *  the gap, and the next entry fade can never overlap even under scroll
+ *  jitter — two panels are never simultaneously above 0.5 opacity, by
+ *  construction. */
+const SCENE_GAP = 0.045
 /** How much of each scene's own slice stays a full-opacity "plateau". The
- *  remainder is split evenly between its enter-fade and exit-fade. */
-const PLATEAU_RATIO = 0.7
-/** Enter/exit fade width, derived so `plateau + 2*fade + gap === segment`. */
-const SCENE_FADE = Math.max(0, ((1 - PLATEAU_RATIO) * SEGMENT_SIZE - SCENE_GAP) / 2)
+ *  remainder is split, unevenly, between the gap and the enter/exit fades
+ *  below (steeper exit than entry — a "departure" beat, not a mirrored
+ *  crossfade). */
+const PLATEAU_RATIO = 0.66
+/** Combined enter+exit fade budget for one scene's slice, derived so
+ *  `plateau + enterFade + exitFade + gap === segment`. */
+const SCENE_FADE_TOTAL = Math.max(0, (1 - PLATEAU_RATIO) * SEGMENT_SIZE - SCENE_GAP)
+/** Exits are faster ("steeper") than entries: the exit fade gets 40% of the
+ *  combined budget, the entry fade gets 60% — entries read as an unhurried
+ *  arrival, exits as a quick departure, never as two ghosts crossfading in
+ *  place. */
+const ENTER_FADE = SCENE_FADE_TOTAL * 0.6
+const EXIT_FADE = SCENE_FADE_TOTAL * 0.4
 
 /** Clamp every value to [0,1] and nudge non-increasing neighbors up by a
  *  hair. Result is guaranteed non-decreasing (WAAPI-legal); it is strictly
@@ -118,9 +151,9 @@ function computeSceneWindow(index: number, total: number) {
   // exit (stays visible through progress 1) — mirrors the old scheme's
   // edge handling.
   const enterStart = isFirst ? 0 : boundaryStart + halfGap
-  const enterEnd = isFirst ? 0 : enterStart + SCENE_FADE
+  const enterEnd = isFirst ? 0 : enterStart + ENTER_FADE
   const exitEnd = isLast ? 1 : boundaryEnd - halfGap
-  const exitStart = isLast ? 1 : exitEnd - SCENE_FADE
+  const exitStart = isLast ? 1 : exitEnd - EXIT_FADE
 
   return {
     isFirst,
@@ -134,14 +167,17 @@ function computeSceneWindow(index: number, total: number) {
   }
 }
 
-/** Opacity + y for one scene panel: 0 → 1 over `enter`, held at 1 across the
- *  plateau, 1 → 0 over `exit` — fully resolved (opacity 0) before the next
- *  scene's own enter window begins, because `SCENE_GAP` separates them. */
-function useSceneOpacityY(progress: MotionValue<number>, index: number, total: number) {
-  const w = computeSceneWindow(index, total)
+/** Opacity + y for one scene panel: 0 → 1 over `enter` (rising up from
+ *  below, y +24 → 0 — an "arrival"), held at 1 across the plateau, 1 → 0
+ *  over `exit` (sliding further up as it fades, y 0 → -24 — a
+ *  "departure") — fully resolved (opacity 0) before the next scene's own
+ *  enter window begins, because `SCENE_GAP` separates them. Takes the
+ *  already-computed window (rather than recomputing it) so `ScenePanel`
+ *  can reuse the same `w` for its `localT` clamp below. */
+function useSceneOpacityY(progress: MotionValue<number>, w: ReturnType<typeof computeSceneWindow>) {
   const input = clampMonotonic([w.enterStart, w.enterEnd, w.exitStart, w.exitEnd])
   const opacity = useTransform(progress, input, [w.isFirst ? 1 : 0, 1, 1, w.isLast ? 1 : 0])
-  const y = useTransform(progress, input, [w.isFirst ? 0 : 16, 0, 0, w.isLast ? 0 : -16])
+  const y = useTransform(progress, input, [w.isFirst ? 0 : 24, 0, 0, w.isLast ? 0 : -24])
   return { opacity, y }
 }
 
@@ -355,13 +391,25 @@ function ScenePanel({
   progress: MotionValue<number>
 }) {
   const start = index * SEGMENT_SIZE
-  const end = start + SEGMENT_SIZE
+  const w = computeSceneWindow(index, SCENES.length)
 
-  const { opacity, y } = useSceneOpacityY(progress, index, SCENES.length)
-  const localT = useTransform(progress, [start, end], [0, 1], { clamp: true })
+  const { opacity, y } = useSceneOpacityY(progress, w)
+  // Micro-motion (chalk write-on, ticket slide, receipt print, …) is
+  // mapped over [sliceStart, exitStart] — NOT the full slice — so it's
+  // always fully resolved (localT clamped to 1) by the moment the exit
+  // fade begins. Without this, a panel could start fading out mid-stroke
+  // and briefly show a half-written/half-slid state while it disappears.
+  const localT = useTransform(progress, [start, w.exitStart], [0, 1], { clamp: true })
   // Only the (near-)fully-visible scene should be able to catch pointer
   // interaction — the rest sit stacked underneath mid-crossfade.
   const pointerEvents = useTransform(opacity, (v) => (v > 0.5 ? "auto" : "none"))
+  // Hard-hide: below this threshold the panel contributes zero pixels —
+  // not just near-zero opacity, which can still leave a faint shadow edge
+  // visible (box-shadow doesn't fade linearly with tiny opacity values the
+  // same way flat fills do). `visibility` is derived from the SAME opacity
+  // motion value driving the fade, so it flips at a consistent, predictable
+  // point rather than being a second independent timeline to keep in sync.
+  const visibility = useTransform(opacity, (v) => (v > 0.02 ? "visible" : "hidden"))
   // Mirror the pointer gate for assistive tech: without this, a screen
   // reader walks all five stacked panels back-to-back while sighted users
   // see one scene at a time (aria-hidden can't take a MotionValue, so the
@@ -375,7 +423,15 @@ function ScenePanel({
   return (
     <motion.div
       aria-hidden={ariaHidden}
-      style={{ opacity, y, pointerEvents }}
+      // A single opacity value on this one wrapper — which also owns the
+      // heading AND the card content below (incl. its shadow-raised /
+      // shadow-overlay) — so the whole panel fades as one compositing
+      // layer: the card's shadow fades in lockstep with its fill, never
+      // lingering after the content underneath it has gone transparent.
+      // `willChange: opacity` is scoped to just this scroll-animated
+      // wrapper (5 instances, not applied broadly) to hint GPU compositing
+      // without the memory cost of using it site-wide.
+      style={{ opacity, y, visibility, pointerEvents, willChange: "opacity" }}
       className="absolute inset-0 flex flex-col justify-center"
     >
       <SceneHeading stamp={scene.stamp} title={scene.title} animated={false} />
@@ -597,7 +653,7 @@ function ChalkboardCard({ localT }: { localT: MotionValue<number> }) {
         style={{ clipPath }}
         className="-rotate-1 font-serif text-lg leading-relaxed text-chalkboard-foreground italic [text-shadow:0_0_1px_var(--chalkboard-foreground)] sm:text-xl"
       >
-        Fresh sourdough out at 7. The first loaf&rsquo;s crackle is for the early birds. 🥖
+        Fresh sourdough out at 7. The first loaf&rsquo;s crackle is for the early birds.
       </motion.p>
       <div className="mt-5 flex items-center gap-3 border-t border-dashed border-chalkboard-foreground/20 pt-4">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-chalkboard-foreground/10 px-3 py-1 text-xs font-medium text-chalkboard-foreground">
@@ -789,7 +845,10 @@ function MorningReceiptCard({ localT }: { localT: MotionValue<number> }) {
         style={{ clipPath: printClip }}
         className="rounded-t-sm border border-b-0 border-border bg-card px-5 pt-5 pb-5 font-mono text-xs shadow-raised"
       >
-        <p className="text-center text-sm font-semibold text-foreground">GOOD MORNING ☀</p>
+        <p className="flex items-center justify-center gap-1.5 text-center text-sm font-semibold text-foreground">
+          GOOD MORNING
+          <Sun aria-hidden="true" className="size-3.5 text-amber-glow" />
+        </p>
         <div
           aria-hidden="true"
           className="my-3 h-px w-full bg-[repeating-linear-gradient(90deg,var(--border)_0_4px,transparent_4px_8px)]"

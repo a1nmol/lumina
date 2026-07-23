@@ -75,6 +75,15 @@ export type WickProps = {
    * first point). Ignored when `flight` is "perch".
    */
   path?: WickPathPoint[]
+  /**
+   * External "I'm translating right now" signal — additive, ORed into the
+   * internal `isMoving` derivation (patrol drift / micro-dart / celebrating
+   * already flip it on their own). For callers that move Wick themselves via
+   * an outer transform (e.g. the landing-page scroll guide flying between
+   * waypoints) so wings still flutter/trail during that externally-driven
+   * flight. Defaults to false — a no-op for every existing call site.
+   */
+  moving?: boolean
 }
 
 const ONE_SHOT_STATES: ReadonlySet<WickState> = new Set(["celebrating", "oops"])
@@ -143,6 +152,35 @@ const SPARKLE_OFFSETS: Array<{ dx: number; dy: number; delay: number }> = [
   { dx: -18, dy: 12, delay: 0.32 },
 ]
 
+/**
+ * Movement-trail motes (additive, landing-page-guide upgrade) — a smaller,
+ * quicker cousin of `SPARKLE_OFFSETS` for the "translating right now" trail
+ * (micro-darts + externally-driven flight, e.g. the scroll guide). Kept
+ * separate from the celebration burst so the two never render at once (see
+ * `isTrailActive` below) and so this one can loop continuously instead of
+ * playing once. Fixed offsets — same determinism rationale as above.
+ */
+const TRAIL_OFFSETS: Array<{ dx: number; dy: number; delay: number }> = [
+  { dx: -8, dy: 3, delay: 0 },
+  { dx: -13, dy: -3, delay: 0.09 },
+  { dx: -10, dy: 9, delay: 0.18 },
+]
+/** Each mote's single fade lives 200–400ms per the brief; 300ms sits in the middle. */
+const TRAIL_MOTE_DURATION = 0.3
+const TRAIL_MOTE_REPEAT_DELAY = 0.22
+
+/** Wing flutter (moving) vs. idle sway (at rest) — additive, landing-page-guide upgrade. Base resting angles match the original static `transform="rotate(...)"` values so baking them into animated `rotate` keyframes below doesn't shift Wick's silhouette at rest. */
+const WING_BASE_ANGLE = { back: -18, front: -6 } as const
+const WING_FLUTTER_AMPLITUDE = 14
+const WING_FLUTTER_DURATION = 0.09
+const WING_IDLE_SWAY_AMPLITUDE = 3
+const WING_IDLE_SWAY_DURATION = 1.2
+
+/** Tail-glow brightness noise (additive) — a low-amplitude, irregularly-timed wander layered UNDER the existing per-state pulse (`glowSpecFor`) so the glow reads bio-luminescent rather than a clean blinking LED. Multiplicative with the per-state opacity group it nests inside, so it wanders ±~8% around whatever that state's current base is — deliberately uneven `times` (not evenly spaced) so the cycle doesn't read as a metronome. */
+const GLOW_NOISE_OPACITY = [1, 0.93, 1, 1.06, 0.97, 1.04, 1]
+const GLOW_NOISE_TIMES = [0, 0.17, 0.31, 0.52, 0.68, 0.86, 1]
+const GLOW_NOISE_DURATION = 4.2
+
 type GlowSpec = { opacity: number[] | number; transition?: Transition }
 
 function glowSpecFor(state: WickState): GlowSpec {
@@ -194,6 +232,7 @@ export function Wick({
   onComplete,
   flight = "perch",
   path,
+  moving: movingProp = false,
 }: WickProps) {
   useBannedSurfaceGuard()
   const reduceMotion = useReducedMotion()
@@ -201,7 +240,9 @@ export function Wick({
   const wingBlurId = `wick-wing-blur-${filterId}`
   const glowBlurOuterId = `wick-glow-outer-${filterId}`
   const glowBlurMidId = `wick-glow-mid-${filterId}`
+  const glowUnderId = `wick-glow-under-${filterId}`
   const bodyGradientId = `wick-body-gradient-${filterId}`
+  const underGradientId = `wick-under-gradient-${filterId}`
 
   const isSleeping = state === "sleeping"
   const isCelebrating = state === "celebrating"
@@ -234,6 +275,11 @@ export function Wick({
     return { x: PATROL_FIGURE8_X, y: PATROL_FIGURE8_Y, duration: PATROL_DRIFT_DURATION }
   }, [path])
 
+  // Tracks whether the micro-dart hop is actually in flight right now (not
+  // just "the timer fired") — feeds `isMoving`/`isTrailActive` below so wing
+  // flutter + the movement trail only run for the ~0.67s the hop itself
+  // takes, not the whole 11s interval between hops.
+  const [isDarting, setIsDarting] = useState(false)
   const dartControls = useAnimationControls()
   useEffect(() => {
     if (!patrolTimersActive) return
@@ -247,9 +293,11 @@ export function Wick({
         // the tab is backgrounded (cost discipline: no animation work the
         // user can't see; the chain re-arms so he resumes on return).
         if (stateRef.current === "idle" && !document.hidden) {
+          setIsDarting(true)
           await dartControls.start({ x: 20, y: -6, transition: DART_OUT })
           if (cancelled) return
           await dartControls.start({ x: 0, y: 0, transition: DART_SETTLE })
+          if (!cancelled) setIsDarting(false)
         }
         if (!cancelled) scheduleDart()
       }, DART_INTERVAL_MS)
@@ -260,6 +308,18 @@ export function Wick({
       clearTimeout(timeoutId)
     }
   }, [patrolTimersActive, dartControls])
+
+  // "isMoving" — additive, landing-page-guide upgrade. True whenever Wick is
+  // actually translating: patrol drift, a micro-dart hop, the celebrating
+  // loop-flight, or an externally-driven flight (the scroll guide's
+  // waypoint-to-waypoint spring). Drives wing flutter (vs. idle sway).
+  const isMoving = driftActive || isDarting || isCelebrating || movingProp
+  // "isTrailActive" — a narrower subset of the above for the movement-trail
+  // motes: deliberately EXCLUDES plain patrol drift (too slow/continuous —
+  // a constant sparkle trail on every idle firefly would read as noise, not
+  // motion) and celebrating (which already gets its own dedicated
+  // `WickSparkleTrail` burst, so the two never double up).
+  const isTrailActive = (isDarting || movingProp) && !isCelebrating
 
   const blinkControls = useAnimationControls()
   useEffect(() => {
@@ -360,14 +420,19 @@ export function Wick({
             wingBlurId={wingBlurId}
             glowBlurOuterId={glowBlurOuterId}
             glowBlurMidId={glowBlurMidId}
+            glowUnderId={glowUnderId}
             bodyGradientId={bodyGradientId}
+            underGradientId={underGradientId}
           />
           <g style={{ transform: isSleeping ? "translateY(4px)" : "none" }}>
-            <WickWings wingBlurId={wingBlurId} />
+            <WickWings wingBlurId={wingBlurId} animated={false} />
             <WickGlow
               glowBlurOuterId={glowBlurOuterId}
               glowBlurMidId={glowBlurMidId}
+              glowUnderId={glowUnderId}
+              underGradientId={underGradientId}
               opacity={STATIC_GLOW_OPACITY[state]}
+              animated={false}
             />
             <WickBody bodyGradientId={bodyGradientId} />
             <WickEye closed={isSleeping} pupilX={pupilX} animated={false} />
@@ -398,17 +463,26 @@ export function Wick({
             wingBlurId={wingBlurId}
             glowBlurOuterId={glowBlurOuterId}
             glowBlurMidId={glowBlurMidId}
+            glowUnderId={glowUnderId}
             bodyGradientId={bodyGradientId}
+            underGradientId={underGradientId}
           />
           {showSparkles && <WickSparkleTrail />}
+          {isTrailActive && !showSparkles && <WickMotionTrail />}
           <motion.g
             animate={bodyAnimate}
             transition={bodyTransition}
             onAnimationComplete={handleBodyAnimationComplete}
           >
-            <WickWings wingBlurId={wingBlurId} />
+            <WickWings wingBlurId={wingBlurId} moving={isMoving} />
             <motion.g animate={{ opacity: glow.opacity }} transition={glow.transition}>
-              <WickGlow glowBlurOuterId={glowBlurOuterId} glowBlurMidId={glowBlurMidId} opacity={1} />
+              <WickGlow
+                glowBlurOuterId={glowBlurOuterId}
+                glowBlurMidId={glowBlurMidId}
+                glowUnderId={glowUnderId}
+                underGradientId={underGradientId}
+                opacity={1}
+              />
             </motion.g>
             <WickBody bodyGradientId={bodyGradientId} />
             {/* Occasional blink, imperatively triggered — see the
@@ -427,12 +501,16 @@ function WickDefs({
   wingBlurId,
   glowBlurOuterId,
   glowBlurMidId,
+  glowUnderId,
   bodyGradientId,
+  underGradientId,
 }: {
   wingBlurId: string
   glowBlurOuterId: string
   glowBlurMidId: string
+  glowUnderId: string
   bodyGradientId: string
+  underGradientId: string
 }) {
   return (
     <defs>
@@ -445,40 +523,110 @@ function WickDefs({
       <filter id={glowBlurMidId} x="-150%" y="-150%" width="400%" height="400%">
         <feGaussianBlur stdDeviation="1.5" />
       </filter>
+      {/* Soft blur for the ambient under-glow (natural-light upgrade) — wide and shallow so it reads as a diffuse cast, not a hard-edged ellipse. */}
+      <filter id={glowUnderId} x="-100%" y="-200%" width="300%" height="500%">
+        <feGaussianBlur stdDeviation="4" />
+      </filter>
       <linearGradient id={bodyGradientId} x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor="var(--wick-body-light, oklch(0.4 0.05 280))" />
         <stop offset="100%" stopColor="var(--wick-body, oklch(0.28 0.045 280))" />
       </linearGradient>
+      {/* Under-glow radial cast (natural-light upgrade) — a faint warm falloff, like real light landing on the air/surface beneath him. */}
+      <radialGradient id={underGradientId} cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stopColor="var(--amber-glow, oklch(0.78 0.14 80))" stopOpacity="0.9" />
+        <stop offset="100%" stopColor="var(--amber-glow, oklch(0.78 0.14 80))" stopOpacity="0" />
+      </radialGradient>
     </defs>
   )
 }
 
-function WickWings({ wingBlurId }: { wingBlurId: string }) {
+function WickWings({
+  wingBlurId,
+  moving = false,
+  animated = true,
+}: {
+  wingBlurId: string
+  /** Rapid flutter while translating vs. a slow settle-sway at rest — see `WING_*` constants. Ignored when `animated` is false. */
+  moving?: boolean
+  /** false under reduced-motion: wings render at their fixed resting angle, no flutter/sway. */
+  animated?: boolean
+}) {
+  if (!animated) {
+    return (
+      <g style={{ opacity: 1 }}>
+        <ellipse
+          cx="30"
+          cy="28"
+          rx="14"
+          ry="7"
+          transform={`rotate(${WING_BASE_ANGLE.back} 30 28)`}
+          style={{ fill: "var(--wick-wing, oklch(0.68 0.17 277))", opacity: 0.22 }}
+          filter={`url(#${wingBlurId})`}
+        />
+        <ellipse
+          cx="38"
+          cy="26"
+          rx="12"
+          ry="6"
+          transform={`rotate(${WING_BASE_ANGLE.front} 38 26)`}
+          style={{ fill: "var(--wick-wing, oklch(0.68 0.17 277))", opacity: 0.32 }}
+          filter={`url(#${wingBlurId})`}
+        />
+      </g>
+    )
+  }
+  // Base angle is baked into the animated `rotate` keyframes (rather than
+  // left on the SVG `transform` attribute) because a CSS `transform` from
+  // Framer Motion's inline style would otherwise silently win over the
+  // presentation attribute and reset the resting tilt to 0.
+  const backRotate = moving
+    ? [
+        WING_BASE_ANGLE.back - WING_FLUTTER_AMPLITUDE,
+        WING_BASE_ANGLE.back + WING_FLUTTER_AMPLITUDE,
+        WING_BASE_ANGLE.back - WING_FLUTTER_AMPLITUDE,
+      ]
+    : [
+        WING_BASE_ANGLE.back - WING_IDLE_SWAY_AMPLITUDE,
+        WING_BASE_ANGLE.back + WING_IDLE_SWAY_AMPLITUDE,
+        WING_BASE_ANGLE.back - WING_IDLE_SWAY_AMPLITUDE,
+      ]
+  const frontRotate = moving
+    ? [
+        WING_BASE_ANGLE.front + WING_FLUTTER_AMPLITUDE,
+        WING_BASE_ANGLE.front - WING_FLUTTER_AMPLITUDE,
+        WING_BASE_ANGLE.front + WING_FLUTTER_AMPLITUDE,
+      ]
+    : [
+        WING_BASE_ANGLE.front + WING_IDLE_SWAY_AMPLITUDE,
+        WING_BASE_ANGLE.front - WING_IDLE_SWAY_AMPLITUDE,
+        WING_BASE_ANGLE.front + WING_IDLE_SWAY_AMPLITUDE,
+      ]
+  const flutterOpacity = moving ? [0.22, 0.32, 0.22] : [0.22, 0.26, 0.22]
+  const flutterOpacityFront = moving ? [0.32, 0.42, 0.32] : [0.32, 0.36, 0.32]
+  const transition = moving
+    ? { duration: WING_FLUTTER_DURATION, repeat: Infinity, ease: easing.inOut }
+    : { duration: WING_IDLE_SWAY_DURATION, repeat: Infinity, ease: easing.inOut }
   return (
-    <g style={{ opacity: 1 }}>
-      <ellipse
+    <g>
+      <motion.ellipse
         cx="30"
         cy="28"
         rx="14"
         ry="7"
-        transform="rotate(-18 30 28)"
-        style={{
-          fill: "var(--wick-wing, oklch(0.68 0.17 277))",
-          opacity: 0.22,
-        }}
+        style={{ fill: "var(--wick-wing, oklch(0.68 0.17 277))", transformOrigin: "30px 28px" }}
         filter={`url(#${wingBlurId})`}
+        animate={{ rotate: backRotate, opacity: flutterOpacity }}
+        transition={transition}
       />
-      <ellipse
+      <motion.ellipse
         cx="38"
         cy="26"
         rx="12"
         ry="6"
-        transform="rotate(-6 38 26)"
-        style={{
-          fill: "var(--wick-wing, oklch(0.68 0.17 277))",
-          opacity: 0.32,
-        }}
+        style={{ fill: "var(--wick-wing, oklch(0.68 0.17 277))", transformOrigin: "38px 26px" }}
         filter={`url(#${wingBlurId})`}
+        animate={{ rotate: frontRotate, opacity: flutterOpacityFront }}
+        transition={transition}
       />
     </g>
   )
@@ -487,22 +635,31 @@ function WickWings({ wingBlurId }: { wingBlurId: string }) {
 function WickGlow({
   glowBlurOuterId,
   glowBlurMidId,
+  glowUnderId,
+  underGradientId,
   opacity,
+  animated = true,
 }: {
   glowBlurOuterId: string
   glowBlurMidId: string
+  glowUnderId: string
+  underGradientId: string
   opacity: number
+  /** false under reduced-motion: layers render at a fixed brightness, no noise wander. */
+  animated?: boolean
 }) {
-  return (
-    <g style={{ opacity }}>
+  const layers = (
+    <>
+      {/* Outer bloom — faint amber-orange, the coolest/farthest-falling edge of the light. */}
       <ellipse
         cx="26"
         cy="52"
         rx="15"
         ry="13"
-        style={{ fill: "var(--amber-glow, oklch(0.78 0.14 80))", opacity: 0.45 }}
+        style={{ fill: "var(--wick-glow-outer, oklch(0.72 0.15 55))", opacity: 0.4 }}
         filter={`url(#${glowBlurOuterId})`}
       />
+      {/* Mid bloom — amber, the "signature" tail-glow color used elsewhere in the brand. */}
       <ellipse
         cx="26"
         cy="52"
@@ -511,7 +668,30 @@ function WickGlow({
         style={{ fill: "var(--amber-glow, oklch(0.78 0.14 80))", opacity: 0.7 }}
         filter={`url(#${glowBlurMidId})`}
       />
-      <ellipse cx="26" cy="52" rx="4.5" ry="4" style={{ fill: "var(--amber-glow, oklch(0.78 0.14 80))" }} />
+      {/* Core — near-white warm, the hottest point of the light. */}
+      <ellipse
+        cx="26"
+        cy="52"
+        rx="4.5"
+        ry="4"
+        style={{ fill: "var(--wick-glow-core, oklch(0.97 0.025 85))", opacity: 0.92 }}
+      />
+    </>
+  )
+  return (
+    <g style={{ opacity }}>
+      {/* Faint warm under-cast (natural-light upgrade) — as if his light were falling on the air/surface beneath him. Fixed brightness (not tied to the noise wander below): it's ambient, not part of the tail-glow's own pulse. */}
+      <ellipse cx="26" cy="76" rx="22" ry="6" style={{ fill: `url(#${underGradientId})`, opacity: 0.07 }} filter={`url(#${glowUnderId})`} />
+      {animated ? (
+        <motion.g
+          animate={{ opacity: GLOW_NOISE_OPACITY }}
+          transition={{ duration: GLOW_NOISE_DURATION, repeat: Infinity, ease: easing.inOut, times: GLOW_NOISE_TIMES }}
+        >
+          {layers}
+        </motion.g>
+      ) : (
+        layers
+      )}
     </g>
   )
 }
@@ -587,6 +767,39 @@ function WickSparkleTrail() {
           initial={{ opacity: 0.9, scale: 1 }}
           animate={{ opacity: 0, scale: 0.3 }}
           transition={{ duration: 0.7, delay: sparkle.delay, ease: easing.out }}
+        />
+      ))}
+    </g>
+  )
+}
+
+/**
+ * Movement trail (additive, landing-page-guide upgrade) — reuses
+ * `WickSparkleTrail`'s visual language (small fading amber circles trailing
+ * the tail) but loops continuously via `repeatDelay` instead of playing
+ * once, for the duration `isTrailActive` stays true (a micro-dart hop or an
+ * externally-driven flight). Never rendered alongside `WickSparkleTrail` —
+ * see `isTrailActive`'s exclusion of the celebrating state at its call site.
+ */
+function WickMotionTrail() {
+  return (
+    <g>
+      {TRAIL_OFFSETS.map((mote, index) => (
+        <motion.circle
+          key={index}
+          cx={26 + mote.dx}
+          cy={52 + mote.dy}
+          r={1.1}
+          style={{ fill: "var(--amber-glow, oklch(0.78 0.14 80))" }}
+          initial={{ opacity: 0, scale: 0.4 }}
+          animate={{ opacity: [0, 0.85, 0], scale: [0.4, 1, 0.3] }}
+          transition={{
+            duration: TRAIL_MOTE_DURATION,
+            repeat: Infinity,
+            repeatDelay: TRAIL_MOTE_REPEAT_DELAY,
+            delay: mote.delay,
+            ease: easing.out,
+          }}
         />
       ))}
     </g>

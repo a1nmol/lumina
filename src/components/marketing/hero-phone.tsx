@@ -18,7 +18,7 @@
 // off-screen; reduced-motion renders the static final composition only.
 
 import { useEffect, useRef, useState } from "react"
-import { motion, useReducedMotion } from "framer-motion"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { CalendarCheck2, PhoneMissed, Sparkles } from "lucide-react"
 
 import { duration, easing, springGentle, wordRevealMs } from "@/lib/motion"
@@ -151,6 +151,13 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
   const phase = TIMELINE[index].phase
   const step = (name: (typeof TIMELINE)[number]["phase"]) =>
     TIMELINE.findIndex((s) => s.phase === name) <= index
+  // The missed-call banner is a system notification, not part of the chat
+  // transcript below it — it clears out once the reply phase begins rather
+  // than accumulating with the other bubbles (see PhoneShell's fixed-height
+  // header/content split + the readability-audit build report for why this
+  // matters: without an explicit exit, four bubbles + the banner overflowed
+  // the old shared flex column and collided with the header above it).
+  const bannerVisible = index < TIMELINE.findIndex((s) => s.phase === "reply")
 
   return (
     <div ref={containerRef} className="relative mx-auto w-full max-w-[300px]" data-scene="hero-phone">
@@ -187,30 +194,40 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
       >
       <PhoneShell>
         <motion.div
-          className="flex h-[300px] flex-col justify-end gap-2 px-3 pb-4"
+          className="flex h-full flex-col justify-end gap-2 px-3 pb-4"
           animate={{ opacity: phase === "reset" ? 0 : 1 }}
           transition={{
             duration: phase === "reset" ? 0.4 : duration.base,
             ease: easing.inOut,
           }}
         >
-          {/* ① Missed-call banner */}
-          {step("call") && (
-            <motion.div
-              key={`call-${cycleKey}`}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{
-                opacity: step("callDim") ? 0.55 : 1,
-                y: 0,
-                scale: step("callDim") ? 0.97 : 1,
-              }}
-              transition={springGentle}
-              className="flex items-center gap-2 self-stretch rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] font-medium text-destructive"
-            >
-              <PhoneMissed aria-hidden="true" className="size-3.5 shrink-0" />
-              (555) 812-4076 · Missed call
-            </motion.div>
-          )}
+          {/* ① Missed-call banner — exits (slides up + fades) once the reply
+              phase begins instead of piling up with the rest of the
+              transcript; see `bannerVisible` above. */}
+          <AnimatePresence>
+            {bannerVisible && (
+              <motion.div
+                key={`call-${cycleKey}`}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{
+                  opacity: step("callDim") ? 0.55 : 1,
+                  y: 0,
+                  scale: step("callDim") ? 0.97 : 1,
+                }}
+                exit={{ opacity: 0, y: -16, transition: { duration: duration.base, ease: easing.inOut } }}
+                transition={springGentle}
+                /* Text is ink (--foreground), not --destructive — the icon +
+                   border + tinted background already carry the "alert"
+                   read; --destructive text on a --destructive/10 chip only
+                   measures ~4.1:1, short of the 4.5:1 small-text bar (see
+                   the readability-audit build report). */
+                className="flex items-center gap-2 self-stretch rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] font-medium text-foreground"
+              >
+                <PhoneMissed aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
+                (555) 812-4076 · Missed call
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* ② Lumina greeting */}
           {step("greeting") && (
@@ -281,10 +298,15 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
                 initial={{ opacity: 0, y: 6, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={bubbleSpring}
-                className="relative inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-success"
+                /* Ink text again, same reasoning as the missed-call banner
+                   above — --success text on a --success/10 chip only
+                   measures ~4.1–4.3:1. The trailing "✓" is dropped (emoji
+                   sweep): CalendarCheck2 already carries the "confirmed"
+                   meaning. */
+                className="relative inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-foreground"
               >
-                <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0" />
-                Sat 10:00 AM · Cake pickup ✓
+                <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0 text-success" />
+                Sat 10:00 AM · Cake pickup
               </motion.div>
             </div>
           )}
@@ -300,12 +322,19 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       aria-hidden="true"
-      className="relative overflow-hidden rounded-[2.25rem] border-[6px] border-white/10 bg-card shadow-raised"
+      className="relative flex h-[380px] flex-col overflow-hidden rounded-[2.25rem] border-[6px] border-white/10 bg-card shadow-raised"
     >
       {/* Notch */}
       <div className="absolute top-2.5 left-1/2 z-20 h-4 w-20 -translate-x-1/2 rounded-full bg-background/90 ring-1 ring-white/10" />
 
-      <div className="flex items-center gap-2 px-3 pt-8 pb-2">
+      {/* Header — its own reserved row (shrink-0), never sharing space with
+          the message stack below. This is the actual fix for the
+          missed-call-banner/header collision: previously the header and a
+          fixed-height, bottom-pinned message column were separate flex
+          children of the same container, so once the column's content grew
+          past its own height it rendered outside its box, up into the
+          header (see the readability-audit build report). */}
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-8 pb-2">
         <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles aria-hidden="true" className="size-3.5" />
         </span>
@@ -317,20 +346,32 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {children}
+      {/* Message stack — flex-1 (bounded by the shell's own fixed height, so
+          it can never grow into the header) + overflow-hidden, with a soft
+          top mask so any bubble pushed toward/above the visible edge fades
+          out like a real chat scrolling, instead of hard-clipping or
+          spilling over. */}
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden"
+        style={{
+          maskImage: "linear-gradient(to bottom, transparent, black 28px)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 28px)",
+        }}
+      >
+        {children}
+      </div>
     </div>
   )
 }
 
-/** Reduced-motion + non-JS fallback: the finished scene, no animation. */
+/** Reduced-motion + non-JS fallback: the finished scene, no animation. The
+ * missed-call banner is omitted here — by the "finished" state it has
+ * already cleared out (see `bannerVisible` in the animated version above),
+ * so the static scene shows the same settled transcript rather than
+ * recreating the collision the animated fix removes. */
 function StaticFinalScene() {
   return (
-    <div className={cn("flex h-[300px] flex-col justify-end gap-2 px-3 pb-4")}>
-      <div className="flex items-center gap-2 self-stretch rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] font-medium text-destructive opacity-55">
-        <PhoneMissed aria-hidden="true" className="size-3.5 shrink-0" />
-        (555) 812-4076 · Missed call
-      </div>
-
+    <div className={cn("flex h-full flex-col justify-end gap-2 px-3 pb-4")}>
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary/15 px-3.5 py-2.5 text-[13px] text-foreground">
           {GREETING_TEXT}
@@ -354,9 +395,9 @@ function StaticFinalScene() {
       </div>
 
       <div className="flex justify-start pt-1">
-        <div className="inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-success">
-          <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0" />
-          Sat 10:00 AM · Cake pickup ✓
+        <div className="inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-foreground">
+          <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0 text-success" />
+          Sat 10:00 AM · Cake pickup
         </div>
       </div>
     </div>

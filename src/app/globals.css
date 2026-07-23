@@ -95,7 +95,15 @@
   --secondary: oklch(0.93 0.02 78);
   --secondary-foreground: oklch(0.3 0.03 60);
   --muted: oklch(0.93 0.02 78);
-  --muted-foreground: oklch(0.48 0.025 65);
+  /* Darkened from 0.48 -> 0.42 (readability audit, owner feedback): the
+     0.48 value only cleared ~6:1 against --background, short of the ≥7:1
+     target for real body copy on paper. 0.42 clears 7.80:1 on --background,
+     8.14:1 on --card, and still comfortably clears 4.5:1 on the warmer
+     --awning/--muted surfaces (6.9:1) — verified with a hand-rolled
+     OKLCH->sRGB contrast script (see the readability-audit build report).
+     Still reads as "muted" next to --foreground (0.24): the two are 0.18 L
+     apart, same hue family, so the hierarchy is unchanged, just darker. */
+  --muted-foreground: oklch(0.42 0.02 60);
   --accent: oklch(0.91 0.03 75);
   --accent-foreground: oklch(0.32 0.045 60);
   /* Semantic — hue/chroma unchanged from the pre-retune palette; lightness
@@ -167,6 +175,15 @@
   --sky-noon: oklch(0.97 0.02 90);
   --sky-dusk: oklch(0.55 0.13 300);
   --sky-night: oklch(0.16 0.03 277);
+  /* Wick's tail-glow bloom (additive — wick.tsx "natural light" upgrade):
+     three-layer bio-luminescent light with temperature variance. Theme-
+     invariant like --chalkboard/--sky-* above — a firefly's light doesn't
+     recolor with the app's light/dark setting. The mid layer intentionally
+     keeps using --amber-glow directly (already theme-aware, and it's the
+     brand's existing "signature" glow color) rather than adding a third
+     token here. */
+  --wick-glow-core: oklch(0.97 0.025 85); /* near-white warm — the hottest point */
+  --wick-glow-outer: oklch(0.72 0.15 55); /* faint amber-orange — the coolest, farthest-falling edge */
   /* Elevation — soft layered in light. Re-tinted to the warm hue family (60)
      for cohesion with the daylight register; chroma is negligible so the
      visual change is imperceptible. */

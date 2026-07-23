@@ -88,10 +88,13 @@ export function ShopPicker() {
                     "inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3.5 py-2 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
                     isSelected
                       ? "bg-background text-foreground shadow-sm"
-                      : "text-foreground/60 hover:text-foreground"
+                      : /* /70, not /60 — /60 measured 4.28:1 against the paper
+                           background, short of the 4.5:1 small-text bar (see
+                           the readability-audit build report). */
+                        "text-foreground/70 hover:text-foreground"
                   )}
                 >
-                  <span aria-hidden="true">{shop.emoji}</span>
+                  <shop.icon aria-hidden="true" strokeWidth={1.5} className="size-3.5" />
                   {shop.label}
                 </button>
               )

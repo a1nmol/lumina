@@ -64,8 +64,9 @@ export function OutcomeCards() {
                   <h3 className="text-lg font-semibold text-foreground">{card.title}</h3>
                   <p className="text-sm text-muted-foreground">{card.body}</p>
                   <div className="mt-auto rounded-lg border border-dashed border-border bg-awning px-3 py-2.5">
-                    <p className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                      {shop.example.emoji} {shop.example.label} example
+                    <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      <shop.example.icon aria-hidden="true" strokeWidth={1.5} className="size-3 shrink-0" />
+                      {shop.example.label} example
                     </p>
                     <p className="mt-1 text-xs text-foreground">{card.example(shop.example)}</p>
                   </div>

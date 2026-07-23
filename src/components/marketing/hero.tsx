@@ -85,7 +85,14 @@ export function Hero() {
           </div>
 
           <ScrollReveal>
-            <p className="text-xs font-semibold tracking-[0.2em] text-amber-glow uppercase">
+            {/* muted-foreground, not amber-glow — amber-glow is tuned for
+                dark/dusk surfaces (globals.css) and fails AA at this small
+                uppercase size against the light paper register (1.86:1, see
+                the readability-audit build report). Flame was also tried
+                and rejected: 4.17:1 on paper, still short of the 4.5:1 small-
+                text bar. muted-foreground clears 7.8:1 and reads as a
+                classic "eyebrow" label above the headline. */}
+            <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
               For bakers, barbers, and the people who fix sinks
             </p>
           </ScrollReveal>
@@ -105,7 +112,10 @@ export function Hero() {
               Get early access
               <ArrowRight aria-hidden="true" data-icon="inline-end" />
             </Button>
-            <p className="font-mono text-xs tracking-wide text-muted-foreground/80 uppercase">
+            {/* Full-strength muted-foreground, not /80 — the opacity dip
+                dropped this below 4.5:1 (3.86:1 with the old token, still
+                only 4.66:1 with the darkened one; see build report). */}
+            <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
               Free during the pilot · No card · 10-minute setup
             </p>
           </ScrollReveal>

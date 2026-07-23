@@ -10,7 +10,7 @@ Logo: **Lumina** (amber light-dot over the O). Links: How it works · The loop �
 - H1: **The shop that never closes.**
 - Sub: Lumina writes your posts, answers your customers, and books your jobs — even at 9pm, even while you sleep.
 - CTA: **Get early access** · micro: `Free during the pilot · No card · 10-minute setup`
-- Phone loop (4s, real components): ① Missed call — (555) 812-4076 ② Lumina text: "Sorry we missed you! How can we help?" ③ Customer: "Do you do birthday cakes for Saturday?" ④ Lumina: "We do! Custom cakes are $45 with 48h notice — want me to book a Saturday pickup?" ⑤ Calendar chip fills: `Sat 10:00 AM · Cake pickup ✓`
+- Phone loop (4s, real components): ① Missed call — (555) 812-4076 ② Lumina text: "Sorry we missed you! How can we help?" ③ Customer: "Do you do birthday cakes for Saturday?" ④ Lumina: "We do! Custom cakes are $45 with 48h notice — want me to book a Saturday pickup?" ⑤ Calendar chip fills: `Sat 10:00 AM · Cake pickup` (CalendarCheck2 icon, not a text checkmark — see the readability-audit build report's emoji sweep)
 
 ## 2 · TRUST BAR
 `BUILT FOR MAIN STREET` — chips: Bakeries · Salons · Barbers · Plumbers · Cafés · Cleaners
@@ -28,11 +28,11 @@ H2: **Three jobs. Handled.**
 3. **Shows what worked** — See which post brought which customers, down to the booking.
 
 ## 5-9 · THE DAY STRIP (pinned scroll story)
-- `7:00 AM` — **Your morning post, already written.** Chalkboard writes: "Fresh sourdough out at 7. The first loaf's crackle is for the early birds. 🥖" → thumbs-up tap → `Queued for 8:00 AM`
+- `7:00 AM` — **Your morning post, already written.** Chalkboard writes: "Fresh sourdough out at 7. The first loaf's crackle is for the early birds." → thumbs-up tap → `Queued for 8:00 AM`
 - `12:00 PM` — **Your week, on the rail.** Order tickets on a kitchen rail; one drags from Thu → Fri. Caption: Drag Thursday's special to Friday. Done.
 - `6:00 PM` — **Ding — a customer at the digital door.** Bubbles queue: "Are you open Sunday?" → answered · "Do you take walk-ins?" → answered · one glows amber: `Needs you — allergy question` (It never guesses. It flags you.)
 - `11:00 PM` — **While Main Street sleeps, yours is answering.** The scene becomes the real dashboard inbox: the 9pm cake DM, AI reply visible, `AI answered` chip.
-- `6:45 AM` — **The morning receipt.** Receipt prints: `GOOD MORNING ☀ WHILE YOU SLEPT — 2 new leads · 1 booking (Sat 10:00 AM) · 1 five-star review` … tear-off … `Have a great bake.`
+- `6:45 AM` — **The morning receipt.** Receipt header uses a Lucide Sun icon, not a ☀ glyph (emoji sweep, readability-audit build report). Receipt prints: `GOOD MORNING — WHILE YOU SLEPT — 2 new leads · 1 booking (Sat 10:00 AM) · 1 five-star review` … tear-off … `Have a great bake.`
 
 ## 10 · THE LOOP BOARD
 - H2: **The first tool that shows which post rang the till.**
@@ -44,7 +44,7 @@ H2: **Three jobs. Handled.**
 - **Get your evenings back** — Stop being the phone. Read the morning receipt with your coffee instead.
 
 ## 12 · PICK YOUR SHOP
-H2: **Made for shops like yours.** Tabs: 🥖 Bakery · 💇 Salon · 🔧 Plumber · ☕ Café — switching swaps every mockup, example post, and stat on the page.
+H2: **Made for shops like yours.** Tabs (Lucide icon + label, not emoji — emoji sweep, readability-audit build report): Croissant Bakery · Scissors Salon · Wrench Plumber · Coffee Café — switching swaps every mockup, example post, and stat on the page.
 
 ## 13 · SHOP WINDOWS (testimonials)
 H2: **Lights on across town.**
