@@ -10,10 +10,21 @@
 // highlight) with `aria-describedby` linking each post to the customer
 // chips it drove, so the "which post rang the till" relationship is
 // available to assistive tech too, not just sighted hover users.
+//
+// Track D (next-wave-worklist.md §D) — comprehension pass, additive on top
+// of the above: a 3-step legend strip ("① You post → ② They see it →
+// ③ They book") makes the metaphor legible before anyone hovers anything;
+// a scripted one-time "walkthrough" plays once the board scrolls into view
+// (post 1 highlights → post 2 highlights → a till/receipt chip counts up
+// "+3 customers"), then hands control back to the existing hover/focus
+// interaction untouched. The walkthrough is pure autoplay motion, so it's
+// fully gated behind `useReducedMotion` (matches lamps.tsx's flicker
+// pattern) — reduced-motion visitors land straight on the finished state
+// (till already at its total, chips already "landed") with zero timers.
 
-import { useState } from "react"
-import { motion } from "framer-motion"
-import { CalendarCheck2, MessageCircle, Phone, type LucideIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { motion, useInView, useReducedMotion } from "framer-motion"
+import { ArrowRight, CalendarCheck2, Eye, ImagePlus, MessageCircle, Phone, Receipt, type LucideIcon } from "lucide-react"
 
 import { spring } from "@/lib/motion"
 import { cn } from "@/lib/utils"
@@ -81,8 +92,93 @@ const STRINGS = [
 /** Idle shimmer rides this one string (post-cake → Jordan). */
 const SHIMMER_STRING_INDEX = 1
 
+/** The self-explanatory legend strip above the board — small icons, no reading required. */
+const LOOP_LEGEND: { label: string; icon: LucideIcon }[] = [
+  { label: "You post", icon: ImagePlus },
+  { label: "They see it", icon: Eye },
+  { label: "They book", icon: CalendarCheck2 },
+]
+
+/** Scripted walkthrough timing (ms) — post 1 highlights, then post 2, then the
+ *  board settles and the till chip counts up. Only ever runs once, and only
+ *  when motion is allowed (see the intro effect below). */
+const WALKTHROUGH_POST_DELAY = 350
+const WALKTHROUGH_SECOND_POST_DELAY = 1750
+const WALKTHROUGH_SETTLE_DELAY = 3150
+const WALKTHROUGH_TILL_STEP = 260
+
 export function LoopBoard() {
   const [activePost, setActivePost] = useState<number | null>(null)
+  const reduceMotion = useReducedMotion()
+  const totalCustomers = CUSTOMERS.length
+
+  // Per-chip "has this customer's string arrived yet" — drives the landing
+  // pop the first time a chip lights up (walkthrough OR early hover), then
+  // stays true. Reduced-motion visitors start with every chip already
+  // landed (see the effect below).
+  const [landed, setLanded] = useState<boolean[]>(() => CUSTOMERS.map(() => false))
+  // The till/receipt chip's running count, 0 → totalCustomers.
+  const [tillCount, setTillCount] = useState(0)
+
+  const boardRef = useRef<HTMLDivElement>(null)
+  const isBoardInView = useInView(boardRef, { once: true, amount: 0.5 })
+  const walkthroughStarted = useRef(false)
+
+  // Reduced-motion (or not-yet-resolved-to-false, which framer briefly
+  // reports as `null` pre-mount) visitors skip straight to the finished
+  // state — no autoplay timers, board stays fully driven by hover/focus.
+  // Deliberate setState-in-effect: `reduceMotion` is only knowable on the
+  // client (matchMedia via framer's own hook), so this is a one-time sync
+  // from that external system, not state derivable from props/render.
+  useEffect(() => {
+    if (!reduceMotion) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLanded(CUSTOMERS.map(() => true))
+    setTillCount(totalCustomers)
+  }, [reduceMotion, totalCustomers])
+
+  // The one-time scripted walkthrough.
+  useEffect(() => {
+    if (reduceMotion || !isBoardInView || walkthroughStarted.current) return
+    walkthroughStarted.current = true
+
+    const timers: ReturnType<typeof setTimeout>[] = []
+    timers.push(setTimeout(() => setActivePost(0), WALKTHROUGH_POST_DELAY))
+    timers.push(setTimeout(() => setActivePost(1), WALKTHROUGH_SECOND_POST_DELAY))
+    timers.push(
+      setTimeout(() => {
+        setActivePost(null)
+        CUSTOMERS.forEach((_, index) => {
+          timers.push(
+            setTimeout(() => setTillCount(index + 1), index * WALKTHROUGH_TILL_STEP)
+          )
+        })
+      }, WALKTHROUGH_SETTLE_DELAY)
+    )
+
+    return () => timers.forEach(clearTimeout)
+  }, [reduceMotion, isBoardInView])
+
+  // Whenever a post is active (walkthrough OR hover/focus), mark its
+  // connected customer chips as "landed" — permanent once true. Deliberate
+  // setState-in-effect: this is a one-time sync reacting to the timer-
+  // driven walkthrough / user hover state changing, not a value derivable
+  // during render (the chip's whole point is to remember its own history).
+  useEffect(() => {
+    if (activePost === null) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLanded((prev) => {
+      let changed = false
+      const next = [...prev]
+      POSTS[activePost].customers.forEach((index) => {
+        if (!next[index]) {
+          next[index] = true
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [activePost])
 
   return (
     <section id="loop-board" data-scene="loop-board" className="bg-background py-20 sm:py-28">
@@ -97,8 +193,26 @@ export function LoopBoard() {
           </p>
         </ScrollReveal>
 
-        <ScrollReveal delay={0.1} className="mt-14">
+        <ScrollReveal delay={0.08} className="mt-8 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-3 sm:gap-x-2.5">
+          {LOOP_LEGEND.map((step, index) => (
+            <div key={step.label} className="flex items-center gap-1.5 sm:gap-2.5">
+              <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 shadow-soft">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                  {index + 1}
+                </span>
+                <step.icon aria-hidden="true" strokeWidth={1.75} className="size-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium whitespace-nowrap text-foreground">{step.label}</span>
+              </div>
+              {index < LOOP_LEGEND.length - 1 ? (
+                <ArrowRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/50" />
+              ) : null}
+            </div>
+          ))}
+        </ScrollReveal>
+
+        <ScrollReveal delay={0.1} className="mt-10">
           <div
+            ref={boardRef}
             className="relative mx-auto min-h-[360px] w-full max-w-3xl rounded-3xl border border-border p-6 shadow-raised sm:min-h-[400px] sm:p-10"
             style={{
               backgroundColor: "var(--awning)",
@@ -165,9 +279,33 @@ export function LoopBoard() {
 
               {CUSTOMERS.map((customer, index) => {
                 const isLifted = activePost !== null && POSTS[activePost].customers.includes(index)
-                return <CustomerChip key={customer.id} customer={customer} isLifted={isLifted} />
+                return (
+                  <CustomerChip
+                    key={customer.id}
+                    customer={customer}
+                    isLifted={isLifted}
+                    hasLanded={landed[index]}
+                  />
+                )
               })}
             </div>
+          </div>
+
+          {/* Till/receipt chip — counts up once the walkthrough settles
+              (or shows the total instantly under reduced motion). Stays at
+              the total afterward; it's a summary, not a per-hover readout. */}
+          <div className="mt-6 flex justify-center">
+            <motion.div
+              initial={false}
+              animate={{ opacity: tillCount > 0 ? 1 : 0, y: tillCount > 0 ? 0 : 8 }}
+              transition={spring}
+              className="inline-flex items-center gap-2 rounded-full border border-dashed border-success/40 bg-success/10 px-4 py-2 shadow-soft"
+            >
+              <Receipt aria-hidden="true" className="size-4 shrink-0 text-success" />
+              <span className="text-sm font-semibold tabular-nums text-foreground">
+                +{tillCount} customer{tillCount === 1 ? "" : "s"}
+              </span>
+            </motion.div>
           </div>
         </ScrollReveal>
       </div>
@@ -211,12 +349,21 @@ function PostCard({
   )
 }
 
-function CustomerChip({ customer, isLifted }: { customer: Customer; isLifted: boolean }) {
+function CustomerChip({
+  customer,
+  isLifted,
+  hasLanded,
+}: {
+  customer: Customer
+  isLifted: boolean
+  /** True once this chip's connecting string has "arrived" at least once — plays a small landing pop, then stays true. */
+  hasLanded: boolean
+}) {
   return (
     <motion.div
       id={customer.id}
       initial={false}
-      animate={{ y: isLifted ? -2 : 0 }}
+      animate={{ y: isLifted ? -2 : 0, opacity: hasLanded ? 1 : 0.6, scale: hasLanded ? 1 : 0.96 }}
       transition={spring}
       className={cn(
         "flex w-full max-w-[220px] items-center gap-2.5 rounded-full border bg-card px-3 py-2 shadow-soft sm:absolute sm:right-0",

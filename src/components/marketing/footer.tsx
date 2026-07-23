@@ -61,11 +61,17 @@ const STRIP_BUILDINGS: Array<{ x: number; width: number; height: number }> = [
   { x: 486, width: 40, height: 28 },
 ]
 
-/** (building index, offset-x-within-building, offset-y-from-baseline) — 3 tiny amber "lit window" accents scattered across the strip. */
-const LIT_ACCENTS: Array<{ building: number; dx: number; dy: number }> = [
+/** (building index, offset-x-within-building, offset-y-from-baseline) — 3 tiny amber "lit window" accents scattered across the strip. The middle entry (building 4, roughly the strip's geometric center) is the "outshining" one — Track E's street-spec.md echo at this tiny scale: brighter + slightly larger than its neighbors. */
+const LIT_ACCENTS: Array<{ building: number; dx: number; dy: number; center?: boolean }> = [
   { building: 2, dx: 22, dy: -22 },
-  { building: 4, dx: 18, dy: -18 },
+  { building: 4, dx: 18, dy: -18, center: true },
   { building: 8, dx: 24, dy: -20 },
+]
+
+/** (building index, offset-x-within-building, offset-y-from-baseline) — 2 micro "✕" marks on unlit buildings, echoing street-spec.md's negation-cue language at strip scale. Deliberately tiny (compact, "administrative not sad") and plain ink — no text fits at this size. */
+const X_MARKS: Array<{ building: number; dx: number; dy: number }> = [
+  { building: 0, dx: 30, dy: -22 },
+  { building: 9, dx: 20, dy: -12 },
 ]
 
 const STRIP_VIEW_WIDTH = 540
@@ -97,18 +103,38 @@ function FooterSkylineStrip() {
           />
         ))}
       </g>
+      <g className="text-foreground/35" stroke="currentColor" strokeWidth={0.9} strokeLinecap="round">
+        {X_MARKS.map((mark, index) => {
+          const building = STRIP_BUILDINGS[mark.building]
+          const cx = building.x + mark.dx
+          const cy = STRIP_BASELINE + mark.dy
+          const r = 1.8
+          return (
+            <g key={index}>
+              <line x1={cx - r} y1={cy - r} x2={cx + r} y2={cy + r} />
+              <line x1={cx + r} y1={cy - r} x2={cx - r} y2={cy + r} />
+            </g>
+          )
+        })}
+      </g>
       {LIT_ACCENTS.map((accent, index) => {
         const building = STRIP_BUILDINGS[accent.building]
+        const size = accent.center ? 6 : 4
         return (
           <rect
             key={index}
-            x={building.x + accent.dx}
-            y={STRIP_BASELINE + accent.dy}
-            width={4}
-            height={4}
-            rx={0.6}
+            x={building.x + accent.dx - (accent.center ? (size - 4) / 2 : 0)}
+            y={STRIP_BASELINE + accent.dy - (accent.center ? (size - 4) / 2 : 0)}
+            width={size}
+            height={size}
+            rx={0.8}
             className="fill-amber-glow"
-            style={{ filter: "drop-shadow(0 0 2px var(--amber-glow))" }}
+            style={{
+              filter: accent.center
+                ? "drop-shadow(0 0 2px var(--amber-glow)) drop-shadow(0 0 5px var(--amber-glow))"
+                : "drop-shadow(0 0 2px var(--amber-glow))",
+              opacity: accent.center ? 1 : 0.85,
+            }}
           />
         )
       })}

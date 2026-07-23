@@ -139,7 +139,7 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
 
   if (reduceMotion) {
     return (
-      <div className="mx-auto w-full max-w-[300px]" data-scene="hero-phone">
+      <div className="mx-auto w-full max-w-[340px]" data-scene="hero-phone">
         <PhoneShell>
           <StaticFinalScene />
         </PhoneShell>
@@ -160,7 +160,7 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
   const bannerVisible = index < TIMELINE.findIndex((s) => s.phase === "reply")
 
   return (
-    <div ref={containerRef} className="relative mx-auto w-full max-w-[300px]" data-scene="hero-phone">
+    <div ref={containerRef} className="relative mx-auto w-full max-w-[340px]" data-scene="hero-phone">
       {/* Soft concentric ripple as the missed-call banner lands — two rings,
           amber at 20%, expanding + fading out over 900ms. Sits behind the
           phone shell (z-0), replays every loop via the cycleKey remount.
@@ -216,15 +216,30 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
                 }}
                 exit={{ opacity: 0, y: -16, transition: { duration: duration.base, ease: easing.inOut } }}
                 transition={springGentle}
-                /* Text is ink (--foreground), not --destructive — the icon +
-                   border + tinted background already carry the "alert"
-                   read; --destructive text on a --destructive/10 chip only
-                   measures ~4.1:1, short of the 4.5:1 small-text bar (see
-                   the readability-audit build report). */
-                className="flex items-center gap-2 self-stretch rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] font-medium text-foreground"
+                /* Two-line card: icon lives in its own ringed avatar chip
+                   (matches the header's avatar treatment below) so the row
+                   reads as a system notification, not a chat bubble. Both
+                   text lines stay ink (--foreground), not --destructive —
+                   confirmed via a linear-alpha-composited OKLCH contrast
+                   check (not a perceptual OKLCH mix): 14.57:1 light /
+                   11.58:1 dark against destructive/10-over-card. A
+                   muted-foreground subtitle was tried first and rejected —
+                   it only clears ~7.5:1 light but drops to 3.84–4.51:1 in
+                   the dark register (muted-foreground is tuned for plain
+                   --card, not a tinted chip), so both lines share one
+                   AA-safe color and get their hierarchy from weight/size
+                   instead (see the readability-audit build report pattern
+                   this file already established for the single-line
+                   version). */
+                className="flex items-center gap-2.5 self-stretch rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2.5"
               >
-                <PhoneMissed aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
-                (555) 812-4076 · Missed call
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-destructive/15 ring-1 ring-destructive/25">
+                  <PhoneMissed aria-hidden="true" className="size-3.5 text-destructive" />
+                </span>
+                <div className="min-w-0 leading-tight">
+                  <p className="text-[11px] font-semibold text-foreground">Missed call</p>
+                  <p className="text-[10px] text-foreground">(555) 812-4076</p>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -283,9 +298,17 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
             </div>
           )}
 
-          {/* ⑤ Calendar chip */}
+          {/* ⑤ Calendar chip — a mini event card (icon-in-ring avatar +
+              title + confirmation line), the same two-line language as the
+              missed-call banner above, so the loop reads as one system:
+              "we caught the miss, then we resolved it." Ink text on both
+              lines for the same AA reasons as the banner (14.57:1 light /
+              9.87:1 dark against success/10-over-card; --success text
+              itself only clears ~4.55:1 light / drops to 3.83:1–4.74:1
+              dark). The trailing "✓" is dropped (emoji sweep):
+              CalendarCheck2 already carries the "confirmed" meaning. */}
           {step("calendar") && (
-            <div className="relative flex justify-start pt-1">
+            <div className="relative pt-1">
               <motion.div
                 aria-hidden="true"
                 initial={{ opacity: 0 }}
@@ -298,15 +321,15 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
                 initial={{ opacity: 0, y: 6, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={bubbleSpring}
-                /* Ink text again, same reasoning as the missed-call banner
-                   above — --success text on a --success/10 chip only
-                   measures ~4.1–4.3:1. The trailing "✓" is dropped (emoji
-                   sweep): CalendarCheck2 already carries the "confirmed"
-                   meaning. */
-                className="relative inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-foreground"
+                className="relative flex items-center gap-2.5 self-stretch rounded-xl border border-success/30 bg-success/10 px-3 py-2.5"
               >
-                <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0 text-success" />
-                Sat 10:00 AM · Cake pickup
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success/15 ring-1 ring-success/30">
+                  <CalendarCheck2 aria-hidden="true" className="size-3.5 text-success" />
+                </span>
+                <div className="min-w-0 leading-tight">
+                  <p className="text-[11px] font-semibold text-foreground">Cake pickup — Sat 10:00 AM</p>
+                  <p className="text-[10px] text-foreground">Added to calendar</p>
+                </div>
               </motion.div>
             </div>
           )}
@@ -322,10 +345,34 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       aria-hidden="true"
-      className="relative flex h-[380px] flex-col overflow-hidden rounded-[2.25rem] border-[6px] border-white/10 bg-card shadow-raised"
+      className="relative flex h-[430px] flex-col overflow-hidden rounded-[2.5rem] bg-card shadow-raised"
+      /* Bezel — token-based (color-mix against --foreground) instead of a
+         raw border-white/10, same technique problem.tsx's CounterPhone
+         frame already uses: a light frame in light mode, a dark frame in
+         dark mode, always device-chrome-appropriate rather than a fixed
+         white hairline that would nearly vanish on a light card. The inset
+         ring adds a faint "glass" edge just inside the bezel. */
+      style={{
+        border: "7px solid color-mix(in oklch, var(--foreground) 14%, transparent)",
+        boxShadow: "var(--shadow-raised), inset 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent)",
+      }}
     >
+      {/* Faint status bar — realism detail (design brief: "9:41 PM").
+          Decorative flavor text, not live data, sitting to the left of the
+          notch the way a real status-bar clock does. Full-strength
+          --muted-foreground (not an opacity dip) per this file's own
+          established pattern: 8.14:1 light / 6.58:1 dark against --card,
+          comfortably AA even though it reads visually "faint" next to the
+          bolder header text beneath it. */}
+      <span className="absolute top-3.5 left-5 z-20 font-mono text-[10px] font-medium tracking-wide text-muted-foreground">
+        9:41 PM
+      </span>
+
       {/* Notch */}
-      <div className="absolute top-2.5 left-1/2 z-20 h-4 w-20 -translate-x-1/2 rounded-full bg-background/90 ring-1 ring-white/10" />
+      <div
+        className="absolute top-3 left-1/2 z-20 h-5 w-24 -translate-x-1/2 rounded-full bg-background/90"
+        style={{ boxShadow: "inset 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent)" }}
+      />
 
       {/* Header — its own reserved row (shrink-0), never sharing space with
           the message stack below. This is the actual fix for the
@@ -334,16 +381,21 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
           children of the same container, so once the column's content grew
           past its own height it rendered outside its box, up into the
           header (see the readability-audit build report). */}
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-8 pb-2">
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-9 pb-2">
         <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles aria-hidden="true" className="size-3.5" />
         </span>
-        <div className="flex flex-col leading-none">
-          <span className="text-xs font-semibold text-foreground">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 leading-none">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
             <Wordmark className="text-xs" />
+            <span aria-hidden="true" className="text-muted-foreground">
+              ·
+            </span>
+            <span>Front desk</span>
           </span>
-          <span className="text-[10px] text-muted-foreground">answering for Sunrise Bakery</span>
+          <span className="truncate text-[10px] text-muted-foreground">answering for Sunrise Bakery</span>
         </div>
+        <LiveDot />
       </div>
 
       {/* Message stack — flex-1 (bounded by the shell's own fixed height, so
@@ -361,6 +413,22 @@ function PhoneShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </div>
+  )
+}
+
+/** Pulsing "we're live" indicator in the header — a solid dot plus a soft
+ * expanding ring (Tailwind's built-in `animate-ping`), which the global
+ * `prefers-reduced-motion` override in globals.css already neutralizes
+ * (forces every animation's duration to ~0 / iteration-count to 1), so no
+ * separate reduced-motion branch is needed here. --success at full
+ * strength against --card clears the 3:1 non-text-graphic bar with room to
+ * spare (4.95:1 light / 8.12:1 dark). */
+function LiveDot() {
+  return (
+    <span aria-hidden="true" className="relative flex size-2 shrink-0 items-center justify-center">
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+      <span className="relative inline-flex size-1.5 rounded-full bg-success" />
+    </span>
   )
 }
 
@@ -394,10 +462,15 @@ function StaticFinalScene() {
         </span>
       </div>
 
-      <div className="flex justify-start pt-1">
-        <div className="inline-flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-[12px] font-medium text-foreground">
-          <CalendarCheck2 aria-hidden="true" className="size-3.5 shrink-0 text-success" />
-          Sat 10:00 AM · Cake pickup
+      <div className="pt-1">
+        <div className="flex items-center gap-2.5 rounded-xl border border-success/30 bg-success/10 px-3 py-2.5">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success/15 ring-1 ring-success/30">
+            <CalendarCheck2 aria-hidden="true" className="size-3.5 text-success" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <p className="text-[11px] font-semibold text-foreground">Cake pickup — Sat 10:00 AM</p>
+            <p className="text-[10px] text-foreground">Added to calendar</p>
+          </div>
         </div>
       </div>
     </div>

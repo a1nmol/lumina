@@ -52,11 +52,30 @@
  *
  * Hover hints: any element anywhere on the page can carry a
  * `data-wick-hint="short line"` attribute. While the visitor is stopped (no
- * scroll ≥350ms) and the pointer rests ≥400ms over such an element, the
+ * scroll ≥350ms) and the pointer rests ≥300ms over such an element, the
  * bubble swaps to that hint (instant fade/slide, no typing); leaving the
  * element restores whatever section/scene line was showing after ~600ms.
  * Generic + self-contained — see `useWickHoverHints` below. Future sections
  * just add the attribute, nothing else to wire up.
+ *
+ * Sync correctness (owner direction, hover/scroll hint sync fix): the dwell
+ * timer never trusts a captured closure for WHICH element or WHAT text to
+ * show — it always re-reads `hoverElRef.current` at the moment it actually
+ * fires, so a wrong-element/stale hint is structurally impossible rather
+ * than merely unlikely. A dwell that fires while the page is still settling
+ * from a scroll (`stillRef` false) doesn't drop the hint silently — it
+ * retries on a short interval (`STILLNESS_RETRY_MS` × up to
+ * `STILLNESS_RETRY_MAX_ATTEMPTS`) so a hover that started right after a
+ * scroll still resolves once things settle. Entering a new hinted element
+ * always cancels any in-flight dwell/retry chain AND any pending restore
+ * immediately (`clearDwell`/`clearRestore` in `handlePointerOver`), which is
+ * also what keeps a direct A→B hover swap from ever flashing the underlying
+ * section line in between. `handlePointerOut` no-ops on child-to-child moves
+ * (`relatedTarget` still inside the same hinted element) so nested
+ * interactive children don't spuriously restart the dwell/restore cycle.
+ * In non-production builds only, the currently-active hint text is mirrored
+ * onto `document.body[data-wick-hint-source]` for test harnesses to assert
+ * against without needing to read component internals.
  *
  * Active-waypoint tracking mirrors day-strip.tsx's `DayStripStackedStory`
  * pattern: an IntersectionObserver with a thin center band
@@ -116,10 +135,16 @@ const INTRO_MIN_DISPLAY_MS = 4000
  *  instead of being permanently suppressed. */
 const INTRO_SEEN_WRITE_MS = 1500
 /** Hover-hint dwell before the bubble swaps to a `data-wick-hint` line. */
-const HOVER_HINT_DWELL_MS = 400
+const HOVER_HINT_DWELL_MS = 300
 /** How long after the pointer leaves a hinted element before the bubble
  *  restores the section/scene line. */
 const HOVER_HINT_RESTORE_MS = 600
+/** Retry interval for the dwell's stillness gate — a dwell that fires while
+ *  the page is still settling from a scroll (`stillRef` false) re-checks on
+ *  this cadence instead of dropping the hint outright. */
+const STILLNESS_RETRY_MS = 200
+/** Cap on stillness-gate retries (~1s total) before giving up quietly. */
+const STILLNESS_RETRY_MAX_ATTEMPTS = 5
 
 const WICK_SIZE = 84
 /** Bubble width cap for the guide instance — scaled up alongside `WICK_SIZE`
@@ -792,6 +817,30 @@ function GuideBody({
  * so future sections opt in just by adding the attribute — nothing to wire
  * up here. Pointer-only (never focus-driven), so it can never steal
  * keyboard focus from the element the visitor is actually interacting with.
+ *
+ * Sync-correctness invariants (bug fix pass — see the file-level doc above
+ * for the summary):
+ *  - `attemptCommit` NEVER trusts the `target` it closed over for anything
+ *    but identity comparison — the hint text itself is always re-read from
+ *    `hoverElRef.current.getAttribute(...)` at the instant it fires, so a
+ *    commit can only ever show the hint for whatever element is genuinely
+ *    still being hovered right now, never a stale one.
+ *  - `handlePointerOver` cancels BOTH the in-flight dwell/retry chain
+ *    (`clearDwell`) and any pending restore (`clearRestore`) the instant a
+ *    *different* hinted element is entered — this is what makes an A→B
+ *    direct hover swap update straight from A's hint to B's without ever
+ *    flashing the underlying section/scene line in between.
+ *  - `handlePointerOut` no-ops when `relatedTarget` is still inside the
+ *    element being left (a child-to-child move within the same hinted
+ *    element) — mousing over nested interactive children never restarts the
+ *    dwell/restore cycle.
+ *  - A dwell that fires while `stillRef` is false (the visitor hovered right
+ *    as a scroll was settling) retries every `STILLNESS_RETRY_MS` up to
+ *    `STILLNESS_RETRY_MAX_ATTEMPTS` times instead of silently dropping the
+ *    hint — `attemptCommit` re-checks `hoverElRef.current === target` on
+ *    every retry, so if the visitor has since moved on, the retry chain
+ *    (already canceled via `clearDwell` from the new pointerover/out pair)
+ *    simply never runs again.
  */
 function useWickHoverHints(active: boolean): string | null {
   const [isStill, setIsStill] = useState(true)
@@ -828,6 +877,7 @@ function useWickHoverHints(active: boolean): string | null {
       // through if `active` later flips true again.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setHoverHint(null)
+      hoverElRef.current = null
       return
     }
     let dwellTimer: ReturnType<typeof setTimeout> | null = null
@@ -846,23 +896,44 @@ function useWickHoverHints(active: boolean): string | null {
       }
     }
 
+    function attemptCommit(target: Element, attempt: number) {
+      // The element being dwelt on has changed (or been left) since this
+      // chain started — a fresh pointerover/pointerout already owns the
+      // timer slot (or cleared it), so this stale chain link is a no-op.
+      if (hoverElRef.current !== target) return
+      if (!stillRef.current) {
+        if (attempt >= STILLNESS_RETRY_MAX_ATTEMPTS) return
+        dwellTimer = setTimeout(() => attemptCommit(target, attempt + 1), STILLNESS_RETRY_MS)
+        return
+      }
+      // Re-derived from the ref, never the closed-over `target`/a captured
+      // hint string — this is the element genuinely under the pointer right
+      // now, at the exact instant of commit.
+      const hint = hoverElRef.current?.getAttribute("data-wick-hint")
+      if (hint) setHoverHint(hint)
+    }
+
     function handlePointerOver(event: PointerEvent) {
       const target = (event.target as Element | null)?.closest?.("[data-wick-hint]")
       if (!target || target === hoverElRef.current) return
+      // New hinted target: any in-flight dwell/retry chain for the
+      // previous target, and any pending restore-to-section-line, are both
+      // canceled immediately — this is what prevents a stale hint from
+      // landing late and what keeps a direct A→B swap from ever flashing
+      // the underlying section line in between.
       clearDwell()
       clearRestore()
       hoverElRef.current = target
-      dwellTimer = setTimeout(() => {
-        if (!stillRef.current) return
-        const hint = target.getAttribute("data-wick-hint")
-        if (hint) setHoverHint(hint)
-      }, HOVER_HINT_DWELL_MS)
+      dwellTimer = setTimeout(() => attemptCommit(target, 0), HOVER_HINT_DWELL_MS)
     }
 
     function handlePointerOut(event: PointerEvent) {
       const target = (event.target as Element | null)?.closest?.("[data-wick-hint]")
       if (!target || target !== hoverElRef.current) return
       const related = event.relatedTarget as Element | null
+      // Child-to-child move within the same hinted element (e.g. a nested
+      // interactive child) — not a real "leave", so no-op rather than
+      // restarting the dwell/restore cycle.
       if (related && target.contains(related)) return
       clearDwell()
       hoverElRef.current = null
@@ -878,6 +949,24 @@ function useWickHoverHints(active: boolean): string | null {
       clearRestore()
     }
   }, [active])
+
+  // Dev-only: mirror the currently-active hint text onto the DOM so test
+  // harnesses (and manual QA) can assert "the hint currently shown matches
+  // the element actually being hovered" without reaching into component
+  // internals — exactly the class of bug this pass fixes. Stripped in
+  // production builds; never affects behavior, only observability.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return
+    if (typeof document === "undefined") return
+    if (hoverHint) {
+      document.body.setAttribute("data-wick-hint-source", hoverHint)
+    } else {
+      document.body.removeAttribute("data-wick-hint-source")
+    }
+    return () => {
+      if (process.env.NODE_ENV !== "production") document.body.removeAttribute("data-wick-hint-source")
+    }
+  }, [hoverHint])
 
   return hoverHint
 }

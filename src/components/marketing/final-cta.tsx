@@ -1,11 +1,14 @@
 "use client"
 
 // Section 16 · FINAL CTA — "Lights on?" — landing-copy.md §16,
-// brand-redesign-plan.md §5.13. Light section (owner-approved light-first
-// flip): the device is now one small, contained dusk vignette — a framed
-// "night window" card (`.dusk-section` scoped to the card only) holding the
-// neon H2 + a compact single-lit-window strip — sitting above the
-// light-background CTA copy + flame button. No full-bleed dark band.
+// brand-redesign-plan.md §5.13; street illustration per
+// docs/design-briefs/street-spec.md (Track E). Light section
+// (owner-approved light-first flip): the device is a framed "night window"
+// card (`.dusk-section` scoped to the card only) holding the neon H2 above
+// the full illustrated main-street row — every shop but the glowing café
+// missing something — sitting above the light-background CTA copy + flame
+// button. The street IS the visual argument now; no separate abstract
+// vignette. No full-bleed dark band.
 
 import { ArrowRight } from "lucide-react"
 
@@ -18,7 +21,7 @@ export function FinalCta() {
   return (
     <section id="final-cta" data-scene="final-cta" className="relative overflow-hidden bg-background py-24 sm:py-32">
       <div className="relative z-10 mx-auto max-w-xl px-4 text-center sm:px-6 lg:px-8">
-        <ScrollReveal className="mx-auto max-w-sm">
+        <ScrollReveal className="mx-auto max-w-md sm:max-w-lg">
           <div className="dusk-section overflow-hidden rounded-3xl border border-amber-glow/20 bg-card shadow-overlay">
             <div className="px-6 pt-8 pb-1 sm:px-8 sm:pt-10">
               <h2
@@ -29,7 +32,7 @@ export function FinalCta() {
               </h2>
             </div>
             <div className="mt-6">
-              <StreetSilhouette variant="single" className="h-20 sm:h-24" />
+              <StreetSilhouette variant="main-street" className="px-2 pb-1 sm:px-4" />
             </div>
           </div>
         </ScrollReveal>

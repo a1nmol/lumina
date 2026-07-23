@@ -85,6 +85,12 @@
      to 85 (paper/surfaces), chroma low throughout — never pure gray. */
   --background: oklch(0.97 0.015 85); /* paper cream */
   --foreground: oklch(0.24 0.03 60); /* espresso */
+  /* "Ink" — alias for --foreground used by the street-silhouette line-art
+     (hero's daylight strip + the main-street illustration): a semantic name
+     for "the silhouette/line color" that reads correctly regardless of
+     which register (light/dark/dusk) is active, without every consumer
+     needing to know that's just --foreground under the hood. */
+  --ink: var(--foreground);
   --card: oklch(0.985 0.01 85);
   --card-foreground: oklch(0.24 0.03 60);
   --popover: oklch(0.985 0.01 85);
@@ -201,6 +207,7 @@
 .dark {
   --background: oklch(0.135 0.008 277);
   --foreground: oklch(0.96 0.005 277);
+  --ink: var(--foreground);
   --card: oklch(0.175 0.01 277);
   --card-foreground: oklch(0.96 0.005 277);
   --popover: oklch(0.19 0.012 277);
@@ -273,6 +280,7 @@
   color-scheme: dark;
   --background: oklch(0.135 0.008 277);
   --foreground: oklch(0.96 0.005 277);
+  --ink: var(--foreground);
   --card: oklch(0.175 0.01 277);
   --card-foreground: oklch(0.96 0.005 277);
   --popover: oklch(0.19 0.012 277);
@@ -394,6 +402,32 @@
   animation: string-shimmer 6s ease-in-out infinite;
 }
 
+/* Shop windows — one-shot "flicker on softly" as each window card enters
+   view (Track D aliveness pass, next-wave-worklist.md §D). Ends at (and
+   holds, via animation-fill-mode: forwards) the CSS var --window-rest-
+   opacity the component sets inline per card, then the component swaps
+   this class out on `animationend` so a subsequent hover-brighten
+   transition never fights a still-running keyframe. Neutralized by the
+   global prefers-reduced-motion rule above (duration forced to ~0, so it
+   lands at rest practically instantly, matching .sign-buzz / .glow-pulse). */
+@keyframes window-flicker-in {
+  0% {
+    opacity: 0;
+  }
+  32% {
+    opacity: 0.32;
+  }
+  55% {
+    opacity: 0.12;
+  }
+  100% {
+    opacity: var(--window-rest-opacity, 0.6);
+  }
+}
+.window-flicker-in {
+  animation: window-flicker-in 0.9s ease-out forwards;
+}
+
 /* HERO — "Morning on Main Street" daylight backdrop (owner-approved flip to
    light-first; see docs/design-briefs/brand-redesign-plan.md — the hero no
    longer scene-locks to dusk). Two soft, static color washes layered under
@@ -463,6 +497,34 @@
 }
 .sign-buzz-soft {
   animation: sign-buzz-soft 8s ease-in-out infinite;
+}
+
+/* Outcome cards — lit shop-window displays (Next Wave Track C,
+   docs/design-briefs/next-wave-worklist.md). The interior pane starts
+   dim/muted ("unlit") and washes warm amber when the card is hovered,
+   focused, or tapped ("lit") — echoes the shop-windows.tsx/final-cta.tsx
+   dusk-window glow (border + box-shadow color-mix of --amber-glow) without
+   locking the whole card into `.dusk-section`: only the small interior pane
+   washes warm, title/body copy stay on the normal light-first register.
+   Plain CSS transitions, so this is automatically neutralized under
+   prefers-reduced-motion by the global override above — no JS branch
+   needed for the wash itself (only the interior micro-scenes, which use
+   framer motion, check reduceMotion explicitly). */
+.shop-window-pane {
+  background-color: var(--muted);
+  border-color: var(--border);
+  box-shadow: none;
+  transition:
+    background-color var(--duration-slow) var(--ease-out),
+    border-color var(--duration-slow) var(--ease-out),
+    box-shadow var(--duration-slow) var(--ease-out);
+}
+.shop-window-pane[data-lit="true"] {
+  background-color: color-mix(in oklch, var(--amber-glow) 16%, var(--muted));
+  border-color: color-mix(in oklch, var(--amber-glow) 45%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--amber-glow) 12%, transparent),
+    inset 0 0 22px color-mix(in oklch, var(--amber-glow) 18%, transparent);
 }
 
 /* Studio composer — text shimmer sweep for "still generating" copy.
