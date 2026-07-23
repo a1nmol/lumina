@@ -22,22 +22,41 @@
  * reverses it — the guide flies back up + fades (AnimatePresence `exit`)
  * while hero.tsx's own handoff layer independently fades its Wick back in.
  *
- * Waypoints: the eight non-hero landing sections, keyed by the `data-scene`
+ * Waypoints: every non-hero landing section, keyed by the `data-scene`
  * attribute each section already renders (confirmed by reading the section
- * files directly — two of these have a different `id` than `data-scene`,
+ * files directly — some of these have a different `id` than `data-scene`,
  * e.g. lamps' `id="how-it-works"` / `data-scene="lamps"`, so `data-scene` is
- * used throughout as the one consistent selector):
+ * used throughout as the one consistent selector). Full coverage — one line
+ * for every visible band, no dead zones (owner direction):
  *
- *   data-scene    | rendered by
- *   --------------|---------------------------------
- *   problem       | problem.tsx
- *   lamps         | lamps.tsx            (id="how-it-works")
- *   day-strip     | day-strip.tsx
- *   loop-board    | loop-board.tsx
- *   shop-picker   | shop-picker.tsx      (id="pick-your-shop")
- *   pilot-menu    | pilot-menu.tsx
- *   faq           | faq-signs.tsx
- *   final-cta     | final-cta.tsx
+ *   data-scene     | rendered by
+ *   ---------------|---------------------------------
+ *   trust-bar      | trust-bar.tsx
+ *   problem        | problem.tsx
+ *   lamps          | lamps.tsx            (id="how-it-works")
+ *   day-strip      | day-strip.tsx        (per-SCENE lines — see below)
+ *   loop-board     | loop-board.tsx
+ *   outcome-cards  | outcome-cards.tsx    (id="features")
+ *   shop-picker    | shop-picker.tsx      (id="pick-your-shop")
+ *   shop-windows   | shop-windows.tsx
+ *   pilot-menu     | pilot-menu.tsx
+ *   faq            | faq-signs.tsx
+ *   final-cta      | final-cta.tsx
+ *
+ * day-strip is special-cased: instead of one static line for the whole
+ * section, the guide reads day-strip.tsx's own active-scene store (same
+ * module-level pub/sub pattern as `HeroWickHandoff`, published from
+ * whichever of the pinned desktop stage / stacked fallback is mounted) and
+ * shows that SCENE's line, re-arming the "already shown" gate on scene
+ * change (not just on entering/leaving the day-strip section as a whole).
+ *
+ * Hover hints: any element anywhere on the page can carry a
+ * `data-wick-hint="short line"` attribute. While the visitor is stopped (no
+ * scroll ≥350ms) and the pointer rests ≥400ms over such an element, the
+ * bubble swaps to that hint (instant fade/slide, no typing); leaving the
+ * element restores whatever section/scene line was showing after ~600ms.
+ * Generic + self-contained — see `useWickHoverHints` below. Future sections
+ * just add the attribute, nothing else to wire up.
  *
  * Active-waypoint tracking mirrors day-strip.tsx's `DayStripStackedStory`
  * pattern: an IntersectionObserver with a thin center band
@@ -63,7 +82,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { AnimatePresence, motion, useAnimationControls, useReducedMotion, type Transition } from "framer-motion"
-import { X } from "lucide-react"
 
 import {
   getHeroWickHandoffSnapshot,
@@ -71,32 +89,74 @@ import {
   subscribeHeroWickHandoff,
   Wick,
 } from "@/components/brand/wick"
-import { duration, easing, springGentle, wordRevealMs } from "@/lib/motion"
-import { cn } from "@/lib/utils"
+import { WickBubble } from "@/components/brand/wick-bubble"
+import {
+  getDayStripActiveSceneServerSnapshot,
+  getDayStripActiveSceneSnapshot,
+  subscribeDayStripActiveScene,
+} from "@/components/marketing/day-strip"
+import { easing, springGentle } from "@/lib/motion"
 
 const DISMISS_STORAGE_KEY = "lumina:guide-dismissed"
 const INTRO_SEEN_STORAGE_KEY = "lumina:guide-intro-seen"
 const DESKTOP_QUERY = "(min-width: 1024px)"
 
 /** ~350ms of stillness after the last scroll event before a bubble pops — a
- *  "he noticed you stopped", not a rest-timer feel. */
+ *  "he noticed you stopped", not a rest-timer feel. Also the same signal
+ *  that gates hover-hint eligibility ("stopped") — see `useWickHoverHints`. */
 const STOP_DELAY_MS = 350
-/** Typing-dots phase before text starts appearing — "he's about to talk". */
-const TYPING_DOTS_MS = 350
+/** Minimum time the INTRO bubble stays up, immune to scroll-hide, once it
+ *  has actually appeared — see the root-cause note on `handleScroll` below. */
+const INTRO_MIN_DISPLAY_MS = 4000
+/** How long the intro must have been on screen before it's marked "seen" in
+ *  `sessionStorage` — short of this, a killed intro re-arms next appearance
+ *  instead of being permanently suppressed. */
+const INTRO_SEEN_WRITE_MS = 1500
+/** Hover-hint dwell before the bubble swaps to a `data-wick-hint` line. */
+const HOVER_HINT_DWELL_MS = 400
+/** How long after the pointer leaves a hinted element before the bubble
+ *  restores the section/scene line. */
+const HOVER_HINT_RESTORE_MS = 600
 
-const WICK_SIZE = 56
+const WICK_SIZE = 84
+/** Bubble width cap for the guide instance — scaled up alongside `WICK_SIZE`
+ *  (owner direction: "he must NEVER shrink" — the bubble grows with him). */
+const GUIDE_BUBBLE_MAX_WIDTH = 230
 /** Max bank angle while translating (deg), spring-settles to 0 on arrival. */
 const BANK_MAX = 14
-/** Lateral bow amplitude for the arc-flight curve (px). */
+/** Lateral bow amplitude for ordinary inter-waypoint travel (px). */
 const BOW_AMPLITUDE = 24
+/** Lateral + vertical bow amplitude for the hero→guide HANDOFF flight only —
+ *  bigger and more theatrical (owner direction): a pronounced swoop, not a
+ *  gentle inter-waypoint hop. */
+const HANDOFF_BOW_AMPLITUDE_X = 60
+const HANDOFF_BOW_AMPLITUDE_Y = 42
+/** Handoff-only mid-flight scale bump — "he's flying down with me". */
+const HANDOFF_SCALE_PEAK = 1.16
 const TRAVEL_DURATION = 0.6
 const ENTRANCE_DURATION = 0.9
 const EXIT_DURATION = 0.55
-/** Bubble flips to Wick's other side once its anchor sits this close to the right viewport edge. */
-const EDGE_FLIP_THRESHOLD_PX = 240
+/** Bubble flips to Wick's other side once its anchor sits this close to the
+ *  right viewport edge — bumped alongside the bigger bubble width. */
+const EDGE_FLIP_THRESHOLD_PX = 260
 
 const INTRO_LINE =
   "Hey — I'm Wick. I keep the lights on around here. Scroll on, stop anywhere — I'll tell you what you're looking at."
+
+/** Per-scene commentary for the day-strip waypoint (owner direction #5) —
+ *  keyed by day-strip.tsx's `SCENES[].key`, read live from the module-level
+ *  store it publishes to. Falls back to a generic line if the store hasn't
+ *  resolved a scene yet (edge case: the guide's own center-band observer
+ *  can, in principle, mark day-strip active a frame before day-strip's own
+ *  tracking has run). */
+const DAY_STRIP_SCENE_LINES: Record<string, string> = {
+  "7am": "Morning post? Already drafted. Owner just taps approve.",
+  "12pm": "The week hangs on a rail — drag a ticket, done.",
+  "6pm": "Shop's closing, questions keep coming. I answer at the door.",
+  "11pm": "Everyone's asleep. I'm still taking cake orders.",
+  "645am": "And the morning receipt — everything I caught overnight.",
+}
+const DAY_STRIP_FALLBACK_LINE = "One full day at your shop — keep scrolling to live it."
 
 type Anchor = { topVh: number; rightVw: number }
 
@@ -112,14 +172,29 @@ type Waypoint = {
   offsetY: number
 }
 
+// `rightVw`/offsets below are nudged outward from the original (56px Wick)
+// authoring pass to keep clear of text/cards now that WICK_SIZE is 84 — the
+// footprint grew by 28px (half-size +14px each direction), so every anchor
+// that was sitting close to the edge (rightVw 6-7) got +2vw of breathing
+// room. Page order matches app/(marketing)/page.tsx exactly, so this list
+// doubles as the reading order.
 const WAYPOINTS: Waypoint[] = [
+  {
+    id: "trust-bar",
+    line: "Bakers, barbers, pipes and pours — if it's on Main Street, this is built for them.",
+    // Short section, centered content (label + chip row), lots of vertical
+    // and horizontal margin at desktop widths.
+    anchor: { topVh: 16, rightVw: 9 },
+    offsetX: 4,
+    offsetY: -4,
+  },
   {
     id: "problem",
     line: "This is every evening without help — three customers, no answers.",
     // The counter-phone card sits mid-viewport, right-justified inside its
     // container but well short of the actual viewport edge at desktop
     // widths. Anchored high, clear of the card.
-    anchor: { topVh: 20, rightVw: 6 },
+    anchor: { topVh: 20, rightVw: 8 },
     offsetX: 0,
     offsetY: -8,
   },
@@ -128,17 +203,20 @@ const WAYPOINTS: Waypoint[] = [
     line: "Three jobs Lumina handles. That's the whole idea.",
     // Three lamp columns fill the width edge-to-edge under the heading —
     // the empty band is right beside the centered headline, up top.
-    anchor: { topVh: 16, rightVw: 7 },
+    anchor: { topVh: 16, rightVw: 9 },
     offsetX: -8,
     offsetY: 18,
   },
   {
     id: "day-strip",
-    line: "One full day at your shop — keep scrolling to live it.",
+    // Fallback only — the actual bubble text is resolved per-ACTIVE-SCENE
+    // from DAY_STRIP_SCENE_LINES (see `resolveWaypointLine`), never this
+    // static line, while day-strip.tsx's scene store has a value.
+    line: DAY_STRIP_FALLBACK_LINE,
     // The pinned stage is edge-to-edge (no side margin) with the chapter
     // rail on the LEFT and centered content in the middle — the only clear
     // spot is the top-right corner of the stage, above the sky band.
-    anchor: { topVh: 13, rightVw: 8 },
+    anchor: { topVh: 13, rightVw: 9 },
     offsetX: 6,
     offsetY: -14,
   },
@@ -147,30 +225,49 @@ const WAYPOINTS: Waypoint[] = [
     line: "Every thread is a customer a post brought in. No more guessing.",
     // Corkboard card is centered (max-w-3xl); heading sits above it —
     // anchored beside the heading, clear of the card and its string art.
-    anchor: { topVh: 24, rightVw: 6 },
+    anchor: { topVh: 24, rightVw: 8 },
     offsetX: -10,
     offsetY: 8,
+  },
+  {
+    id: "outcome-cards",
+    line: "Pick your flavor: booked up, well-known, or home by dinner.",
+    // Three awning cards fill the grid edge-to-edge with no heading above
+    // them — anchored high, clear of the third card's header stripe. This
+    // is also where the per-card hover hints live (see outcome-cards.tsx).
+    anchor: { topVh: 14, rightVw: 9 },
+    offsetX: -4,
+    offsetY: 6,
   },
   {
     id: "shop-picker",
     line: "Tap your kind of shop — the page redresses itself for you.",
     // Narrow centered content (pill tabs + demo card) — lots of margin.
-    anchor: { topVh: 30, rightVw: 9 },
+    anchor: { topVh: 30, rightVw: 10 },
     offsetX: 8,
     offsetY: -16,
+  },
+  {
+    id: "shop-windows",
+    line: "Real pilot shops light up here soon — only real numbers, promise.",
+    // Centered heading + subtext, then a 3-up grid of narrow "window" cards
+    // (max-w-[220px] each) — generous side margin at desktop widths.
+    anchor: { topVh: 16, rightVw: 9 },
+    offsetX: 4,
+    offsetY: -6,
   },
   {
     id: "pilot-menu",
     line: "Free while we build together. This little form is the whole signup.",
     // Chalkboard card is centered and narrow (max-w-md) — very wide margins.
-    anchor: { topVh: 26, rightVw: 11 },
+    anchor: { topVh: 26, rightVw: 12 },
     offsetX: -6,
     offsetY: 14,
   },
   {
     id: "faq",
     line: "The questions every owner asks us first.",
-    anchor: { topVh: 20, rightVw: 9 },
+    anchor: { topVh: 20, rightVw: 10 },
     offsetX: 8,
     offsetY: -6,
   },
@@ -181,7 +278,7 @@ const WAYPOINTS: Waypoint[] = [
     // small inline Wick directly above the button in the centered column;
     // this anchor sits beside it (same vertical band, off to the side) so
     // the two never overlap.
-    anchor: { topVh: 55, rightVw: 7 },
+    anchor: { topVh: 55, rightVw: 9 },
     offsetX: 0,
     offsetY: 10,
   },
@@ -314,6 +411,9 @@ export function WickGuide() {
   const dismiss = useCallback(() => {
     setDismissed(true)
     writeSessionFlag(DISMISS_STORAGE_KEY)
+    // A manual X-dismiss is an unambiguous "seen it" regardless of how long
+    // the intro had been up — no need to wait out INTRO_SEEN_WRITE_MS here.
+    writeSessionFlag(INTRO_SEEN_STORAGE_KEY)
   }, [])
 
   const waypoint = useMemo(() => WAYPOINTS.find((w) => w.id === activeId) ?? WAYPOINTS[0], [activeId])
@@ -337,7 +437,26 @@ export function WickGuide() {
   )
 }
 
-type BubbleState = { kind: "intro" | "waypoint"; text: string; key: string }
+type BubbleState = { kind: "intro" | "waypoint" | "hint"; text: string; key: string }
+
+/** Resolves a waypoint's bubble text — the day-strip waypoint reads the
+ *  live active-scene store instead of its own static `line` (see
+ *  DAY_STRIP_SCENE_LINES doc above). Every other waypoint just uses its
+ *  authored `line` unchanged. */
+function resolveWaypointLine(waypoint: Waypoint, dayStripScene: string | null): string {
+  if (waypoint.id !== "day-strip") return waypoint.line
+  if (!dayStripScene) return DAY_STRIP_FALLBACK_LINE
+  return DAY_STRIP_SCENE_LINES[dayStripScene] ?? DAY_STRIP_FALLBACK_LINE
+}
+
+/** "content key" for a waypoint visit — normally just the waypoint id, but
+ *  for day-strip it's `day-strip:<scene>` so a scene change re-arms the
+ *  "already shown this visit" gate (owner direction #5: "re-arms on scene
+ *  change, not just section change"). */
+function waypointContentKey(waypoint: Waypoint, dayStripScene: string | null): string {
+  if (waypoint.id !== "day-strip") return waypoint.id
+  return `day-strip:${dayStripScene ?? "unknown"}`
+}
 
 function GuideBody({
   reduceMotion,
@@ -356,6 +475,14 @@ function GuideBody({
   viewport: { w: number; h: number }
   heroCenter: { x: number; y: number } | null
 }) {
+  const dayStripScene = useSyncExternalStore(
+    subscribeDayStripActiveScene,
+    getDayStripActiveSceneSnapshot,
+    getDayStripActiveSceneServerSnapshot
+  )
+  const waypointLine = resolveWaypointLine(waypoint, dayStripScene)
+  const contentKey = waypointContentKey(waypoint, dayStripScene)
+
   const target = useMemo(
     () => anchorToTarget(waypoint.anchor, waypoint.offsetX, waypoint.offsetY, viewport),
     [waypoint, viewport]
@@ -382,11 +509,23 @@ function GuideBody({
     [heroCenter, viewport]
   )
 
+  // The hero→guide HANDOFF flight specifically — the very first flight of
+  // this mount, AND one that actually starts from a measured hero position
+  // (not a cold-start fallback). Gets the bigger, more theatrical swoop +
+  // mid-flight scale bump (owner direction #4) that ordinary inter-waypoint
+  // travel doesn't.
+  const isHandoffFlight = isEntrance && !!localHeroStart
+
   const initial = reduceMotion
     ? { x: target.x, y: target.y, opacity: 0 }
     : localHeroStart
       ? { x: localHeroStart.x, y: localHeroStart.y, opacity: 0, scale: 0.7 }
       : { x: target.x, y: target.y, opacity: 0, scale: 0.85 }
+
+  const positionAnimate =
+    isHandoffFlight && !reduceMotion
+      ? { x: target.x, y: target.y, opacity: 1, scale: [0.7, HANDOFF_SCALE_PEAK, 1] }
+      : { x: target.x, y: target.y, opacity: 1, scale: 1 }
 
   const exitTarget = localHeroStart ?? target
   const exitProps = reduceMotion
@@ -418,6 +557,7 @@ function GuideBody({
     const dur = prevTarget === null ? ENTRANCE_DURATION : TRAVEL_DURATION
     const bankSign = dx > 1 ? 1 : dx < -1 ? -1 : 0
     const bowSign = bankSign >= 0 ? -1 : 1
+    const isHandoff = prevTarget === null && !!localHeroStart
     // Synchronizing the imperative animation-controls system with the new
     // target — `isFlying` mirrors that in-progress state back into React so
     // Wick's `moving` prop (wing flutter) tracks it. This is the "update an
@@ -430,7 +570,16 @@ function GuideBody({
     void (async () => {
       await Promise.all([
         bankControls.start({ rotate: bankSign * BANK_MAX }, { duration: dur * 0.4, ease: easing.out }),
-        bowControls.start({ x: [0, bowSign * BOW_AMPLITUDE, 0] }, { duration: dur, ease: easing.out }),
+        // Ordinary inter-waypoint travel: a gentle lateral-only bow. The
+        // hero→guide handoff flight: a bigger, pronounced swoop — down AND
+        // lateral — a real "he's flying down with me" moment (owner
+        // direction #4), not a mirrored copy of every later hop.
+        bowControls.start(
+          isHandoff
+            ? { x: [0, bowSign * HANDOFF_BOW_AMPLITUDE_X, 0], y: [0, HANDOFF_BOW_AMPLITUDE_Y, 0] }
+            : { x: [0, bowSign * BOW_AMPLITUDE, 0] },
+          { duration: dur, ease: easing.out }
+        ),
       ])
       if (cancelled) return
       await bankControls.start({ rotate: 0 }, springGentle)
@@ -457,23 +606,52 @@ function GuideBody({
 
   // Bubble content — intro (once per session, no scroll-stop needed) or a
   // per-waypoint scroll-stop bubble (at most once per "visit" to a
-  // waypoint; leaving and returning to it is a new visit). "Already shown
-  // for this visit" is tracked as the id it was last shown for
-  // (`shownWaypointId`), not a boolean ref, so the write can live inside
+  // waypoint/scene; leaving and returning is a new visit). "Already shown
+  // for this visit" is tracked as the content key it was last shown for
+  // (`shownContentKey`), not a boolean ref, so the write can live inside
   // the scroll-timeout callback below rather than a bare effect body.
   const [bubble, setBubble] = useState<BubbleState | null>(null)
-  const [shownWaypointId, setShownWaypointId] = useState<string | null>(null)
+  const [shownContentKey, setShownContentKey] = useState<string | null>(null)
   const restTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // A live ref mirror of `bubble` — needed so the scroll handler (a plain
+  // DOM listener, registered once per effect run) can read the CURRENT
+  // bubble synchronously to decide intro-protection, without stale-closure
+  // risk or re-registering the listener on every bubble change.
+  const bubbleRef = useRef<BubbleState | null>(null)
+  useEffect(() => {
+    bubbleRef.current = bubble
+  }, [bubble])
+
+  // Intro-bubble protection (bug fix — see build brief §1). ROOT CAUSE: the
+  // guide mounts the instant hero visibility flips false, which is exactly
+  // when the visitor is mid-scroll (that flip IS caused by scrolling). The
+  // very next native 'scroll' event — often within ~100ms, well inside one
+  // momentum-scroll gesture — used to null out whatever bubble was showing
+  // unconditionally, including a freshly-mounted intro that hadn't even
+  // finished its typing-dots phase yet. In practice nobody scrolls past the
+  // hero and then holds perfectly still for 350ms before the very next tick,
+  // so the intro died on effectively every real visit. Fix: once the intro
+  // is actually shown, it's immune to scroll-hide for `INTRO_MIN_DISPLAY_MS`
+  // (or until the visitor dismisses it via X) — `isIntroProtected` gates
+  // every place that would otherwise clear/replace the bubble.
+  const introShownAtRef = useRef<number | null>(null)
+  function isIntroProtected(state: BubbleState | null): boolean {
+    if (state?.kind !== "intro") return false
+    const shownAt = introShownAtRef.current
+    if (shownAt === null) return false
+    return Date.now() - shownAt < INTRO_MIN_DISPLAY_MS
+  }
+
   // Clears a stale waypoint bubble and resets "already shown" the instant
-  // the active waypoint itself changes — the same render-time-adjustment
-  // pattern as `prevTarget` above (no external system involved, so no
-  // effect needed: this is purely local state responding to a prop
-  // change).
-  const [trackedWaypointId, setTrackedWaypointId] = useState(waypoint.id)
-  if (trackedWaypointId !== waypoint.id) {
-    setTrackedWaypointId(waypoint.id)
-    setShownWaypointId(null)
+  // the active content (waypoint, or day-strip SCENE) changes — the same
+  // render-time-adjustment pattern as `prevTarget` above (no external system
+  // involved, so no effect needed: this is purely local state responding to
+  // a prop change).
+  const [trackedContentKey, setTrackedContentKey] = useState(contentKey)
+  if (trackedContentKey !== contentKey) {
+    setTrackedContentKey(contentKey)
+    setShownContentKey(null)
     if (bubble?.kind === "waypoint") setBubble(null)
   }
 
@@ -486,6 +664,15 @@ function GuideBody({
     // the waypoint bubble below is.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBubble({ kind: "intro", text: INTRO_LINE, key: "intro" })
+    introShownAtRef.current = Date.now()
+    // Only marks the intro "seen" in sessionStorage once it's actually been
+    // ON SCREEN for INTRO_SEEN_WRITE_MS — if this GuideBody instance
+    // unmounts before then (visitor scrolled back up into the hero, killing
+    // the guide entirely), the cleanup below cancels the write, so the
+    // intro re-arms and gets a genuine chance to show next time the guide
+    // appears, instead of being permanently (and wrongly) marked seen.
+    const seenTimer = setTimeout(() => writeSessionFlag(INTRO_SEEN_STORAGE_KEY), INTRO_SEEN_WRITE_MS)
+    return () => clearTimeout(seenTimer)
     // Fires once per GuideBody mount only, gated by the session flag above
     // — deliberately not re-run if `dismissed` flips later in the same mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -494,15 +681,15 @@ function GuideBody({
   useEffect(() => {
     if (dismissed) return
     function handleScroll() {
-      setBubble((current) => {
-        if (current?.kind === "intro") writeSessionFlag(INTRO_SEEN_STORAGE_KEY)
-        return null
-      })
+      if (!isIntroProtected(bubbleRef.current)) {
+        setBubble(null)
+      }
       if (restTimerRef.current) clearTimeout(restTimerRef.current)
       restTimerRef.current = setTimeout(() => {
-        if (shownWaypointId === waypoint.id) return
-        setShownWaypointId(waypoint.id)
-        setBubble({ kind: "waypoint", text: waypoint.line, key: waypoint.id })
+        if (isIntroProtected(bubbleRef.current)) return
+        if (shownContentKey === contentKey) return
+        setShownContentKey(contentKey)
+        setBubble({ kind: "waypoint", text: waypointLine, key: contentKey })
       }, STOP_DELAY_MS)
     }
     window.addEventListener("scroll", handleScroll, { passive: true })
@@ -510,9 +697,35 @@ function GuideBody({
       window.removeEventListener("scroll", handleScroll)
       if (restTimerRef.current) clearTimeout(restTimerRef.current)
     }
-  }, [dismissed, waypoint, shownWaypointId])
+  }, [dismissed, contentKey, waypointLine, shownContentKey])
 
-  const showBubble = bubble !== null && !dismissed && !tabHidden
+  // Hover hints (owner direction #6) — highest-priority content: while
+  // active, it overrides whatever intro/waypoint bubble would otherwise
+  // show, without discarding that underlying bubble state (leaving the
+  // hinted element just lets it show back through).
+  const hoverHint = useWickHoverHints(!dismissed && !tabHidden)
+
+  const displayKey = hoverHint !== null ? `hint:${hoverHint}` : bubble?.key ?? null
+  const displayText = hoverHint !== null ? hoverHint : (bubble?.text ?? "")
+  const showBubble = displayKey !== null && !dismissed && !tabHidden
+
+  // Skips the typing-dots + per-word reveal for hover-hint swaps (always)
+  // and for any re-display of a message already fully shown once this mount
+  // (e.g. the section line reappearing after a hover excursion) — see
+  // WickBubble's `instant` doc. Tracked as STATE (not a ref read during
+  // render), same render-time-adjustment pattern as `trackedContentKey`
+  // above: a key not yet in the set is "not seen" for THIS render, and gets
+  // added via a conditional `setState` in the render body itself.
+  const [seenBubbleKeys, setSeenBubbleKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const alreadySeenDisplayKey = displayKey !== null && seenBubbleKeys.has(displayKey)
+  if (displayKey !== null && !seenBubbleKeys.has(displayKey)) {
+    setSeenBubbleKeys((prev) => {
+      const next = new Set(prev)
+      next.add(displayKey)
+      return next
+    })
+  }
+  const instantBubble = hoverHint !== null || alreadySeenDisplayKey
 
   // Bubble side — flips off Wick's default (opens toward content, i.e.
   // "left") only if the anchor sits close enough to the right viewport edge
@@ -533,7 +746,7 @@ function GuideBody({
       <motion.div
         className="relative"
         initial={initial}
-        animate={{ x: target.x, y: target.y, opacity: 1, scale: 1 }}
+        animate={positionAnimate}
         exit={exitProps}
         transition={positionTransition}
       >
@@ -557,8 +770,19 @@ function GuideBody({
         </motion.div>
 
         <AnimatePresence>
-          {showBubble && bubble && (
-            <GuideBubble key={bubble.key} text={bubble.text} onDismiss={onDismiss} reduceMotion={reduceMotion} side={bubbleSide} />
+          {showBubble && displayKey && (
+            <WickBubble
+              key={displayKey}
+              text={displayText}
+              // Hidden while a hover hint is showing — dismissing the whole
+              // guide from what's meant to be a light, transient swap would
+              // be surprising; the X reappears once the hint clears.
+              onDismiss={hoverHint !== null ? undefined : onDismiss}
+              reduceMotion={reduceMotion}
+              side={bubbleSide}
+              maxWidthPx={GUIDE_BUBBLE_MAX_WIDTH}
+              instant={instantBubble}
+            />
           )}
         </AnimatePresence>
       </motion.div>
@@ -566,17 +790,127 @@ function GuideBody({
   )
 }
 
-/** Seven staggered amber motes trailing Wick during the hero-handoff arc
+/**
+ * Hover-hint mechanism (owner direction #6) — generic and self-contained:
+ * any element anywhere on the page can carry `data-wick-hint="short line"`.
+ * While the visitor is stopped (no scroll for `STOP_DELAY_MS`, mirroring the
+ * bubble's own rest-timer) AND the pointer rests over such an element for
+ * `HOVER_HINT_DWELL_MS`, this returns that element's hint text; leaving
+ * clears it again after `HOVER_HINT_RESTORE_MS`, so a quick pass-through
+ * doesn't cause a swap-then-immediately-revert flash.
+ *
+ * Event-delegated (two listeners on `document`, not one per hinted element)
+ * so future sections opt in just by adding the attribute — nothing to wire
+ * up here. Pointer-only (never focus-driven), so it can never steal
+ * keyboard focus from the element the visitor is actually interacting with.
+ */
+function useWickHoverHints(active: boolean): string | null {
+  const [isStill, setIsStill] = useState(true)
+  const [hoverHint, setHoverHint] = useState<string | null>(null)
+  const stillRef = useRef(true)
+  const hoverElRef = useRef<Element | null>(null)
+
+  useEffect(() => {
+    stillRef.current = isStill
+  }, [isStill])
+
+  // Independent stillness tracking (same STOP_DELAY_MS debounce as the
+  // section bubble's own rest-timer, kept separate so this hook has no
+  // dependency on GuideBody's internals).
+  useEffect(() => {
+    if (!active) return
+    let stillTimer: ReturnType<typeof setTimeout> | null = null
+    function handleScroll() {
+      setIsStill(false)
+      if (stillTimer) clearTimeout(stillTimer)
+      stillTimer = setTimeout(() => setIsStill(true), STOP_DELAY_MS)
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener("scroll", handleScroll)
+      if (stillTimer) clearTimeout(stillTimer)
+    }
+  }, [active])
+
+  useEffect(() => {
+    if (!active) {
+      // Synchronizing with an external input (dismissed/tabHidden going
+      // true) — clears any stale hint rather than leaving it to show back
+      // through if `active` later flips true again.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHoverHint(null)
+      return
+    }
+    let dwellTimer: ReturnType<typeof setTimeout> | null = null
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null
+
+    function clearDwell() {
+      if (dwellTimer) {
+        clearTimeout(dwellTimer)
+        dwellTimer = null
+      }
+    }
+    function clearRestore() {
+      if (restoreTimer) {
+        clearTimeout(restoreTimer)
+        restoreTimer = null
+      }
+    }
+
+    function handlePointerOver(event: PointerEvent) {
+      const target = (event.target as Element | null)?.closest?.("[data-wick-hint]")
+      if (!target || target === hoverElRef.current) return
+      clearDwell()
+      clearRestore()
+      hoverElRef.current = target
+      dwellTimer = setTimeout(() => {
+        if (!stillRef.current) return
+        const hint = target.getAttribute("data-wick-hint")
+        if (hint) setHoverHint(hint)
+      }, HOVER_HINT_DWELL_MS)
+    }
+
+    function handlePointerOut(event: PointerEvent) {
+      const target = (event.target as Element | null)?.closest?.("[data-wick-hint]")
+      if (!target || target !== hoverElRef.current) return
+      const related = event.relatedTarget as Element | null
+      if (related && target.contains(related)) return
+      clearDwell()
+      hoverElRef.current = null
+      restoreTimer = setTimeout(() => setHoverHint(null), HOVER_HINT_RESTORE_MS)
+    }
+
+    document.addEventListener("pointerover", handlePointerOver)
+    document.addEventListener("pointerout", handlePointerOut)
+    return () => {
+      document.removeEventListener("pointerover", handlePointerOver)
+      document.removeEventListener("pointerout", handlePointerOut)
+      clearDwell()
+      clearRestore()
+    }
+  }, [active])
+
+  return hoverHint
+}
+
+/** Eleven staggered amber motes trailing Wick during the hero-handoff arc
  *  only — richer than wick.tsx's own continuous movement trail, a one-shot
- *  burst for the "same bug goes below" moment specifically. */
+ *  burst for the "same bug goes below" moment specifically. Bumped from
+ *  seven to eleven (owner direction #4: "9-12 sparkle motes along the
+ *  path") to read as a longer, more theatrical wake given the bigger swoop
+ *  (`HANDOFF_BOW_AMPLITUDE_X/Y`) it now trails behind. */
 const HANDOFF_TRAIL_MOTES: Array<{ dx: number; dy: number; delay: number }> = [
   { dx: -10, dy: 4, delay: 0 },
-  { dx: -16, dy: -4, delay: 0.06 },
-  { dx: -14, dy: 10, delay: 0.12 },
+  { dx: -16, dy: -4, delay: 0.04 },
+  { dx: -14, dy: 10, delay: 0.08 },
+  { dx: -22, dy: 6, delay: 0.13 },
   { dx: -20, dy: 2, delay: 0.18 },
-  { dx: -8, dy: 14, delay: 0.24 },
+  { dx: -26, dy: 14, delay: 0.22 },
+  { dx: -8, dy: 14, delay: 0.26 },
   { dx: -18, dy: 16, delay: 0.3 },
-  { dx: -6, dy: -10, delay: 0.36 },
+  { dx: -24, dy: -8, delay: 0.34 },
+  { dx: -6, dy: -10, delay: 0.38 },
+  { dx: -12, dy: 20, delay: 0.42 },
 ]
 
 function HandoffTrail({ size }: { size: number }) {
@@ -602,93 +936,7 @@ function HandoffTrail({ size }: { size: number }) {
   )
 }
 
-function GuideBubble({
-  text,
-  onDismiss,
-  reduceMotion,
-  side,
-}: {
-  text: string
-  onDismiss: () => void
-  reduceMotion: boolean
-  side: "left" | "right"
-}) {
-  const words = useMemo(() => text.split(" "), [text])
-  // Initial state already IS "dots"/0 — no reset-on-change effect needed:
-  // the parent mounts a fresh `GuideBubble` (via `key={bubble.key}`) for
-  // every distinct bubble, so this component's whole lifetime is exactly
-  // one bubble's, and these are the correct starting values for it.
-  const [phase, setPhase] = useState<"dots" | "typing">(reduceMotion ? "typing" : "dots")
-  const [revealed, setRevealed] = useState(reduceMotion ? words.length : 0)
-
-  useEffect(() => {
-    if (reduceMotion) return
-    const t = setTimeout(() => setPhase("typing"), TYPING_DOTS_MS)
-    return () => clearTimeout(t)
-  }, [reduceMotion])
-
-  useEffect(() => {
-    if (reduceMotion || phase !== "typing") return
-    if (revealed >= words.length) return
-    const t = setTimeout(() => setRevealed((n) => n + 1), wordRevealMs)
-    return () => clearTimeout(t)
-  }, [phase, revealed, words.length, reduceMotion])
-
-  const isLeft = side === "left"
-
-  return (
-    <motion.div
-      role="note"
-      aria-live="off"
-      initial={reduceMotion ? false : { opacity: 0, x: isLeft ? 8 : -8, scale: 0.9 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={
-        reduceMotion
-          ? { opacity: 0 }
-          : { opacity: 0, scale: 0.96, transition: { duration: duration.fast, ease: easing.out } }
-      }
-      transition={reduceMotion ? { duration: 0 } : springGentle}
-      className={cn(
-        "pointer-events-auto absolute top-1/2 w-[200px] max-w-[200px] -translate-y-1/2 rounded-xl border border-border bg-card px-3 py-2.5 text-xs leading-snug text-card-foreground shadow-raised",
-        isLeft ? "right-full mr-3" : "left-full ml-3"
-      )}
-    >
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss guide"
-        className="absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-soft transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      >
-        <X className="size-3" aria-hidden="true" />
-      </button>
-      {reduceMotion || phase === "typing" ? (
-        <span>{reduceMotion ? text : words.slice(0, revealed).join(" ")}</span>
-      ) : (
-        <TypingDots />
-      )}
-      {/* Tiny tail pointing at Wick. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute top-1/2 size-3 -translate-y-1/2 rotate-45 rounded-[2px] border-border bg-card",
-          isLeft ? "-right-1.5 border-t border-r" : "-left-1.5 border-b border-l"
-        )}
-      />
-    </motion.div>
-  )
-}
-
-function TypingDots() {
-  return (
-    <span className="inline-flex items-center gap-1 py-1" aria-hidden="true">
-      {[0, 1, 2].map((index) => (
-        <motion.span
-          key={index}
-          className="size-1.5 rounded-full bg-muted-foreground"
-          animate={{ y: [0, -3, 0] }}
-          transition={{ duration: 0.5, repeat: Infinity, delay: index * 0.12, ease: easing.inOut }}
-        />
-      ))}
-    </span>
-  )
-}
+// Bubble rendering itself now lives in wick-bubble.tsx's shared `WickBubble`
+// — used here AND by hero.tsx's scroll teaser, so the two "Wick talks"
+// moments share one implementation. See the doc comment at the top of this
+// file and `WickBubble`'s own doc for the split of responsibilities.

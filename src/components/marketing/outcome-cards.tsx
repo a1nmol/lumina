@@ -16,6 +16,9 @@ interface OutcomeCard {
   body: string
   icon: LucideIcon
   example: (exampleData: ReturnType<typeof useShopExample>["example"]) => string
+  /** The landing-page guide's per-card hover hint — see `data-wick-hint` on
+   *  the card `<article>` below and wick-guide.tsx's generic mechanism doc. */
+  hint: string
 }
 
 const CARDS: OutcomeCard[] = [
@@ -24,18 +27,21 @@ const CARDS: OutcomeCard[] = [
     body: "A front desk that answers in 30 seconds, books straight into your calendar, and texts back every missed call.",
     icon: CalendarClock,
     example: (example) => `"${example.missedQuestion}" → ${example.bookedExample}`,
+    hint: "This one fills the calendar.",
   },
   {
     title: "Get known",
     body: "A week of posts in your voice, made in one sitting. Photos, captions, hashtags — approve and go.",
     icon: ImagePlus,
     example: (example) => example.postCaption,
+    hint: "This one keeps you posted — literally.",
   },
   {
     title: "Get your evenings back",
     body: "Stop being the phone. Read the morning receipt with your coffee instead.",
     icon: Coffee,
     example: (example) => `While you slept — ${example.eveningsExample}`,
+    hint: "This one sends you home by dinner.",
   },
 ]
 
@@ -48,7 +54,10 @@ export function OutcomeCards() {
         <div className="grid gap-6 sm:grid-cols-3">
           {CARDS.map((card, index) => (
             <ScrollReveal key={card.title} delay={index * 0.08}>
-              <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-raised">
+              <article
+                data-wick-hint={card.hint}
+                className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-raised"
+              >
                 <div
                   aria-hidden="true"
                   className="h-2.5 w-full"

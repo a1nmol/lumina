@@ -29,7 +29,15 @@ export function TrustBar() {
             Built for main street
           </p>
         </ScrollReveal>
-        <ScrollReveal delay={0.05} className="mt-5 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
+        {/* Shared hover hint across the whole chip row (owner direction #6)
+            — one `data-wick-hint` target covering all chips + the gaps
+            between them, rather than one per chip, so moving the pointer
+            across the row doesn't repeatedly reset the guide's dwell timer. */}
+        <ScrollReveal
+          delay={0.05}
+          data-wick-hint="Yes, yours counts."
+          className="mt-5 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3"
+        >
           {CHIPS.map(({ label, icon: Icon }) => (
             <span
               key={label}

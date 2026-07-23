@@ -99,6 +99,42 @@ const SCENES = [
 
 const SEGMENT_SIZE = 1 / SCENES.length
 
+// ---------------------------------------------------------------------------
+// Day-strip active-scene bridge (additive, landing-page-guide upgrade) — a
+// tiny module-level pub/sub, same pattern as wick.tsx's `HeroWickHandoff`,
+// so wick-guide.tsx can show PER-SCENE commentary (not just "you're on the
+// day-strip section") without a duplicate observer/scroll-progress listener
+// of its own. Both the pinned desktop stage's `ChapterRail` and the mobile/
+// reduced-motion stacked fallback's own IntersectionObserver publish here —
+// whichever is actually mounted is the single source of truth for "which
+// scene is the visitor looking at right now".
+// ---------------------------------------------------------------------------
+
+let dayStripActiveScene: string | null = null
+const dayStripActiveSceneListeners = new Set<() => void>()
+
+/** day-strip.tsx calls this whenever its own active-scene tracking changes. */
+function setDayStripActiveScene(next: string | null) {
+  if (dayStripActiveScene === next) return
+  dayStripActiveScene = next
+  dayStripActiveSceneListeners.forEach((listener) => listener())
+}
+
+/** wick-guide.tsx subscribes via `useSyncExternalStore`. */
+export function subscribeDayStripActiveScene(listener: () => void) {
+  dayStripActiveSceneListeners.add(listener)
+  return () => dayStripActiveSceneListeners.delete(listener)
+}
+
+export function getDayStripActiveSceneSnapshot() {
+  return dayStripActiveScene
+}
+
+/** Stable reference — required so `useSyncExternalStore` doesn't warn on the server. */
+export function getDayStripActiveSceneServerSnapshot() {
+  return null
+}
+
 /** The empty "only sky/stage shows" pause carved between every pair of
  *  adjacent scenes, in total-scroll-progress units. Widened from the first
  *  clarity pass's 3% to 4.5% (~18vh of the 400vh driver) so the exit fade,
@@ -255,14 +291,20 @@ function DayStripStackedStory() {
           a.boundingClientRect.top < b.boundingClientRect.top ? a : b
         )
         const index = nodes.indexOf(topMost.target as HTMLDivElement)
-        if (index !== -1) setActiveIndex(index)
+        if (index !== -1) {
+          setActiveIndex(index)
+          setDayStripActiveScene(SCENES[index].key)
+        }
       },
       // A thin horizontal band centered in the viewport — "current scene"
       // means "the card currently crossing the middle of the screen".
       { rootMargin: "-45% 0px -45% 0px", threshold: 0 }
     )
     nodes.forEach((node) => observer.observe(node))
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      setDayStripActiveScene(null)
+    }
   }, [])
 
   const active = SCENES[activeIndex]
@@ -519,7 +561,12 @@ function ChapterRail({
   useMotionValueEvent(progress, "change", (value) => {
     const index = Math.min(SCENES.length - 1, Math.max(0, Math.floor(value * SCENES.length)))
     setActiveIndex((prev) => (prev === index ? prev : index))
+    setDayStripActiveScene(SCENES[index].key)
   })
+
+  useEffect(() => {
+    return () => setDayStripActiveScene(null)
+  }, [])
 
   const handleSelect = (index: number) => {
     const stage = stageRef.current

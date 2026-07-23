@@ -24,15 +24,26 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowRight } from "lucide-react"
-import { motion, useReducedMotion } from "framer-motion"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 
 import { setHeroWickHandoff, Wick, type WickState } from "@/components/brand/wick"
+import { WickBubble } from "@/components/brand/wick-bubble"
 import { Button } from "@/components/ui/button"
 import { duration, easing, spring } from "@/lib/motion"
 
 import { HeroPhone, type HeroPhonePhase } from "./hero-phone"
 import { ScrollReveal } from "./scroll-reveal"
 import { StreetSilhouette } from "./street-silhouette"
+
+/** Intersection ratio the hero↔guide handoff flips at — see the effect
+ *  below for why 0.6 (not 0, i.e. not "fully offscreen"). */
+const HERO_HANDOFF_VISIBLE_RATIO = 0.6
+/** How far into the hero's own height the visitor must have scrolled before
+ *  the "going down? I'll come with you" teaser can show. */
+const HERO_TEASER_SCROLL_RATIO = 0.12
+const HERO_TEASER_STORAGE_KEY = "lumina:hero-teaser-seen"
+const HERO_TEASER_DURATION_MS = 4000
+const HERO_TEASER_LINE = "Going down? I'll come with you — quick tour."
 
 export function Hero() {
   const [wickState, setWickState] = useState<WickState>("idle")
@@ -48,6 +59,14 @@ export function Hero() {
   // includes any of WickReveal's/HeroWickHandoffLayer's own transforms —
   // that's what makes this a reliable handshake instead of a race against
   // in-flight animation.
+  //
+  // Handoff trigger point (owner direction #4 — "no dead zones, earlier
+  // handoff"): flips at `HERO_HANDOFF_VISIBLE_RATIO` (60% of the hero still
+  // visible, i.e. the hero is ~40% scrolled out) rather than waiting for the
+  // hero to be fully off-screen. `threshold: [HERO_HANDOFF_VISIBLE_RATIO]`
+  // asks the browser to fire exactly when the intersection ratio crosses
+  // that line (either direction), so the flight itself becomes visible
+  // while the trust-bar band is still on screen instead of after the fact.
   const wickAnchorRef = useRef<HTMLDivElement>(null)
   const [wickHandoffVisible, setWickHandoffVisible] = useState(true)
 
@@ -56,7 +75,7 @@ export function Hero() {
     if (!section) return
     const observer = new IntersectionObserver(
       ([entry]) => {
-        const visible = entry.isIntersecting
+        const visible = entry.intersectionRatio > HERO_HANDOFF_VISIBLE_RATIO
         setWickHandoffVisible(visible)
         const node = wickAnchorRef.current
         const rect = node?.getBoundingClientRect()
@@ -65,11 +84,70 @@ export function Hero() {
           center: rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null,
         })
       },
-      { threshold: 0 }
+      { threshold: [HERO_HANDOFF_VISIBLE_RATIO] }
     )
     observer.observe(section)
     return () => observer.disconnect()
   }, [])
+
+  // Hero Wick's own scroll teaser (owner direction #2) — "he's alive from
+  // the very first scroll", hints he's coming along before the handoff
+  // actually happens. Fires once per session, the first time the visitor
+  // has scrolled ~10-15% of the hero's own height while the hero is still
+  // the visible Wick instance; auto-hides after `HERO_TEASER_DURATION_MS`
+  // or the instant the real handoff triggers, whichever comes first.
+  const [heroTeaserVisible, setHeroTeaserVisible] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    // Gated to the same breakpoint as the landing-page guide (desktop-only,
+    // unchanged) — the teaser bubble is part of that same system, not a
+    // standalone mobile affordance.
+    if (!window.matchMedia("(min-width: 1024px)").matches) return
+    let seen = false
+    try {
+      seen = window.sessionStorage.getItem(HERO_TEASER_STORAGE_KEY) === "1"
+    } catch {
+      seen = false
+    }
+    if (seen) return
+
+    function handleScroll() {
+      const section = document.querySelector('[data-scene="hero"]')
+      if (!section) return
+      const rect = section.getBoundingClientRect()
+      if (rect.height <= 0) return
+      const scrolledRatio = -rect.top / rect.height
+      if (scrolledRatio < HERO_TEASER_SCROLL_RATIO || scrolledRatio >= 1) return
+      window.removeEventListener("scroll", handleScroll)
+      try {
+        window.sessionStorage.setItem(HERO_TEASER_STORAGE_KEY, "1")
+      } catch {
+        // Storage unavailable — the teaser just won't remember across the session.
+      }
+      setHeroTeaserVisible(true)
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
+
+  useEffect(() => {
+    if (!heroTeaserVisible) return
+    const t = setTimeout(() => setHeroTeaserVisible(false), HERO_TEASER_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [heroTeaserVisible])
+
+  // Hide the teaser the instant the real handoff takes over — no "he's
+  // coming with you" bubble hanging around after he's already left.
+  // Synchronizing with an external input (hero visibility flipping via the
+  // IntersectionObserver above), not derived render state, so this stays an
+  // effect rather than folding into a render-time adjustment.
+  useEffect(() => {
+    if (!wickHandoffVisible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHeroTeaserVisible(false)
+    }
+  }, [wickHandoffVisible])
 
   const handlePhaseChange = useCallback((phase: HeroPhonePhase) => {
     if (phase === "call") {
@@ -107,13 +185,19 @@ export function Hero() {
           <div ref={wickAnchorRef} className="pointer-events-none absolute -top-12 right-0 z-20 sm:-top-16 sm:right-4">
             <HeroWickHandoffLayer visible={wickHandoffVisible}>
               <WickReveal>
-                <Wick
-                  state={wickState}
-                  flight="patrol"
-                  lookAt="right"
-                  size={88}
-                  onComplete={() => setWickState("idle")}
-                />
+                {/* `relative` sized to exactly Wick's own box — the
+                    positioning context the teaser bubble anchors off, same
+                    pattern as wick-guide.tsx's own Wick+bubble wrapper. */}
+                <div className="relative">
+                  <Wick
+                    state={wickState}
+                    flight="patrol"
+                    lookAt="right"
+                    size={88}
+                    onComplete={() => setWickState("idle")}
+                  />
+                  <HeroWickTeaser visible={heroTeaserVisible} />
+                </div>
               </WickReveal>
             </HeroWickHandoffLayer>
           </div>
@@ -243,5 +327,20 @@ function WickReveal({ children }: { children: React.ReactNode }) {
     >
       {children}
     </motion.div>
+  )
+}
+
+/** Hero Wick's own scroll teaser (owner direction #2) — reuses the shared
+ *  `WickBubble` (same visual language as the landing-page guide's bubbles),
+ *  no dismiss button (it's a passive, self-clearing hint, not something the
+ *  visitor needs to manage). Desktop-only by construction: the effect that
+ *  drives `visible` never fires below `lg` (see the mount effect above), so
+ *  this never needs its own breakpoint gate. */
+function HeroWickTeaser({ visible }: { visible: boolean }) {
+  const reduceMotion = useReducedMotion()
+  return (
+    <AnimatePresence>
+      {visible && <WickBubble key="hero-teaser" text={HERO_TEASER_LINE} side="left" reduceMotion={!!reduceMotion} />}
+    </AnimatePresence>
   )
 }
