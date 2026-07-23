@@ -156,8 +156,10 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
     <div ref={containerRef} className="relative mx-auto w-full max-w-[300px]" data-scene="hero-phone">
       {/* Soft concentric ripple as the missed-call banner lands — two rings,
           amber at 20%, expanding + fading out over 900ms. Sits behind the
-          phone shell (z-0), replays every loop via the cycleKey remount. */}
-      {phase === "call" && (
+          phone shell (z-0), replays every loop via the cycleKey remount.
+          Mounted through "callDim" too (500ms + 500ms) so ring B's 1050ms
+          run finishes before unmount instead of popping off mid-animation. */}
+      {(phase === "call" || phase === "callDim") && (
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
           <motion.span
             key={`ripple-a-${cycleKey}`}

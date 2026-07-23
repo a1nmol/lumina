@@ -243,8 +243,10 @@ export function Wick({
       timeoutId = setTimeout(async () => {
         if (cancelled) return
         // Only actually hop while resting/idle — skip (but keep the clock
-        // running) if Wick is mid curious/thinking/celebrating/etc.
-        if (stateRef.current === "idle") {
+        // running) if Wick is mid curious/thinking/celebrating/etc., or if
+        // the tab is backgrounded (cost discipline: no animation work the
+        // user can't see; the chain re-arms so he resumes on return).
+        if (stateRef.current === "idle" && !document.hidden) {
           await dartControls.start({ x: 20, y: -6, transition: DART_OUT })
           if (cancelled) return
           await dartControls.start({ x: 0, y: 0, transition: DART_SETTLE })
@@ -267,9 +269,13 @@ export function Wick({
     const scheduleBlink = () => {
       timeoutId = setTimeout(async () => {
         if (cancelled) return
-        await blinkControls.start({ scaleY: 0.15, transition: BLINK_DOWN })
-        if (cancelled) return
-        await blinkControls.start({ scaleY: 1, transition: BLINK_UP })
+        // Skip the blink while backgrounded (see dart timer note) but keep
+        // the chain alive so blinking resumes when the tab returns.
+        if (!document.hidden) {
+          await blinkControls.start({ scaleY: 0.15, transition: BLINK_DOWN })
+          if (cancelled) return
+          await blinkControls.start({ scaleY: 1, transition: BLINK_UP })
+        }
         if (!cancelled) scheduleBlink()
       }, BLINK_MIN_MS + Math.random() * BLINK_JITTER_MS)
     }

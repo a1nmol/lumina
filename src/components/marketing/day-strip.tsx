@@ -89,11 +89,10 @@ const PLATEAU_RATIO = 0.7
 const SCENE_FADE = Math.max(0, ((1 - PLATEAU_RATIO) * SEGMENT_SIZE - SCENE_GAP) / 2)
 
 /** Clamp every value to [0,1] and nudge non-increasing neighbors up by a
- *  hair so the array stays strictly increasing — WAAPI-compiled keyframe
- *  offsets must be non-decreasing, and degenerate/duplicate stops (e.g. the
- *  first scene has no "enter", so its enter-start === enter-end === 0)
- *  otherwise break interpolation. Same epsilon-guard technique the sky
- *  crossfade below already relies on. */
+ *  hair. Result is guaranteed non-decreasing (WAAPI-legal); it is strictly
+ *  increasing everywhere EXCEPT when values saturate at 1.0 (the last
+ *  scene's exit stops both cap at 1 — legal duplicates, same output value,
+ *  no visual or interpolation consequence). */
 function clampMonotonic(values: readonly number[]): number[] {
   const eps = 0.0001
   const out = values.map((v) => Math.min(1, Math.max(0, v)))
@@ -363,9 +362,19 @@ function ScenePanel({
   // Only the (near-)fully-visible scene should be able to catch pointer
   // interaction — the rest sit stacked underneath mid-crossfade.
   const pointerEvents = useTransform(opacity, (v) => (v > 0.5 ? "auto" : "none"))
+  // Mirror the pointer gate for assistive tech: without this, a screen
+  // reader walks all five stacked panels back-to-back while sighted users
+  // see one scene at a time (aria-hidden can't take a MotionValue, so the
+  // threshold crossing is bridged into React state).
+  const [ariaHidden, setAriaHidden] = useState(index !== 0)
+  useMotionValueEvent(opacity, "change", (v) => {
+    const hidden = v <= 0.5
+    setAriaHidden((prev) => (prev === hidden ? prev : hidden))
+  })
 
   return (
     <motion.div
+      aria-hidden={ariaHidden}
       style={{ opacity, y, pointerEvents }}
       className="absolute inset-0 flex flex-col justify-center"
     >
