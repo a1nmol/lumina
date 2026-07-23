@@ -76,6 +76,19 @@ export type WickProps = {
    */
   path?: WickPathPoint[]
   /**
+   * Movement-trail mode (additive, landing-page-guide upgrade). "auto"
+   * (default) is unchanged for every existing call site: the continuous
+   * trail plays only for micro-darts and externally-driven `moving` flight,
+   * never for plain "patrol" drift (too slow/continuous to read as motion)
+   * and never alongside `celebrating` (its own one-shot burst). "always" is
+   * for the landing-page scroll guide specifically — owner direction: "this
+   * overrides the earlier restraint for the guide instance only" — so the
+   * trail plays for ANY translation, including patrol's own idle drift,
+   * because the guide is meant to read as perpetually leaving a faint
+   * sparkle wake while he hosts the page.
+   */
+  trail?: "auto" | "always"
+  /**
    * External "I'm translating right now" signal — additive, ORed into the
    * internal `isMoving` derivation (patrol drift / micro-dart / celebrating
    * already flip it on their own). For callers that move Wick themselves via
@@ -232,6 +245,7 @@ export function Wick({
   onComplete,
   flight = "perch",
   path,
+  trail = "auto",
   moving: movingProp = false,
 }: WickProps) {
   useBannedSurfaceGuard()
@@ -318,8 +332,10 @@ export function Wick({
   // motes: deliberately EXCLUDES plain patrol drift (too slow/continuous —
   // a constant sparkle trail on every idle firefly would read as noise, not
   // motion) and celebrating (which already gets its own dedicated
-  // `WickSparkleTrail` burst, so the two never double up).
-  const isTrailActive = (isDarting || movingProp) && !isCelebrating
+  // `WickSparkleTrail` burst, so the two never double up). `trail="always"`
+  // (the landing-page guide only) opts back INTO patrol drift too — see the
+  // prop doc above.
+  const isTrailActive = trail === "always" ? isMoving && !isCelebrating : (isDarting || movingProp) && !isCelebrating
 
   const blinkControls = useAnimationControls()
   useEffect(() => {
@@ -868,4 +884,51 @@ export function useWickCelebration() {
   return {
     celebrate: (options?: CelebrationOptions) => ctx?.celebrate(options),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Hero ↔ landing-page-guide handoff bridge (additive, landing-page-guide
+// upgrade) — a tiny module-level pub/sub so hero.tsx (which owns and
+// measures its own Wick) and wick-guide.tsx (the fixed scroll companion)
+// can hand off "the same bug" between them with zero component-tree
+// coupling. hero.tsx calls `setHeroWickHandoff` from the one
+// IntersectionObserver it already needs on its own section, every time hero
+// visibility flips; wick-guide.tsx reads the latest snapshot via
+// `useSyncExternalStore` to know when to fly in/out and where the hero
+// Wick's on-screen center last was. Kept here (not in wick-guide.tsx)
+// because it's genuinely shared, not guide-owned.
+// ---------------------------------------------------------------------------
+
+export type HeroWickHandoff = {
+  /** True while the hero's own Wick is the one that should be on screen. */
+  heroVisible: boolean
+  /** Hero Wick's last measured viewport-space center — null until hero.tsx
+   *  has measured at least once (first observer callback). */
+  center: { x: number; y: number } | null
+}
+
+const HERO_WICK_HANDOFF_SERVER_SNAPSHOT: HeroWickHandoff = { heroVisible: true, center: null }
+
+let heroWickHandoffState: HeroWickHandoff = { heroVisible: true, center: null }
+const heroWickHandoffListeners = new Set<() => void>()
+
+/** hero.tsx calls this from its own IntersectionObserver callback. */
+export function setHeroWickHandoff(next: Partial<HeroWickHandoff>) {
+  heroWickHandoffState = { ...heroWickHandoffState, ...next }
+  heroWickHandoffListeners.forEach((listener) => listener())
+}
+
+/** wick-guide.tsx subscribes via `useSyncExternalStore`. */
+export function subscribeHeroWickHandoff(listener: () => void) {
+  heroWickHandoffListeners.add(listener)
+  return () => heroWickHandoffListeners.delete(listener)
+}
+
+export function getHeroWickHandoffSnapshot() {
+  return heroWickHandoffState
+}
+
+/** Stable reference — required so `useSyncExternalStore` doesn't warn on the server. */
+export function getHeroWickHandoffServerSnapshot() {
+  return HERO_WICK_HANDOFF_SERVER_SNAPSHOT
 }

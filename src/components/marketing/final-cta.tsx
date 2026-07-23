@@ -9,7 +9,6 @@
 
 import { ArrowRight } from "lucide-react"
 
-import { Wick } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 
 import { ScrollReveal } from "./scroll-reveal"
@@ -41,13 +40,13 @@ export function FinalCta() {
           </p>
         </ScrollReveal>
         <ScrollReveal delay={0.1} className="mt-8 flex flex-col items-center gap-2">
-          <div className="relative inline-flex flex-col items-center">
-            <Wick state="idle" size={40} className="mb-1" />
-            <Button size="lg" variant="flame" className="h-11 px-6 text-base" render={<a href="#pilot-menu" />}>
-              Get early access
-              <ArrowRight aria-hidden="true" data-icon="inline-end" />
-            </Button>
-          </div>
+          {/* No inline Wick here — the WickGuide (the single continuous tour
+              host) arrives at this section himself; two Wicks on screen would
+              break the one-character illusion. */}
+          <Button size="lg" variant="flame" className="h-11 px-6 text-base" render={<a href="#pilot-menu" />}>
+            Get early access
+            <ArrowRight aria-hidden="true" data-icon="inline-end" />
+          </Button>
         </ScrollReveal>
       </div>
     </section>

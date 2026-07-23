@@ -22,13 +22,13 @@
 // chip lands, then back to patrol. Debounced (celebratedRef) to at most
 // once per loop cycle, reset when a new "call" phase begins.
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowRight } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 
-import { Wick, type WickState } from "@/components/brand/wick"
+import { setHeroWickHandoff, Wick, type WickState } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
-import { easing, spring } from "@/lib/motion"
+import { duration, easing, spring } from "@/lib/motion"
 
 import { HeroPhone, type HeroPhonePhase } from "./hero-phone"
 import { ScrollReveal } from "./scroll-reveal"
@@ -38,6 +38,38 @@ export function Hero() {
   const [wickState, setWickState] = useState<WickState>("idle")
   // Debounces the calendar-chip celebration to at most once per phone loop.
   const celebratedRef = useRef(false)
+
+  // Hero ↔ guide handoff (landing-page-guide upgrade, additive) — this is
+  // the ONE IntersectionObserver for the hero↔guide relationship (see
+  // wick.tsx's HeroWickHandoff doc): wick-guide.tsx no longer runs its own
+  // duplicate observer on this section, it just reads the store below.
+  // `wickAnchorRef` sits on the wrapper that carries the *static* absolute
+  // positioning (not the animated children), so its measured rect never
+  // includes any of WickReveal's/HeroWickHandoffLayer's own transforms —
+  // that's what makes this a reliable handshake instead of a race against
+  // in-flight animation.
+  const wickAnchorRef = useRef<HTMLDivElement>(null)
+  const [wickHandoffVisible, setWickHandoffVisible] = useState(true)
+
+  useEffect(() => {
+    const section = document.querySelector('[data-scene="hero"]')
+    if (!section) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const visible = entry.isIntersecting
+        setWickHandoffVisible(visible)
+        const node = wickAnchorRef.current
+        const rect = node?.getBoundingClientRect()
+        setHeroWickHandoff({
+          heroVisible: visible,
+          center: rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null,
+        })
+      },
+      { threshold: 0 }
+    )
+    observer.observe(section)
+    return () => observer.disconnect()
+  }, [])
 
   const handlePhaseChange = useCallback((phase: HeroPhonePhase) => {
     if (phase === "call") {
@@ -72,16 +104,18 @@ export function Hero() {
               can't accidentally become Wick's containing block. Absolute +
               zero intrinsic content in flow ⇒ mounting/animating Wick never
               shifts anything else (no CLS). */}
-          <div className="pointer-events-none absolute -top-12 right-0 z-20 sm:-top-16 sm:right-4">
-            <WickReveal>
-              <Wick
-                state={wickState}
-                flight="patrol"
-                lookAt="right"
-                size={88}
-                onComplete={() => setWickState("idle")}
-              />
-            </WickReveal>
+          <div ref={wickAnchorRef} className="pointer-events-none absolute -top-12 right-0 z-20 sm:-top-16 sm:right-4">
+            <HeroWickHandoffLayer visible={wickHandoffVisible}>
+              <WickReveal>
+                <Wick
+                  state={wickState}
+                  flight="patrol"
+                  lookAt="right"
+                  size={88}
+                  onComplete={() => setWickState("idle")}
+                />
+              </WickReveal>
+            </HeroWickHandoffLayer>
           </div>
 
           <ScrollReveal>
@@ -164,6 +198,31 @@ function PhoneReveal({ children }: { children: React.ReactNode }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-80px" }}
       transition={{ ...spring, delay: 0.65 }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+/**
+ * Hero↔guide handoff visibility (additive, landing-page-guide upgrade) —
+ * wraps the hero's own Wick (including its one-time `WickReveal` entrance)
+ * with an ongoing opacity/scale toggle keyed to hero-section visibility, so
+ * the "same bug" visibly departs the instant the scroll guide takes over
+ * (and gently returns if the visitor scrolls back up). Nested OUTSIDE
+ * `WickReveal` so the two never fight over the same transform: this layer
+ * only ever touches opacity/scale, `WickReveal` only ever touches its own
+ * one-shot x/y/scale entrance.
+ */
+function HeroWickHandoffLayer({ visible, children }: { visible: boolean; children: React.ReactNode }) {
+  const reduceMotion = useReducedMotion()
+  if (reduceMotion) {
+    return <div style={{ opacity: visible ? 1 : 0 }}>{children}</div>
+  }
+  return (
+    <motion.div
+      animate={{ opacity: visible ? 1 : 0, scale: visible ? 1 : 0.6 }}
+      transition={visible ? { ...spring, delay: 0.08 } : { duration: duration.fast, ease: easing.out }}
     >
       {children}
     </motion.div>
