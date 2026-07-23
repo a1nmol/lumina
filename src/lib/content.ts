@@ -293,7 +293,7 @@ export async function saveSlideshowMediaAsset(
 /**
  * Sets a content item's status directly — used by the Queue's post-detail
  * sheet "Mark as posted" action (MASTER_PLAN.md §4.B reminder-to-post: the
- * manual push → copy → paste loop still needs a way to tell LocalOS the post
+ * manual push → copy → paste loop still needs a way to tell Lumina the post
  * actually went out). Deliberately does NOT touch scheduled_at.
  *
  * TODO(Ayrshare publish path): same caveat as queueContentItem — this is a

@@ -96,7 +96,7 @@ export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: Po
     if (!post) return
     setSavingImage(true)
     try {
-      await downloadGradientPng(post.thumbnailHue, `localos-post-${post.id}.png`)
+      await downloadGradientPng(post.thumbnailHue, `lumina-post-${post.id}.png`)
       toast.success("Image saved")
     } catch {
       toast.error("Couldn't save the image", { description: "Please try again." })

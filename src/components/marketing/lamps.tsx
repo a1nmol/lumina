@@ -26,7 +26,7 @@ const FLICKER_TIMES = [0, 0.3, 0.55, 1]
 const PILLARS: { title: string; body: string; icon: LucideIcon }[] = [
   {
     title: "Gets you seen",
-    body: "Every week LocalOS drafts posts that sound like you. You approve with one tap.",
+    body: "Every week Lumina drafts posts that sound like you. You approve with one tap.",
     icon: Sparkles,
   },
   {

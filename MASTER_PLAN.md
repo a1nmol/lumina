@@ -1,4 +1,4 @@
-# LocalOS — MASTER PLAN (Source of Truth)
+# Lumina — MASTER PLAN (Source of Truth)
 
 > This is the single anchor document for the whole project. Every agent (led by **Fable**) must read this before doing anything and must not deviate from it without the owner's explicit approval. If a decision isn't covered here, propose it, get approval, then update this file.
 
@@ -10,7 +10,7 @@ Deferred by design: voice → Phase 4; live channel connections (Twilio SMS/IG/F
 
 ## 1. What we are building
 
-**LocalOS** — an all-in-one AI platform for local small businesses. One line:
+**Lumina** — an all-in-one AI platform for local small businesses. One line:
 
 > **Everything a local business needs to get customers (Content) and never miss one (FrontDesk) — in one dashboard, run by AI, measured as one loop.**
 

@@ -21,7 +21,7 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 export const metadata: Metadata = {
   title: "The shop that never closes",
   description:
-    "LocalOS writes your posts, answers your customers, and books your jobs — even at 9pm, even while you sleep.",
+    "Lumina writes your posts, answers your customers, and books your jobs — even at 9pm, even while you sleep.",
 }
 
 /**

@@ -14,8 +14,8 @@ export default function PrivacyPage() {
       <h1 className="text-3xl font-semibold tracking-tight text-foreground">Privacy</h1>
       <p className="mt-4 text-muted-foreground">
         We&rsquo;re still writing this one. In the meantime, reach us any time at{" "}
-        <a href="mailto:hello@localos.app" className="text-primary underline-offset-4 hover:underline">
-          hello@localos.app
+        <a href="mailto:hello@lumina.app" className="text-primary underline-offset-4 hover:underline">
+          hello@lumina.app
         </a>
         .
       </p>

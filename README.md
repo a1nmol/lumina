@@ -1,4 +1,4 @@
-# LocalOS
+# Lumina
 
 All-in-one AI platform for local small businesses: **Content Engine** (create + schedule + reminder-to-post) + **FrontDesk Agent** (calls, SMS, email, DMs, leads, booking), joined by one **Analytics loop**. Built with a Fable-led Claude Code agent team.
 

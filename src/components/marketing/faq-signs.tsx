@@ -21,7 +21,7 @@ const FAQS = [
   },
   {
     q: "Do I keep my phone number?",
-    a: "Yes. LocalOS catches what you miss — it doesn't replace your line.",
+    a: "Yes. Lumina catches what you miss — it doesn't replace your line.",
   },
   {
     q: "How long does setup take?",

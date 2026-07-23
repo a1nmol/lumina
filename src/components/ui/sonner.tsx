@@ -5,7 +5,7 @@ import { useTheme } from "@/components/theme-provider"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
-// "LocalOS · 9:41 PM" receipt header (see .receipt-toast in globals.css).
+// "Lumina · 9:41 PM" receipt header (see .receipt-toast in globals.css).
 // Recomputed on an interval rather than once so a toast opened at 11:58pm
 // doesn't sit there reading the wrong hour a minute later.
 function formatReceiptStamp() {

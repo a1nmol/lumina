@@ -1,5 +1,5 @@
 /*!
- * LocalOS service worker — installability + Web Push receipt for the
+ * Lumina service worker — installability + Web Push receipt for the
  * reminder-to-post flow (MASTER_PLAN.md §4.B "reminder-to-post").
  *
  * Deliberately minimal: no offline caching/asset precaching yet (this app is
@@ -26,10 +26,10 @@ self.addEventListener("push", (event) => {
   try {
     payload = event.data.json();
   } catch {
-    payload = { title: "LocalOS", body: event.data.text() };
+    payload = { title: "Lumina", body: event.data.text() };
   }
 
-  const title = payload.title || "LocalOS";
+  const title = payload.title || "Lumina";
   const options = {
     body: payload.body || "",
     icon: "/icons/icon-192.svg",

@@ -157,7 +157,7 @@ export default async function DashboardPage() {
       <EmptyState
         icon={<Link2 aria-hidden="true" className="size-6" />}
         title="Connect your channels"
-        description="Link Google Business, Instagram, and SMS so LocalOS can post content and catch every lead automatically."
+        description="Link Google Business, Instagram, and SMS so Lumina can post content and catch every lead automatically."
         actionLabel="Connect a channel"
         actionHref="/settings"
         withWick

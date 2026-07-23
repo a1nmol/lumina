@@ -92,7 +92,7 @@ export function LoopBoard() {
             The first tool that shows which post rang the till.
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            Other tools show likes. LocalOS shows the birthday cake your Tuesday post sold. Hover a post — the
+            Other tools show likes. Lumina shows the birthday cake your Tuesday post sold. Hover a post — the
             strings light up to the customers it brought in.
           </p>
         </ScrollReveal>

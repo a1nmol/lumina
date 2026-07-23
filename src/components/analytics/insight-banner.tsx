@@ -10,7 +10,9 @@ import { useMounted } from "@/hooks/use-mounted"
 import { duration, easing } from "@/lib/motion"
 import type { AnalyticsInsight } from "@/lib/types"
 
-const STORAGE_KEY = "localos:analytics:dismissed-insights"
+// Renamed from "localos:" during the LocalOS → Lumina rename; device-local
+// convenience state only, so we accept a one-time reset rather than migrate.
+const STORAGE_KEY = "lumina:analytics:dismissed-insights"
 
 /** "2026-07-19" in the visitor's local timezone — dismissals expire day-to-day. */
 function todayKey(): string {

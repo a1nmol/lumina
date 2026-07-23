@@ -1,4 +1,4 @@
-# LocalOS Brand & Site Redesign — Master Plan
+# Lumina Brand & Site Redesign — Master Plan
 
 Synthesized from dual research (Lens A: award-tier craft — Linear, Clerk, Stripe, Apple, Rive, Lusion · Lens B: what converts local-SMB owners — Podium, Housecall Pro, Jobber, Durable, Booksy). Owner-approved direction pending. This document governs the landing page + dashboard restyle.
 
@@ -6,7 +6,7 @@ Synthesized from dual research (Lens A: award-tier craft — Linear, Clerk, Stri
 
 ## 1. What the site IS (the answer everything hangs on)
 
-LocalOS is **the shop that never closes**. The owner locks the door at 6pm; LocalOS keeps the lights on — answers the 9pm "do you do birthday cakes?" DM, posts tomorrow's special, fills Thursday's calendar, and hands the owner a receipt of what happened overnight.
+Lumina is **the shop that never closes**. The owner locks the door at 6pm; Lumina keeps the lights on — answers the 9pm "do you do birthday cakes?" DM, posts tomorrow's special, fills Thursday's calendar, and hands the owner a receipt of what happened overnight.
 
 **We do not sell software. We sell "your business, always open."**
 
@@ -16,7 +16,7 @@ The buyer: a bakery/salon/plumbing owner — busy, phone-first, allergic to tech
 
 The golden hour when shop lights flick on against a deep indigo evening sky. It is ownable, warm-but-electric, and it literally explains the product: **warm light = the human business · indigo glow = the AI working the night shift.** Our dashboard is already electric indigo — the landing page is the street outside the same world.
 
-**Narrative spine: ONE DAY ON MAIN STREET.** The landing page scrolls through a day at the visitor's shop — morning bake → busy noon → 6pm close → the indigo hours (LocalOS working) → dawn receipt ("while you slept: 3 bookings"). Scroll = time. Every section metaphor slots into a time of day, so the page tells the story even with the copy turned off.
+**Narrative spine: ONE DAY ON MAIN STREET.** The landing page scrolls through a day at the visitor's shop — morning bake → busy noon → 6pm close → the indigo hours (Lumina working) → dawn receipt ("while you slept: 3 bookings"). Scroll = time. Every section metaphor slots into a time of day, so the page tells the story even with the copy turned off.
 
 ## 3. Palette — "Daylight & Dusk" (two registers, one world)
 
@@ -48,14 +48,14 @@ A firefly: tiny, glows after dark, works while everyone sleeps — the product t
 Order per conversion research; every device tells the product story by itself.
 
 1. **NAV** — cream bar; logo wordmark with a tiny amber light dot over the "O" (the shop light). Sticky; gains a soft awning shadow on scroll.
-2. **HERO — "The cover" (dusk)**: pinned layered scene — a stylized storefront at dusk (CSS/parallax layers + shader sky, NO WebGL geometry), OPEN sign flickering on in amber neon. In front: a real phone mockup playing our **signature 4s loop**: missed call → LocalOS auto-text → reply → calendar slot fills (real UI components, Clerk-style, not screenshots). Headline: **"The shop that never closes."** Sub: "LocalOS writes your posts, answers your customers, and books your jobs — even at 9pm." One CTA: "Get early access". Wick drifts in, lands on the OPEN sign, lights it.
+2. **HERO — "The cover" (dusk)**: pinned layered scene — a stylized storefront at dusk (CSS/parallax layers + shader sky, NO WebGL geometry), OPEN sign flickering on in amber neon. In front: a real phone mockup playing our **signature 4s loop**: missed call → Lumina auto-text → reply → calendar slot fills (real UI components, Clerk-style, not screenshots). Headline: **"The shop that never closes."** Sub: "Lumina writes your posts, answers your customers, and books your jobs — even at 9pm." One CTA: "Get early access". Wick drifts in, lands on the OPEN sign, lights it.
 3. **TRUST BAR** — "Built for main street" chips (bakery/salon/plumber/café icons) + pilot framing ("Free for invited local businesses"); rating badges slot in here once they exist.
 4. **PROBLEM — "6:02 PM" (day fades)**: split scene: owner flips sign to CLOSED; phone on the counter lights up with 3 missed things (call, DM, review). Copy names the fear (Durable's trick): "You can't answer at 9pm. So that customer books somewhere that does." One visceral stat as a big number.
 5. **HOW IT WORKS — 3 lamps** (plain-English pillars, Jobber's trick): "Gets you seen" (posts) · "Never misses a customer" (front desk) · "Shows what worked" (loop). Each pillar is a streetlamp that lights as it scrolls in; no AI jargon anywhere.
 6. **THE DAY STRIP — pinned scroll story (the centerpiece)**: one pinned scene, scroll scrubs the sky gradient dawn→noon→dusk→night→dawn while vignettes swap:
    - **7 AM — the menu board writes itself**: chalkboard texture; AI caption "chalk-writes" on (Content Studio).
    - **12 PM — the ticket rail**: order tickets slide along a kitchen rail = queue/calendar; one drags itself to Thursday (drag-drop calendar).
-   - **6 PM — the shop bell**: door bell dings, chat bubbles queue at the door; LocalOS answers each; one escalates to the owner's phone with a soft "needs you" glow (FrontDesk + transparency states).
+   - **6 PM — the shop bell**: door bell dings, chat bubbles queue at the door; Lumina answers each; one escalates to the owner's phone with a soft "needs you" glow (FrontDesk + transparency states).
    - **11 PM — the indigo hours**: the scene *becomes our dashboard's dark UI* — the actual inbox thread of the 9pm DM, AI reply visible. Landing and app fuse in one scroll moment.
    - **6:45 AM — the receipt**: a receipt prints from the top of the viewport: "While you slept — 2 leads · 1 booking · 1 five-star review." Tear-off animation. (Analytics + the morning-report emotion.)
 7. **THE LOOP BOARD** — corkboard with polaroid posts and customer cards connected by glowing indigo string (string-and-pin = our linked-pair Loop visual, same device as the dashboard). Hover a post → its strings light to the customers it brought. Copy: "The first tool that shows which post rang the till."

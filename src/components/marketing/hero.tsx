@@ -96,7 +96,7 @@ export function Hero() {
           </HeadlineReveal>
           <ScrollReveal delay={0.35}>
             <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-              LocalOS writes your posts, answers your customers, and books your jobs — even at 9pm, even while you
+              Lumina writes your posts, answers your customers, and books your jobs — even at 9pm, even while you
               sleep.
             </p>
           </ScrollReveal>

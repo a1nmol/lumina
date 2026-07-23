@@ -51,7 +51,7 @@ export default async function AdminPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title="Admin"
-        description="Per-account usage, spend, and plan status across every business on LocalOS."
+        description="Per-account usage, spend, and plan status across every business on Lumina."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -64,7 +64,7 @@ export default async function AdminPage() {
         <CardHeader>
           <CardTitle>Accounts</CardTitle>
           <CardDescription>
-            Every business currently on LocalOS, invite-only test phase.
+            Every business currently on Lumina, invite-only test phase.
           </CardDescription>
         </CardHeader>
         <CardContent>

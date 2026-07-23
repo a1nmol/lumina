@@ -21,7 +21,7 @@ export function RouteBreadcrumb() {
     <Breadcrumb>
       <BreadcrumbList>
         <BreadcrumbItem>
-          <BreadcrumbPage>{current?.label ?? "LocalOS"}</BreadcrumbPage>
+          <BreadcrumbPage>{current?.label ?? "Lumina"}</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>

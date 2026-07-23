@@ -15,7 +15,7 @@ const LINKS = [
   { href: "#how-it-works", label: "How it works" },
   { href: "#faq", label: "FAQ" },
   { href: "/privacy", label: "Privacy" },
-  { href: "mailto:hello@localos.app", label: "hello@localos.app" },
+  { href: "mailto:hello@lumina.app", label: "hello@lumina.app" },
 ]
 
 export function MarketingFooter() {
@@ -25,7 +25,7 @@ export function MarketingFooter() {
         <div className="flex flex-col items-center gap-6 pb-10 text-center sm:flex-row sm:justify-between sm:text-left">
           <div>
             <Wordmark className="text-base text-foreground" />
-            <p className="mt-1.5 text-sm text-muted-foreground">LocalOS — built for main street.</p>
+            <p className="mt-1.5 text-sm text-muted-foreground">Lumina — built for main street.</p>
           </div>
           <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             {LINKS.map((link) => (

@@ -17,7 +17,7 @@ const DEMO_SIDEBAR_CONTEXT = {
   orgName: DEMO_ORG.name,
   orgSlug: DEMO_ORG.slug,
   planName: "Free test plan",
-  userEmail: "demo@localos.app",
+  userEmail: "demo@lumina.app",
   userName: "Demo User",
 }
 

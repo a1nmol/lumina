@@ -10,7 +10,9 @@ import { cn } from "@/lib/utils"
 import type { DemoPost } from "@/app/(app)/calendar/demo-posts"
 
 const REMINDER_LEAD_MS = 10 * 60 * 1000
-const STORAGE_KEY = "localos:queue-reminders"
+// Renamed from "localos:" during the LocalOS → Lumina rename; device-local
+// convenience state only, so we accept a one-time reset rather than migrate.
+const STORAGE_KEY = "lumina:queue-reminders"
 
 /** Reminders more than this far out are refused — see handleClick's early return below. */
 const MAX_REMINDER_LEAD_MS = 21 * 24 * 60 * 60 * 1000 // 21 days

@@ -22,7 +22,7 @@ export function LoopFeed({ pairs }: LoopFeedProps) {
       <EmptyState
         icon={<Waypoints aria-hidden="true" className="size-6" />}
         title="No matches yet"
-        description="Publish a post and LocalOS will show you exactly who it brought in."
+        description="Publish a post and Lumina will show you exactly who it brought in."
         actionLabel="Go to Content Studio"
         actionHref="/studio"
       />

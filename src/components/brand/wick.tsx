@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Wick — the LocalOS firefly mascot.
+ * Wick — the Lumina firefly mascot.
  *
  * v1 is hand-authored SVG + Framer Motion, built as a genuine state machine
  * (discrete `WickState`s, one-shot vs. looping states, an `onComplete`

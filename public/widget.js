@@ -1,5 +1,5 @@
 /*!
- * LocalOS web chat widget loader — tiny vanilla JS, zero framework deps.
+ * Lumina web chat widget loader — tiny vanilla JS, zero framework deps.
  * Usage: <script src="https://<app-domain>/widget.js" data-org="sunrise-bakery" defer></script>
  * MASTER_PLAN.md §4.D "web chat widget" / design brief "Web chat widget".
  *
@@ -15,7 +15,7 @@
   var currentScript = document.currentScript;
   var org = currentScript && currentScript.getAttribute("data-org");
   if (!org) {
-    console.warn("[LocalOS widget] missing data-org attribute — widget not mounted.");
+    console.warn("[Lumina widget] missing data-org attribute — widget not mounted.");
     return;
   }
 
@@ -23,7 +23,7 @@
   try {
     origin = new URL(currentScript.src).origin;
   } catch {
-    console.warn("[LocalOS widget] could not resolve widget origin.");
+    console.warn("[Lumina widget] could not resolve widget origin.");
     return;
   }
 
@@ -33,7 +33,7 @@
   // Approximates the app's --primary token (oklch(0.54 0.21 277)) and
   // DEMO_BUSINESS_BRAIN.brand_kit.primary_color — a plain hex is required
   // here since this script runs on arbitrary third-party pages that don't
-  // load LocalOS's CSS custom properties.
+  // load Lumina's CSS custom properties.
   var BRAND = "#6D5EF3";
 
   var css =

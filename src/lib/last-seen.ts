@@ -9,7 +9,10 @@ import { cookies } from "next/headers"
  * allowed from a Server Action / Route Handler, not a plain Server
  * Component render.
  */
-export const LAST_SEEN_COOKIE = "los-last-seen"
+// Renamed from "los-last-seen" during the LocalOS → Lumina rename;
+// device-local convenience state only, so we accept a one-time reset
+// (the next visit just reports no prior baseline) rather than migrate.
+export const LAST_SEEN_COOKIE = "lumina-last-seen"
 
 /** The visitor's previous last-seen time (ISO string), or null on a first-ever visit (no cookie yet) — the digest has no honest baseline to report against in that case. */
 export async function getLastSeenIso(): Promise<string | null> {

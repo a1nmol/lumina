@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button"
 import { urlBase64ToUint8Array } from "@/lib/push-client"
 import { cn } from "@/lib/utils"
 
-const ENABLED_STORAGE_KEY = "localos:push-enabled"
+// Renamed from "localos:" during the LocalOS → Lumina rename; device-local
+// convenience state only, so we accept a one-time reset rather than migrate.
+const ENABLED_STORAGE_KEY = "lumina:push-enabled"
 
 function readEnabledFlag(): boolean {
   if (typeof window === "undefined") return false

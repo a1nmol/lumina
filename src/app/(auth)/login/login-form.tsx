@@ -96,7 +96,7 @@ export function LoginForm({ configured }: LoginFormProps) {
           </span>
           <div className="flex items-center gap-2">
             <h1 className="font-heading text-xl font-semibold tracking-tight text-foreground">
-              LocalOS
+              Lumina
             </h1>
             {!configured && <Badge variant="secondary">Demo mode</Badge>}
           </div>

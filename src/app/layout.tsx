@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "LocalOS",
-    template: "%s · LocalOS",
+    default: "Lumina",
+    template: "%s · Lumina",
   },
   description:
     "Everything a local business needs to get customers and never miss one — content, front desk, and analytics in one AI-run dashboard.",

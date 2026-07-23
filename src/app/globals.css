@@ -80,7 +80,7 @@
 }
 
 :root {
-  /* LocalOS neutrals — "Daylight" register: warm paper, not blue-white.
+  /* Lumina neutrals — "Daylight" register: warm paper, not blue-white.
      docs/design-briefs/brand-redesign-plan.md §3/§7. Hue band 60 (ink/text)
      to 85 (paper/surfaces), chroma low throughout — never pure gray. */
   --background: oklch(0.97 0.015 85); /* paper cream */
@@ -511,7 +511,7 @@
   width: 100%;
 }
 .receipt-toast [data-content]::before {
-  content: "LocalOS · " var(--receipt-time, "");
+  content: "Lumina · " var(--receipt-time, "");
   display: block;
   font-family: var(--font-mono);
   font-size: 0.625rem;

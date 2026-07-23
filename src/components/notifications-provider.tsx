@@ -47,8 +47,10 @@ type NotificationsContextValue = {
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
 
-const READ_STORAGE_KEY = "localos:notifications:read-ids"
-const DEMO_TOAST_SESSION_KEY = "localos:notifications:demo-toast-fired"
+// Renamed from "localos:" during the LocalOS → Lumina rename; device-local
+// convenience state only, so we accept a one-time reset rather than migrate.
+const READ_STORAGE_KEY = "lumina:notifications:read-ids"
+const DEMO_TOAST_SESSION_KEY = "lumina:notifications:demo-toast-fired"
 /** Demo mode only: how long after mount the simulated "new lead" alert arrives. */
 const SIMULATED_ALERT_DELAY_MS = 20_000
 

@@ -20,7 +20,7 @@ export function ChannelsStep({ brain, onChange }: ChannelsStepProps) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Pick the channels LocalOS should watch and post to. Nothing connects yet — you can link
+        Pick the channels Lumina should watch and post to. Nothing connects yet — you can link
         real accounts any time from Settings.
       </p>
       <div className="grid gap-2.5 sm:grid-cols-2">

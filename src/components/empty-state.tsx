@@ -72,7 +72,7 @@ export function EmptyState({
       ) : (
         <Button
           onClick={() =>
-            toast.info(title, { description: "This part of LocalOS is coming soon." })
+            toast.info(title, { description: "This part of Lumina is coming soon." })
           }
         >
           {actionLabel}

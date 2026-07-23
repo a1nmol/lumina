@@ -1,5 +1,5 @@
 /**
- * LocalOS motion tokens — the single source for Framer Motion values.
+ * Lumina motion tokens — the single source for Framer Motion values.
  * Mirrors the CSS motion tokens in globals.css (fast 150ms / base 250ms / slow 400ms).
  * Always pair animated components with `useReducedMotion` from framer-motion.
  */

@@ -1,4 +1,4 @@
-# DESIGN_SYSTEM.md — LocalOS design bible
+# DESIGN_SYSTEM.md — Lumina design bible
 
 Fable owns design quality. The bar: every screen looks like a **senior product designer with a futuristic, creative eye** built it — one coherent system, not a bag of parts. Beautiful *and* usable. Delightful motion, never janky or gratuitous.
 

@@ -1,6 +1,6 @@
 {
-  "name": "LocalOS",
-  "short_name": "LocalOS",
+  "name": "Lumina",
+  "short_name": "Lumina",
   "description": "Content + FrontDesk + Analytics for local businesses — one AI-run dashboard.",
   "start_url": "/dashboard",
   "scope": "/",

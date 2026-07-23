@@ -8,7 +8,7 @@
 // Timeline (single interval-driven phase machine, ~6.9s per cycle):
 //   ① call        0 –  500ms  missed-call banner slides in, bright
 //   ② callDim   500 – 1000ms  banner dims
-//   ③ greeting 1000 – 1700ms  LocalOS bubble springs in + types in
+//   ③ greeting 1000 – 1700ms  Lumina bubble springs in + types in
 //   ④ customer 1700 – 2400ms  customer bubble slides in
 //   ⑤ reply    2400 – 3300ms  AI reply bubble types in + "AI answered" chip
 //   ⑥ calendar 3300 – 4000ms  calendar chip springs in, one-shot amber glow
@@ -212,7 +212,7 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
             </motion.div>
           )}
 
-          {/* ② LocalOS greeting */}
+          {/* ② Lumina greeting */}
           {step("greeting") && (
             <div className="flex flex-col items-end gap-1">
               <motion.div
@@ -242,7 +242,7 @@ export function HeroPhone({ onPhaseChange }: HeroPhoneProps = {}) {
             </motion.div>
           )}
 
-          {/* ④ LocalOS reply */}
+          {/* ④ Lumina reply */}
           {step("reply") && (
             <div className="flex flex-col items-end gap-1">
               <motion.div
@@ -366,9 +366,9 @@ function StaticFinalScene() {
 function SrNarration() {
   return (
     <p className="sr-only">
-      A phone mockup shows a missed call from (555) 812-4076. LocalOS automatically replies,
+      A phone mockup shows a missed call from (555) 812-4076. Lumina automatically replies,
       &ldquo;Sorry we missed you! How can we help?&rdquo; The customer asks, &ldquo;Do you do
-      birthday cakes for Saturday?&rdquo; LocalOS answers, &ldquo;We do! Custom cakes are $45 with
+      birthday cakes for Saturday?&rdquo; Lumina answers, &ldquo;We do! Custom cakes are $45 with
       48h notice — want me to book a Saturday pickup?&rdquo; and books it: Saturday 10:00 AM, cake
       pickup, confirmed.
     </p>

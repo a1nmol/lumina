@@ -67,7 +67,7 @@ function buildHeaders(): HeadersInit {
     // OpenRouter etiquette headers — identify the app for their leaderboards
     // and rate-limit tooling. Never contain secrets.
     "HTTP-Referer": appUrl,
-    "X-Title": "LocalOS",
+    "X-Title": "Lumina",
   }
 }
 
