@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider defaultTheme="dark" enableSystem disableTransitionOnChange>
+    <ThemeProvider defaultTheme="light" enableSystem disableTransitionOnChange>
       <ServiceWorkerRegister />
       <WickMomentsProvider>{children}</WickMomentsProvider>
       <Toaster />

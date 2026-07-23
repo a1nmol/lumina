@@ -33,7 +33,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#17171d",
+  // Light-first (owner direction): browser chrome matches the paper surface.
+  themeColor: "#faf5ea",
 };
 
 // Flash-of-wrong-theme prevention. This is a plain string rendered by a
@@ -43,7 +44,7 @@ export const viewport: Viewport = {
 // elements a *client* component renders). Mirrors src/components/theme-
 // provider.tsx's resolution logic: read localStorage 'theme', resolve
 // 'system' via matchMedia, default to 'dark', apply before first paint.
-const THEME_INIT_SCRIPT = `(function(){try{var k="theme";var s=localStorage.getItem(k);var t=(s==="light"||s==="dark"||s==="system")?s:"dark";var r=t==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t;var d=document.documentElement;if(r==="dark"){d.classList.add("dark")}else{d.classList.remove("dark")}d.style.colorScheme=r}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var k="theme";var s=localStorage.getItem(k);var t=(s==="light"||s==="dark"||s==="system")?s:"light";var r=t==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t;var d=document.documentElement;if(r==="dark"){d.classList.add("dark")}else{d.classList.remove("dark")}d.style.colorScheme=r}catch(e){}})();`;
 
 export default function RootLayout({
   children,

@@ -6,7 +6,6 @@ import { motion, useReducedMotion } from "framer-motion"
 import { toast } from "sonner"
 import { ArrowRight, Loader2, Mail, Sparkles } from "lucide-react"
 
-import { DuskShader } from "@/components/brand/dusk-shader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -81,15 +80,14 @@ export function LoginForm({ configured }: LoginFormProps) {
     // Scene-locked dusk register (brand-redesign-plan.md §7 "the login
     // aurora, replaced by the signature shader") — the shader always paints
     // the dusk sky regardless of the visitor's light/dark preference, so the
-    // card/text tokens above it are locked dark too, the same mechanism the
-    // marketing hero uses (see src/components/marketing/hero.tsx).
-    <div className="dusk-section relative flex min-h-svh flex-1 items-center justify-center overflow-hidden bg-background px-4 py-12">
-      <DuskShader intensity="hero" className="z-0" />
-      {/* Soft scrim so the logo/heading above the card always clears AA over the shader's brighter (amber) band. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-background via-background/40 to-background/10"
-      />
+    // Light-first (owner direction): the sign-in scene uses the same
+    // "Morning on Main Street" daylight treatment as the marketing hero —
+    // paper surface, soft morning-sky wash, faint grain. Theme tokens are
+    // NOT scene-locked here, so users who toggle dark mode in the app get
+    // a dark sign-in too (their choice, not ours).
+    <div className="relative flex min-h-svh flex-1 items-center justify-center overflow-hidden bg-background px-4 py-12">
+      <div aria-hidden="true" className="morning-sky pointer-events-none absolute inset-0 z-0" />
+      <div aria-hidden="true" className="paper-grain pointer-events-none absolute inset-0 z-0" />
 
       <div className="relative z-10 w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
