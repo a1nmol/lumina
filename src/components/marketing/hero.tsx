@@ -41,7 +41,10 @@ const HERO_HANDOFF_VISIBLE_RATIO = 0.6
 /** How far into the hero's own height the visitor must have scrolled before
  *  the "going down? I'll come with you" teaser can show. */
 const HERO_TEASER_SCROLL_RATIO = 0.12
-const HERO_TEASER_STORAGE_KEY = "lumina:hero-teaser-seen"
+// v2: earlier build marked the teaser "seen" the instant it mounted, so a
+// teaser the visitor never actually read was permanently suppressed in that
+// tab. Versioned to invalidate stale flags.
+const HERO_TEASER_STORAGE_KEY = "lumina:hero-teaser-seen:v2"
 const HERO_TEASER_DURATION_MS = 4000
 const HERO_TEASER_LINE = "Going down? I'll come with you — quick tour."
 
@@ -112,6 +115,11 @@ export function Hero() {
     }
     if (seen) return
 
+    // Seen-flag is written only after the teaser has actually been on screen
+    // for a readable beat (same protected-write pattern as the guide's intro
+    // bubble) — a teaser killed early by the handoff re-arms next visit
+    // instead of being wrongly marked seen the instant it mounted.
+    let seenTimer: ReturnType<typeof setTimeout> | null = null
     function handleScroll() {
       const section = document.querySelector('[data-scene="hero"]')
       if (!section) return
@@ -120,15 +128,20 @@ export function Hero() {
       const scrolledRatio = -rect.top / rect.height
       if (scrolledRatio < HERO_TEASER_SCROLL_RATIO || scrolledRatio >= 1) return
       window.removeEventListener("scroll", handleScroll)
-      try {
-        window.sessionStorage.setItem(HERO_TEASER_STORAGE_KEY, "1")
-      } catch {
-        // Storage unavailable — the teaser just won't remember across the session.
-      }
       setHeroTeaserVisible(true)
+      seenTimer = setTimeout(() => {
+        try {
+          window.sessionStorage.setItem(HERO_TEASER_STORAGE_KEY, "1")
+        } catch {
+          // Storage unavailable — the teaser just won't remember across the session.
+        }
+      }, 1500)
     }
     window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
+    return () => {
+      window.removeEventListener("scroll", handleScroll)
+      if (seenTimer) clearTimeout(seenTimer)
+    }
   }, [])
 
   useEffect(() => {

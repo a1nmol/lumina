@@ -97,8 +97,11 @@ import {
 } from "@/components/marketing/day-strip"
 import { easing, springGentle } from "@/lib/motion"
 
-const DISMISS_STORAGE_KEY = "lumina:guide-dismissed"
-const INTRO_SEEN_STORAGE_KEY = "lumina:guide-intro-seen"
+// v2 suffix: earlier builds wrote these flags too eagerly (and had a
+// session-wide dismiss kill-switch) — stale values in an open tab's
+// sessionStorage silently suppressed every bubble. Versioning the keys
+// invalidates any such stale state without asking users to clear storage.
+const INTRO_SEEN_STORAGE_KEY = "lumina:guide-intro-seen:v2"
 const DESKTOP_QUERY = "(min-width: 1024px)"
 
 /** ~350ms of stillness after the last scroll event before a bubble pops — a
@@ -360,15 +363,9 @@ export function WickGuide() {
   )
 
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [dismissed, setDismissed] = useState(false)
   const [tabHidden, setTabHidden] = useState(false)
 
   const activeIdRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDismissed(readSessionFlag(DISMISS_STORAGE_KEY))
-  }, [])
 
   // Pause everything while the tab is backgrounded — same cost/perf
   // discipline as wick.tsx's own dart/blink timers.
@@ -408,14 +405,6 @@ export function WickGuide() {
     return () => observer.disconnect()
   }, [isDesktop])
 
-  const dismiss = useCallback(() => {
-    setDismissed(true)
-    writeSessionFlag(DISMISS_STORAGE_KEY)
-    // A manual X-dismiss is an unambiguous "seen it" regardless of how long
-    // the intro had been up — no need to wait out INTRO_SEEN_WRITE_MS here.
-    writeSessionFlag(INTRO_SEEN_STORAGE_KEY)
-  }, [])
-
   const waypoint = useMemo(() => WAYPOINTS.find((w) => w.id === activeId) ?? WAYPOINTS[0], [activeId])
   const shouldRender = isDesktop && !handoff.heroVisible && !!activeId
 
@@ -426,8 +415,6 @@ export function WickGuide() {
           key="wick-guide"
           reduceMotion={!!reduceMotion}
           tabHidden={tabHidden}
-          dismissed={dismissed}
-          onDismiss={dismiss}
           waypoint={waypoint}
           viewport={viewport}
           heroCenter={handoff.center}
@@ -461,16 +448,12 @@ function waypointContentKey(waypoint: Waypoint, dayStripScene: string | null): s
 function GuideBody({
   reduceMotion,
   tabHidden,
-  dismissed,
-  onDismiss,
   waypoint,
   viewport,
   heroCenter,
 }: {
   reduceMotion: boolean
   tabHidden: boolean
-  dismissed: boolean
-  onDismiss: () => void
   waypoint: Waypoint
   viewport: { w: number; h: number }
   heroCenter: { x: number; y: number } | null
@@ -655,8 +638,16 @@ function GuideBody({
     if (bubble?.kind === "waypoint") setBubble(null)
   }
 
+  // The X on a bubble hides THAT bubble only — it never silences the whole
+  // tour (owner direction: bubbles must always be available; the previous
+  // session-wide dismiss flag suppressed every future bubble in the tab and
+  // was the root cause of "he moves but never talks").
+  const handleDismiss = useCallback(() => {
+    if (bubbleRef.current?.kind === "intro") writeSessionFlag(INTRO_SEEN_STORAGE_KEY)
+    setBubble(null)
+  }, [])
+
   useEffect(() => {
-    if (dismissed) return
     if (readSessionFlag(INTRO_SEEN_STORAGE_KEY)) return
     // One-time read of an external system (sessionStorage) right at mount,
     // to decide whether to greet immediately — the intro has no scroll-stop
@@ -673,13 +664,11 @@ function GuideBody({
     // appears, instead of being permanently (and wrongly) marked seen.
     const seenTimer = setTimeout(() => writeSessionFlag(INTRO_SEEN_STORAGE_KEY), INTRO_SEEN_WRITE_MS)
     return () => clearTimeout(seenTimer)
-    // Fires once per GuideBody mount only, gated by the session flag above
-    // — deliberately not re-run if `dismissed` flips later in the same mount.
+    // Fires once per GuideBody mount only, gated by the session flag above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (dismissed) return
     function handleScroll() {
       if (!isIntroProtected(bubbleRef.current)) {
         setBubble(null)
@@ -697,17 +686,17 @@ function GuideBody({
       window.removeEventListener("scroll", handleScroll)
       if (restTimerRef.current) clearTimeout(restTimerRef.current)
     }
-  }, [dismissed, contentKey, waypointLine, shownContentKey])
+  }, [contentKey, waypointLine, shownContentKey])
 
   // Hover hints (owner direction #6) — highest-priority content: while
   // active, it overrides whatever intro/waypoint bubble would otherwise
   // show, without discarding that underlying bubble state (leaving the
   // hinted element just lets it show back through).
-  const hoverHint = useWickHoverHints(!dismissed && !tabHidden)
+  const hoverHint = useWickHoverHints(!tabHidden)
 
   const displayKey = hoverHint !== null ? `hint:${hoverHint}` : bubble?.key ?? null
   const displayText = hoverHint !== null ? hoverHint : (bubble?.text ?? "")
-  const showBubble = displayKey !== null && !dismissed && !tabHidden
+  const showBubble = displayKey !== null && !tabHidden
 
   // Skips the typing-dots + per-word reveal for hover-hint swaps (always)
   // and for any re-display of a message already fully shown once this mount
@@ -777,7 +766,7 @@ function GuideBody({
               // Hidden while a hover hint is showing — dismissing the whole
               // guide from what's meant to be a light, transient swap would
               // be surprising; the X reappears once the hint clears.
-              onDismiss={hoverHint !== null ? undefined : onDismiss}
+              onDismiss={hoverHint !== null ? undefined : handleDismiss}
               reduceMotion={reduceMotion}
               side={bubbleSide}
               maxWidthPx={GUIDE_BUBBLE_MAX_WIDTH}
