@@ -20,8 +20,12 @@ import { StreetSilhouette } from "./street-silhouette"
 export function FinalCta() {
   return (
     <section id="final-cta" data-scene="final-cta" className="relative overflow-hidden bg-background py-24 sm:py-32">
-      <div className="relative z-10 mx-auto max-w-xl px-4 text-center sm:px-6 lg:px-8">
-        <ScrollReveal className="mx-auto max-w-md sm:max-w-lg">
+      {/* Outer container is wide (was max-w-xl, the "narrow card" the street
+          used to be cramped into) so the dusk card — and the street SVG
+          inside it — can render large; the copy/CTA below stay in their own
+          narrower measure for readability. */}
+      <div className="relative z-10 mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
+        <ScrollReveal>
           <div className="dusk-section overflow-hidden rounded-3xl border border-amber-glow/20 bg-card shadow-overlay">
             <div className="px-6 pt-8 pb-1 sm:px-8 sm:pt-10">
               <h2
@@ -32,12 +36,12 @@ export function FinalCta() {
               </h2>
             </div>
             <div className="mt-6">
-              <StreetSilhouette variant="main-street" className="px-2 pb-1 sm:px-4" />
+              <StreetSilhouette variant="main-street" className="px-2 pb-2 sm:px-6 sm:pb-3" />
             </div>
           </div>
         </ScrollReveal>
 
-        <ScrollReveal delay={0.05} className="mt-8">
+        <ScrollReveal delay={0.05} className="mx-auto mt-8 max-w-lg">
           <p className="text-lg text-muted-foreground">
             Join the pilot — be the shop that never misses a customer.
           </p>

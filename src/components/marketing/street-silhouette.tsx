@@ -69,6 +69,12 @@ const LIT_WINDOW_PATTERN = new Set([
 const LINE_DOOR_BUILDING_INDEX = 6
 const LINE_AWNING_BUILDING_INDICES = [2, 8]
 
+/** "line" variant's own baseline — taller than the shared VIEW_HEIGHT (kept
+ * separate so the scattered/single/dim variants above are untouched) to make
+ * room for the per-shop story labels added below. The buildings still sit on
+ * the same 800-unit-wide street, just with more sky headroom for signage. */
+const LINE_BASELINE = 200
+
 const INK_LINE_STYLE = { stroke: "var(--ink)", strokeOpacity: 0.35 } as const
 
 interface StreetSilhouetteProps {
@@ -85,6 +91,10 @@ export function StreetSilhouette({ className, variant = "scattered" }: StreetSil
     return <MainStreet className={className} />
   }
 
+  if (variant === "line") {
+    return <LineArtStreet className={className} />
+  }
+
   return (
     <svg
       aria-hidden="true"
@@ -92,48 +102,46 @@ export function StreetSilhouette({ className, variant = "scattered" }: StreetSil
       preserveAspectRatio="none"
       className={cn("block w-full", className)}
     >
-      {variant === "line"
-        ? renderLineArtStreet()
-        : BUILDINGS.map((building, buildingIndex) => {
-            const windows = []
-            const windowW = building.width / (building.cols * 2.2)
-            const windowH = building.height / (building.rows * 2.6)
-            for (let row = 0; row < building.rows; row++) {
-              for (let col = 0; col < building.cols; col++) {
-                const key = `${buildingIndex}-${row * building.cols + col}`
-                const lit = variant === "scattered" ? LIT_WINDOW_PATTERN.has(key) : variant === "single" ? key === singleLitKey : false
-                const wx =
-                  building.x +
-                  building.width / (building.cols + 1) * (col + 1) -
-                  windowW / 2
-                const wy = VIEW_HEIGHT - building.height + (building.height / (building.rows + 1)) * (row + 1) - windowH / 2
-                windows.push(
-                  <rect
-                    key={key}
-                    x={wx}
-                    y={wy}
-                    width={windowW}
-                    height={windowH}
-                    rx={0.6}
-                    className={lit ? "fill-amber-glow" : "fill-background/15"}
-                    style={lit ? { filter: "drop-shadow(0 0 3px var(--amber-glow))" } : undefined}
-                  />
-                )
-              }
-            }
-            return (
-              <g key={buildingIndex}>
-                <rect
-                  x={building.x}
-                  y={VIEW_HEIGHT - building.height}
-                  width={building.width}
-                  height={building.height}
-                  className="fill-card"
-                />
-                {windows}
-              </g>
+      {BUILDINGS.map((building, buildingIndex) => {
+        const windows = []
+        const windowW = building.width / (building.cols * 2.2)
+        const windowH = building.height / (building.rows * 2.6)
+        for (let row = 0; row < building.rows; row++) {
+          for (let col = 0; col < building.cols; col++) {
+            const key = `${buildingIndex}-${row * building.cols + col}`
+            const lit = variant === "scattered" ? LIT_WINDOW_PATTERN.has(key) : variant === "single" ? key === singleLitKey : false
+            const wx =
+              building.x +
+              building.width / (building.cols + 1) * (col + 1) -
+              windowW / 2
+            const wy = VIEW_HEIGHT - building.height + (building.height / (building.rows + 1)) * (row + 1) - windowH / 2
+            windows.push(
+              <rect
+                key={key}
+                x={wx}
+                y={wy}
+                width={windowW}
+                height={windowH}
+                rx={0.6}
+                className={lit ? "fill-amber-glow" : "fill-background/15"}
+                style={lit ? { filter: "drop-shadow(0 0 3px var(--amber-glow))" } : undefined}
+              />
             )
-          })}
+          }
+        }
+        return (
+          <g key={buildingIndex}>
+            <rect
+              x={building.x}
+              y={VIEW_HEIGHT - building.height}
+              width={building.width}
+              height={building.height}
+              className="fill-card"
+            />
+            {windows}
+          </g>
+        )
+      })}
     </svg>
   )
 }
@@ -152,7 +160,7 @@ function renderWindowPanes() {
         if (!LIT_WINDOW_PATTERN.has(key)) continue
         const wx = building.x + (building.width / (building.cols + 1)) * (col + 1) - windowW / 2
         const wy =
-          VIEW_HEIGHT - building.height + (building.height / (building.rows + 1)) * (row + 1) - windowH / 2
+          LINE_BASELINE - building.height + (building.height / (building.rows + 1)) * (row + 1) - windowH / 2
         panes.push(
           <g key={key}>
             <rect x={wx} y={wy} width={windowW} height={windowH} rx={0.5} fill="none" strokeWidth={1} style={INK_LINE_STYLE} />
@@ -170,7 +178,7 @@ function renderWindowPanes() {
 function LineAwning({ building }: { building: Building }) {
   const x = building.x + 6
   const width = building.width - 12
-  const roofY = VIEW_HEIGHT - 44
+  const roofY = LINE_BASELINE - 44
   const roofH = 6
   const teeth = 4
   const toothW = width / teeth
@@ -195,7 +203,7 @@ function LineDoor({ building }: { building: Building }) {
   const doorH = 30
   const cx = building.x + building.width / 2
   const doorX = cx - doorW / 2
-  const doorY = VIEW_HEIGHT - doorH
+  const doorY = LINE_BASELINE - doorH
   const signW = 30
   const signH = 12
   const signX = cx - signW / 2
@@ -230,7 +238,7 @@ function renderLineArtStreet() {
         <rect
           key={buildingIndex}
           x={building.x}
-          y={VIEW_HEIGHT - building.height}
+          y={LINE_BASELINE - building.height}
           width={building.width}
           height={building.height}
           fill="none"
@@ -243,7 +251,143 @@ function renderLineArtStreet() {
         <LineAwning key={index} building={BUILDINGS[index]} />
       ))}
       <LineDoor building={BUILDINGS[LINE_DOOR_BUILDING_INDEX]} />
+      {renderLineShopStories()}
     </>
+  )
+}
+
+/** Line-variant 7-shop story — same shops/order as the main-street
+ * composition, mapped onto 7 of the 11 outline buildings (chosen for spacing
+ * so neighbouring labels don't collide; #6 is the existing door/OPEN
+ * building). Quieter register than main-street: no plaque boxes, small ink
+ * text, one small stroke-only glyph per lacking shop — the café gets no
+ * glyph (its door + OPEN sign already carry that role) plus its own
+ * full-opacity, amber-accented line. */
+interface LineShopStory {
+  buildingIndex: number
+  lines: string[]
+  icon?: "person" | "phone" | "ghost" | "calendar" | "speech"
+  emphasis?: boolean
+}
+
+const LINE_SHOP_STORIES: LineShopStory[] = [
+  { buildingIndex: 0, lines: ["Closed since 6"] },
+  { buildingIndex: 2, lines: ["On vacation —", "back Monday"], icon: "person" },
+  { buildingIndex: 4, lines: ["Family emergency —", "couldn't pick up"], icon: "phone" },
+  { buildingIndex: LINE_DOOR_BUILDING_INDEX, lines: ["Open 24/7 —", "we use Lumina."], emphasis: true },
+  { buildingIndex: 7, lines: ["Haven't posted", "in months"], icon: "ghost" },
+  { buildingIndex: 8, lines: ["No idea what's", "booked"], icon: "calendar" },
+  { buildingIndex: 10, lines: ["Closed 6 PM —", "DMs waiting"], icon: "speech" },
+]
+
+/** Tiny stroke-only glyphs, ~0.5x the main-street versions — bottom-anchored
+ * at `bottomY`, centered at `cx`. Same shapes as the main-street cues
+ * (waiting customer / phone / dead-feed ghost card / blank calendar /
+ * queued DM) so the two scenes read as one family. */
+function LineTinyIcon({ kind, cx, bottomY }: { kind: NonNullable<LineShopStory["icon"]>; cx: number; bottomY: number }) {
+  switch (kind) {
+    case "person": {
+      const bodyW = 5.5
+      const bodyH = 9
+      const headR = 2.3
+      const headCy = bottomY - bodyH - headR
+      return (
+        <g>
+          <circle cx={cx} cy={headCy} r={headR} fill="none" strokeWidth={0.7} style={INK_LINE_STYLE} />
+          <rect x={cx - bodyW / 2} y={headCy + headR} width={bodyW} height={bodyH} rx={bodyW / 2} fill="none" strokeWidth={0.7} style={INK_LINE_STYLE} />
+        </g>
+      )
+    }
+    case "phone": {
+      const s = 3
+      return (
+        <g>
+          <rect x={cx - 6} y={bottomY - 8.5} width={s} height={s} rx={0.6} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
+          <rect x={cx + 3} y={bottomY - 3.5} width={s} height={s} rx={0.6} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
+          <line x1={cx - 4.5} y1={bottomY - 7} x2={cx + 4.5} y2={bottomY - 2} strokeWidth={0.6} style={INK_LINE_STYLE} />
+        </g>
+      )
+    }
+    case "ghost": {
+      const w = 15
+      const h = 11
+      return (
+        <rect x={cx - w / 2} y={bottomY - h} width={w} height={h} rx={1.5} fill="none" strokeWidth={0.6} strokeDasharray="1.5 1.5" style={INK_LINE_STYLE} />
+      )
+    }
+    case "calendar": {
+      const w = 16
+      const h = 12
+      const x = cx - w / 2
+      const y = bottomY - h
+      return (
+        <g>
+          <rect x={x} y={y} width={w} height={h} rx={1} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
+          <line x1={x} y1={y + 3.5} x2={x + w} y2={y + 3.5} strokeWidth={0.6} style={INK_LINE_STYLE} />
+          <line x1={x + w / 2} y1={y + 3.5} x2={x + w / 2} y2={y + h} strokeWidth={0.5} style={INK_LINE_STYLE} />
+        </g>
+      )
+    }
+    case "speech": {
+      const w = 13
+      const h = 9
+      const x = cx - w / 2
+      const y = bottomY - h
+      return <rect x={x} y={y} width={w} height={h} rx={1.5} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
+    }
+  }
+}
+
+/** Renders each story's icon (if any) + 1-2 line caption, stacked in the
+ * sky above that shop's own roofline — a consistent gap/rhythm across all 7
+ * shops even though roof heights differ. */
+function renderLineShopStories() {
+  const labelLineHeight = 8.5
+  const roofGap = 8
+  const iconGap = 6
+
+  return LINE_SHOP_STORIES.map((story) => {
+    const building = BUILDINGS[story.buildingIndex]
+    const cx = building.x + building.width / 2
+    const roofTop = LINE_BASELINE - building.height
+    const labelBottomY = roofTop - roofGap
+    const labelTopY = labelBottomY - (story.lines.length - 1) * labelLineHeight
+    const iconBottomY = labelTopY - iconGap
+
+    const textStyle = story.emphasis
+      ? { fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 7.5, fontWeight: 600, letterSpacing: "0.01em" }
+      : { fill: "var(--ink)", fillOpacity: 0.6, fontFamily: "var(--font-sans)", fontSize: 7, letterSpacing: "0.01em" }
+
+    return (
+      <g key={story.buildingIndex} style={story.emphasis ? { filter: "drop-shadow(0 0 3px var(--amber-glow))" } : undefined}>
+        {story.icon && <LineTinyIcon kind={story.icon} cx={cx} bottomY={iconBottomY} />}
+        {story.lines.map((line, i) => (
+          <text key={i} x={cx} y={labelTopY + i * labelLineHeight} textAnchor="middle" style={textStyle}>
+            {line}
+          </text>
+        ))}
+      </g>
+    )
+  })
+}
+
+/** Wrapper for the "line" variant — same illustration as before plus the
+ * 7-shop story text, so (unlike the bare `<svg>` the other window-grid
+ * variants render) it needs a sibling `sr-only` paragraph the way
+ * `MainStreet` below already has one. */
+function LineArtStreet({ className }: { className?: string }) {
+  return (
+    <div className={cn("relative", className)}>
+      <svg aria-hidden="true" viewBox={`0 0 ${VIEW_WIDTH} ${LINE_BASELINE}`} preserveAspectRatio="none" className="block h-full w-full">
+        {renderLineArtStreet()}
+      </svg>
+      <p className="sr-only">
+        Illustration: seven shops along Main Street, each with a small sign explaining what it&apos;s missing —
+        closed since six, on vacation, a missed family-emergency call, months without a post, no idea what&apos;s
+        booked, or closed at six with messages still waiting. The centre shop stays open 24/7, always answering,
+        because it uses Lumina.
+      </p>
+    </div>
   )
 }
 
@@ -262,9 +406,14 @@ function renderLineArtStreet() {
    polyline/text primitives only — no freehand <path>, no images. */
 
 const MAIN_STREET_VIEW_WIDTH = 900
-const MAIN_STREET_VIEW_HEIGHT = 230
-/** Sidewalk/street level — every building rect sits on this line. */
-const MAIN_STREET_BASELINE = 205
+/** Grew taller (was 230) so every lacking shop has real sky headroom for its
+ * own sign-plaque label above the roofline, without crowding the café's
+ * SignBubble. */
+const MAIN_STREET_VIEW_HEIGHT = 270
+/** Sidewalk/street level — every building rect sits on this line. Raised
+ * (was 205) alongside the taller viewBox so the extra height mostly becomes
+ * sky headroom, not empty sidewalk. */
+const MAIN_STREET_BASELINE = 235
 
 interface MainStreetShop {
   x: number
@@ -321,6 +470,41 @@ function ShopDoor({ shop }: { shop: MainStreetShop }) {
       <rect x={doorX} y={doorY} width={doorW} height={doorH} rx={1.5} fill="none" strokeWidth={1} style={SHOP_INK} />
       <line x1={cx} y1={doorY} x2={cx} y2={doorY + doorH} strokeWidth={0.75} style={SHOP_INK} />
       <circle cx={cx + doorW / 2 - 2.5} cy={doorY + doorH / 2} r={0.9} style={{ fill: "var(--ink)", opacity: 0.45 }} />
+    </g>
+  )
+}
+
+/** One short, human sign-plaque per lacking shop — a small card (rect +
+ * centered text, 1-2 lines) sitting a consistent gap above that shop's own
+ * roofline. Replaces ambiguity, not adds clutter: pairs with the shop's one
+ * existing icon/negation cue rather than introducing a second one. Muted ink
+ * only (never a second accent hue), so hierarchy stays "café brightest,
+ * every lacking shop quiet" per the craft rule above. */
+function ShopLabel({ shop, lines }: { shop: MainStreetShop; lines: string[] }) {
+  const cx = shop.x + shop.width / 2
+  const roofTop = MAIN_STREET_BASELINE - shop.height
+  const fontSize = 8
+  const lineHeight = 10.5
+  const paddingX = 6
+  const paddingY = 4.5
+  const boxW = Math.max(...lines.map((line) => line.length * fontSize * 0.56)) + paddingX * 2
+  const boxH = lines.length * lineHeight + paddingY * 2 - (lineHeight - fontSize)
+  const boxY = roofTop - 11 - boxH
+  const boxX = cx - boxW / 2
+  return (
+    <g>
+      <rect x={boxX} y={boxY} width={boxW} height={boxH} rx={3} className="fill-card" stroke="var(--ink)" strokeOpacity={0.15} strokeWidth={0.75} />
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={cx}
+          y={boxY + paddingY + fontSize * 0.74 + i * lineHeight}
+          textAnchor="middle"
+          style={{ fill: "var(--ink)", fillOpacity: 0.66, fontFamily: "var(--font-sans)", fontSize, letterSpacing: "0.005em" }}
+        >
+          {line}
+        </text>
+      ))}
     </g>
   )
 }
@@ -593,12 +777,28 @@ function CafeChecks({ shop }: { shop: MainStreetShop }) {
  * dialogue. Enters once via a ScrollReveal-style fade/rise the first time
  * it scrolls into view; static under reduced motion (skips straight to its
  * resting state, mirroring WickBubble's own `initial={false}` pattern). */
-function SignBubble({ x, y, text = "We use Lumina." }: { x: number; y: number; text?: string }) {
+function SignBubble({
+  x,
+  bottomY,
+  text = "We use Lumina.",
+  subtext,
+}: {
+  x: number
+  /** Where the bubble's bottom edge (and tail) sit — a fixed gap above the
+   * shop's roofline, so adding `subtext` grows the bubble upward instead of
+   * pushing its tail off the roof. */
+  bottomY: number
+  text?: string
+  /** Second, smaller line — still bright/on-brand (the café's copy is the
+   * one thing in the scene allowed to glow), just a lighter weight than the
+   * primary line so hierarchy inside the bubble stays clear. */
+  subtext?: string
+}) {
   const reduceMotion = useReducedMotion()
-  const bubbleW = 122
-  const bubbleH = 32
+  const bubbleW = subtext ? 172 : 122
+  const bubbleH = subtext ? 48 : 32
   const bubbleX = x - bubbleW / 2
-  const bubbleY = y
+  const bubbleY = bottomY - bubbleH
   const tailSize = 9
   const tailX = x - tailSize / 2
   const tailY = bubbleY + bubbleH - tailSize / 2 - 2
@@ -634,12 +834,22 @@ function SignBubble({ x, y, text = "We use Lumina." }: { x: number; y: number; t
       />
       <text
         x={x}
-        y={bubbleY + bubbleH / 2 + 4}
+        y={subtext ? bubbleY + 19 : bubbleY + bubbleH / 2 + 4}
         textAnchor="middle"
         style={{ fill: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, letterSpacing: "0.01em" }}
       >
         {text}
       </text>
+      {subtext && (
+        <text
+          x={x}
+          y={bubbleY + 36}
+          textAnchor="middle"
+          style={{ fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 9, fontWeight: 600, letterSpacing: "0.01em" }}
+        >
+          {subtext}
+        </text>
+      )}
     </motion.g>
   )
 }
@@ -693,6 +903,7 @@ function MainStreet({ className }: { className?: string }) {
           <ShopBuilding shop={s.bakery} />
           <ShopDoor shop={s.bakery} />
           <BakerySign shop={s.bakery} />
+          <ShopLabel shop={s.bakery} lines={["Closed since 6"]} />
         </g>
 
         {/* 2. Salon — waiting customer + missed ✕ */}
@@ -701,6 +912,7 @@ function MainStreet({ className }: { className?: string }) {
           <ShopDoor shop={s.salon} />
           <WaitingCustomer cx={salonCx} />
           <XChip cx={salonCx} cy={salonHeadCy - 11} />
+          <ShopLabel shop={s.salon} lines={["On vacation —", "back Monday"]} />
         </g>
 
         {/* 3. Plumber — phone glyph + missed-call ✕ above the sign */}
@@ -709,6 +921,7 @@ function MainStreet({ className }: { className?: string }) {
           <ShopDoor shop={s.plumber} />
           <PlumberSign shop={s.plumber} />
           <XChip cx={s.plumber.x + s.plumber.width / 2} cy={plumberSignY - 10} />
+          <ShopLabel shop={s.plumber} lines={["Family emergency —", "couldn't pick up"]} />
         </g>
 
         {/* 4. Café — THE Lumina shop */}
@@ -719,13 +932,14 @@ function MainStreet({ className }: { className?: string }) {
           <CafeSign shop={s.cafe} />
           <CafeChecks shop={s.cafe} />
         </g>
-        <SignBubble x={cafeCx} y={cafeTop - 41} />
+        <SignBubble x={cafeCx} bottomY={cafeTop - 9} subtext="Open 24/7 — always answering." />
 
         {/* 5. Florist — dead feed */}
         <g>
           <ShopBuilding shop={s.florist} />
           <ShopDoor shop={s.florist} />
           <DashedGhostCard shop={s.florist} />
+          <ShopLabel shop={s.florist} lines={["Haven't posted", "in months"]} />
         </g>
 
         {/* 6. Barber — blank calendar */}
@@ -733,6 +947,7 @@ function MainStreet({ className }: { className?: string }) {
           <ShopBuilding shop={s.barber} />
           <ShopDoor shop={s.barber} />
           <BlankCalendarGrid shop={s.barber} />
+          <ShopLabel shop={s.barber} lines={["No idea what's", "booked"]} />
         </g>
 
         {/* 7. Hardware — closed 6PM + two queued, unanswered DMs */}
@@ -742,12 +957,14 @@ function MainStreet({ className }: { className?: string }) {
           <HardwareSign shop={s.hardware} />
           <SpeechBubbleOutline x={s.hardware.x + s.hardware.width - 32} y={MAIN_STREET_BASELINE - s.hardware.height * 0.72} />
           <SpeechBubbleOutline x={s.hardware.x + s.hardware.width - 20} y={MAIN_STREET_BASELINE - s.hardware.height * 0.72 + 13} />
+          <ShopLabel shop={s.hardware} lines={["Closed 6 PM —", "DMs waiting"]} />
         </g>
       </svg>
       <p className="sr-only">
-        Illustration: a row of shops on Main Street. Every shop except one is missing something — a closed sign, a
-        missed call, an empty feed, a blank calendar. The centre shop, lit warm and glowing with a sign reading
-        &quot;We use Lumina&quot;, has posts, replies, and bookings all handled.
+        Illustration: a row of shops on Main Street, each with a sign explaining what it&apos;s missing — closed
+        since six, on vacation, a missed emergency call, months without a post, no idea what&apos;s booked, or
+        closed at six with messages waiting. The centre shop, lit warm and glowing with a sign reading &quot;We use
+        Lumina&quot; and open 24/7, always answering, has posts, replies, and bookings all handled.
       </p>
     </div>
   )

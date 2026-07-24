@@ -258,9 +258,19 @@ export function Hero() {
       </div>
 
       {/* Fine line-art Main Street strip along the hero's bottom edge — its
-          own door + OPEN sign carry the scene's single amber accent. */}
+          own door + OPEN sign carry the scene's single amber accent, and
+          (owner direction) each of the 7 shops now carries the same
+          one-cue-per-shop story as the final-CTA street, in a quieter ink
+          register. Taller than before (was h-28/h-36/h-40) to give the new
+          labels sky headroom without cramping — scaled up in step with the
+          street's own taller internal viewBox (StreetSilhouette's
+          LINE_BASELINE) so the buildings/props read at the same size as
+          before, just with more room above their roofs. Sits below the
+          content grid in normal flow, so the extra height only pushes the
+          section's own bottom edge down — no overlap with the phone/CTA
+          above. */}
       <div className="relative z-10 mt-16 sm:mt-20">
-        <StreetSilhouette variant="line" className="h-28 sm:h-36 lg:h-40" />
+        <StreetSilhouette variant="line" className="h-[140px] sm:h-[180px] lg:h-[200px]" />
       </div>
     </section>
   )
