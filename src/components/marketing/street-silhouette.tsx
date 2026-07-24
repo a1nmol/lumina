@@ -342,30 +342,90 @@ function LineTinyIcon({ kind, cx, bottomY }: { kind: NonNullable<LineShopStory["
  * sky above that shop's own roofline — a consistent gap/rhythm across all 7
  * shops even though roof heights differ. */
 function renderLineShopStories() {
-  const labelLineHeight = 8.5
-  const roofGap = 8
-  const iconGap = 6
+  // Owner feedback (legibility): labels bumped to 8.75px semibold at 80%
+  // ink, each on a mini paper plaque (bare text over building strokes was
+  // what read as "confusing"); every lacking shop also gets a small red
+  // CLOSED chip just above its roofline — same red-sign/amber-sign grammar
+  // as the full main-street variant, in this strip's quieter register.
+  const labelFontSize = 8.75
+  const labelLineHeight = 10.5
+  const roofGap = 6
+  const iconGap = 5
+  const chipW = 32
+  const chipH = 9
+  const chipGap = 4
 
   return LINE_SHOP_STORIES.map((story) => {
     const building = BUILDINGS[story.buildingIndex]
     const cx = building.x + building.width / 2
     const roofTop = LINE_BASELINE - building.height
-    const labelBottomY = roofTop - roofGap
+
+    // Stack, bottom-up: red CLOSED chip (lacking shops only) → label plaque → icon.
+    const chipY = roofTop - roofGap - chipH
+    const labelBottomY = (story.emphasis ? roofTop - roofGap : chipY - chipGap) - 4
     const labelTopY = labelBottomY - (story.lines.length - 1) * labelLineHeight
-    const iconBottomY = labelTopY - iconGap
+    const iconBottomY = labelTopY - labelFontSize - iconGap
 
     const textStyle = story.emphasis
-      ? { fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 7.5, fontWeight: 600, letterSpacing: "0.01em" }
-      : { fill: "var(--ink)", fillOpacity: 0.6, fontFamily: "var(--font-sans)", fontSize: 7, letterSpacing: "0.01em" }
+      ? { fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 8.5, fontWeight: 600, letterSpacing: "0.01em" }
+      : { fill: "var(--ink)", fillOpacity: 0.8, fontFamily: "var(--font-sans)", fontSize: labelFontSize, fontWeight: 600, letterSpacing: "0.01em" }
+
+    const plaqueW = Math.max(...story.lines.map((line) => line.length * labelFontSize * 0.56)) + 10
+    const plaqueH = story.lines.length * labelLineHeight + 6
+    const plaqueY = labelTopY - labelFontSize * 0.85 - 3
 
     return (
       <g key={story.buildingIndex} style={story.emphasis ? { filter: "drop-shadow(0 0 3px var(--amber-glow))" } : undefined}>
         {story.icon && <LineTinyIcon kind={story.icon} cx={cx} bottomY={iconBottomY} />}
+        {!story.emphasis && (
+          <rect
+            x={cx - plaqueW / 2}
+            y={plaqueY}
+            width={plaqueW}
+            height={plaqueH}
+            rx={2.5}
+            className="fill-background"
+            style={{ fillOpacity: 0.9 }}
+            stroke="var(--ink)"
+            strokeOpacity={0.18}
+            strokeWidth={0.6}
+          />
+        )}
         {story.lines.map((line, i) => (
           <text key={i} x={cx} y={labelTopY + i * labelLineHeight} textAnchor="middle" style={textStyle}>
             {line}
           </text>
         ))}
+        {!story.emphasis && (
+          <g>
+            <rect
+              x={cx - chipW / 2}
+              y={chipY}
+              width={chipW}
+              height={chipH}
+              rx={2}
+              style={{ fill: "var(--destructive)", opacity: 0.1 }}
+            />
+            <rect
+              x={cx - chipW / 2}
+              y={chipY}
+              width={chipW}
+              height={chipH}
+              rx={2}
+              fill="none"
+              strokeWidth={0.75}
+              style={{ stroke: "var(--destructive)", strokeOpacity: 0.7 }}
+            />
+            <text
+              x={cx}
+              y={chipY + chipH / 2 + 2}
+              textAnchor="middle"
+              style={{ fill: "var(--destructive)", fontFamily: "var(--font-mono)", fontSize: 5.2, fontWeight: 600, letterSpacing: "0.08em" }}
+            >
+              CLOSED
+            </text>
+          </g>
+        )}
       </g>
     )
   })
@@ -382,10 +442,10 @@ function LineArtStreet({ className }: { className?: string }) {
         {renderLineArtStreet()}
       </svg>
       <p className="sr-only">
-        Illustration: seven shops along Main Street, each with a small sign explaining what it&apos;s missing —
-        closed since six, on vacation, a missed family-emergency call, months without a post, no idea what&apos;s
-        booked, or closed at six with messages still waiting. The centre shop stays open 24/7, always answering,
-        because it uses Lumina.
+        Illustration: seven shops along Main Street. A small red CLOSED sign hangs on every shop but one, each
+        with a note explaining why — closed since six, on vacation, a missed family-emergency call, months
+        without a post, no idea what&apos;s booked, or closed at six with messages still waiting. The centre shop
+        stays open 24/7, always answering, because it uses Lumina.
       </p>
     </div>
   )
@@ -483,24 +543,27 @@ function ShopDoor({ shop }: { shop: MainStreetShop }) {
 function ShopLabel({ shop, lines }: { shop: MainStreetShop; lines: string[] }) {
   const cx = shop.x + shop.width / 2
   const roofTop = MAIN_STREET_BASELINE - shop.height
-  const fontSize = 8
-  const lineHeight = 10.5
-  const paddingX = 6
-  const paddingY = 4.5
+  // Owner feedback: the 8px/66%-ink labels read as "confusing" — bumped to
+  // 10.5px semibold at full ink on a solid card plaque with a clearer
+  // border, so every shop's story is instantly legible at render scale.
+  const fontSize = 10.5
+  const lineHeight = 13
+  const paddingX = 7
+  const paddingY = 5.5
   const boxW = Math.max(...lines.map((line) => line.length * fontSize * 0.56)) + paddingX * 2
   const boxH = lines.length * lineHeight + paddingY * 2 - (lineHeight - fontSize)
   const boxY = roofTop - 11 - boxH
   const boxX = cx - boxW / 2
   return (
     <g>
-      <rect x={boxX} y={boxY} width={boxW} height={boxH} rx={3} className="fill-card" stroke="var(--ink)" strokeOpacity={0.15} strokeWidth={0.75} />
+      <rect x={boxX} y={boxY} width={boxW} height={boxH} rx={3.5} className="fill-card" stroke="var(--ink)" strokeOpacity={0.25} strokeWidth={0.75} />
       {lines.map((line, i) => (
         <text
           key={i}
           x={cx}
           y={boxY + paddingY + fontSize * 0.74 + i * lineHeight}
           textAnchor="middle"
-          style={{ fill: "var(--ink)", fillOpacity: 0.66, fontFamily: "var(--font-sans)", fontSize, letterSpacing: "0.005em" }}
+          style={{ fill: "var(--ink)", fontWeight: 600, fontFamily: "var(--font-sans)", fontSize, letterSpacing: "0.005em" }}
         >
           {line}
         </text>
@@ -548,27 +611,46 @@ function CheckChip({ cx, cy, size = 14 }: { cx: number; cy: number; size?: numbe
   )
 }
 
-/** 1. Bakery — a CLOSED placard taped above the door. Muted ink only, no glow/buzz. */
-function BakerySign({ shop }: { shop: MainStreetShop }) {
+/** Uniform red CLOSED sign — the same chip grammar as the café's amber
+ * OPEN 24/7 sign so the whole street reads at a glance (red sign = closed,
+ * amber sign = the Lumina shop), but deliberately UNLIT: no buzz, no
+ * drop-shadow — dead signs don't glow, that's the story. Rendered by every
+ * lacking shop; the human "why" lives in that shop's ShopLabel plaque. */
+function ClosedSign({ shop, label = "CLOSED" }: { shop: MainStreetShop; label?: string }) {
   const cx = shop.x + shop.width / 2
-  const doorY = MAIN_STREET_BASELINE - 32
-  const signW = 27
-  const signH = 10
+  const signW = Math.max(42, label.length * 5.2 + 16)
+  const signH = 12
   const signX = cx - signW / 2
-  const signY = doorY - 16
+  const doorY = MAIN_STREET_BASELINE - 32
+  const signY = doorY - 18
   return (
     <g>
-      <rect x={signX} y={signY} width={signW} height={signH} rx={1} className="fill-card" strokeWidth={0.75} style={SHOP_INK_MUTED} />
+      <rect x={signX} y={signY} width={signW} height={signH} rx={2.5} style={{ fill: "var(--destructive)", opacity: 0.12 }} />
+      <rect
+        x={signX}
+        y={signY}
+        width={signW}
+        height={signH}
+        rx={2.5}
+        fill="none"
+        strokeWidth={1}
+        style={{ stroke: "var(--destructive)", strokeOpacity: 0.8 }}
+      />
       <text
         x={cx}
-        y={signY + signH / 2 + 2.1}
+        y={signY + signH / 2 + 2.4}
         textAnchor="middle"
-        style={{ fill: "var(--ink)", fillOpacity: 0.55, fontFamily: "var(--font-mono)", fontSize: 5.2, letterSpacing: "0.03em" }}
+        style={{ fill: "var(--destructive)", fontFamily: "var(--font-mono)", fontSize: 6.5, fontWeight: 600, letterSpacing: "0.06em" }}
       >
-        CLOSED
+        {label}
       </text>
     </g>
   )
+}
+
+/** 1. Bakery — the standard red CLOSED sign above the door. */
+function BakerySign({ shop }: { shop: MainStreetShop }) {
+  return <ClosedSign shop={shop} />
 }
 
 /** 2. Salon — a waiting customer silhouette (simple head + body) standing at the door. */
@@ -602,7 +684,9 @@ function PlumberSign({ shop }: { shop: MainStreetShop }) {
   const signW = 22
   const signH = 16
   const signX = cx - signW / 2
-  const signY = doorY - 22
+  // Raised from doorY-22 so the standard red ClosedSign (doorY-18) has
+  // room beneath the phone plaque without overlap.
+  const signY = doorY - 42
   return (
     <g>
       <rect x={signX} y={signY} width={signW} height={signH} rx={1.5} className="fill-card" strokeWidth={0.75} style={SHOP_INK_MUTED} />
@@ -617,7 +701,9 @@ function DashedGhostCard({ shop }: { shop: MainStreetShop }) {
   const w = 26
   const h = 20
   const x = cx - w / 2
-  const y = MAIN_STREET_BASELINE - shop.height * 0.58
+  // Raised (0.58 → 0.74) so the standard red ClosedSign near the door
+  // doesn't collide with the ghost card.
+  const y = MAIN_STREET_BASELINE - shop.height * 0.74
   return (
     <g>
       <rect x={x} y={y} width={w} height={h} rx={2} fill="none" strokeWidth={1} strokeDasharray="2.5 2.5" style={SHOP_INK_MUTED} />
@@ -632,7 +718,8 @@ function BlankCalendarGrid({ shop }: { shop: MainStreetShop }) {
   const w = 28
   const h = 22
   const x = cx - w / 2
-  const y = MAIN_STREET_BASELINE - shop.height * 0.68
+  // Raised (0.68 → 0.82) to clear the standard red ClosedSign below.
+  const y = MAIN_STREET_BASELINE - shop.height * 0.82
   const cols = 3
   const rows = 2
   const cellW = w / cols
@@ -657,27 +744,10 @@ function BlankCalendarGrid({ shop }: { shop: MainStreetShop }) {
   )
 }
 
-/** 7. Hardware — "closed 6 PM" placard + two empty speech-bubble outlines queued at the door. */
+/** 7. Hardware — the standard red CLOSED sign ("CLOSED 6 PM") + two empty
+ * speech-bubble outlines queued at the door. */
 function HardwareSign({ shop }: { shop: MainStreetShop }) {
-  const cx = shop.x + shop.width / 2
-  const doorY = MAIN_STREET_BASELINE - 32
-  const signW = 42
-  const signH = 11
-  const signX = cx - signW / 2
-  const signY = doorY - 18
-  return (
-    <g>
-      <rect x={signX} y={signY} width={signW} height={signH} rx={1} className="fill-card" strokeWidth={0.75} style={SHOP_INK_MUTED} />
-      <text
-        x={cx}
-        y={signY + signH / 2 + 2.1}
-        textAnchor="middle"
-        style={{ fill: "var(--ink)", fillOpacity: 0.55, fontFamily: "var(--font-mono)", fontSize: 5.2, letterSpacing: "0.02em" }}
-      >
-        CLOSED 6PM
-      </text>
-    </g>
-  )
+  return <ClosedSign shop={shop} label="CLOSED 6 PM" />
 }
 
 function SpeechBubbleOutline({ x, y, w = 15, h = 10 }: { x: number; y: number; w?: number; h?: number }) {
@@ -795,8 +865,8 @@ function SignBubble({
   subtext?: string
 }) {
   const reduceMotion = useReducedMotion()
-  const bubbleW = subtext ? 172 : 122
-  const bubbleH = subtext ? 48 : 32
+  const bubbleW = subtext ? 196 : 132
+  const bubbleH = subtext ? 52 : 34
   const bubbleX = x - bubbleW / 2
   const bubbleY = bottomY - bubbleH
   const tailSize = 9
@@ -834,18 +904,18 @@ function SignBubble({
       />
       <text
         x={x}
-        y={subtext ? bubbleY + 19 : bubbleY + bubbleH / 2 + 4}
+        y={subtext ? bubbleY + 20 : bubbleY + bubbleH / 2 + 4.5}
         textAnchor="middle"
-        style={{ fill: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, letterSpacing: "0.01em" }}
+        style={{ fill: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, letterSpacing: "0.01em" }}
       >
         {text}
       </text>
       {subtext && (
         <text
           x={x}
-          y={bubbleY + 36}
+          y={bubbleY + 39}
           textAnchor="middle"
-          style={{ fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 9, fontWeight: 600, letterSpacing: "0.01em" }}
+          style={{ fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.01em" }}
         >
           {subtext}
         </text>
@@ -863,7 +933,8 @@ function MainStreet({ className }: { className?: string }) {
   const salonHeadCy = MAIN_STREET_BASELINE - 16 - 3.6
 
   const plumberDoorY = MAIN_STREET_BASELINE - 32
-  const plumberSignY = plumberDoorY - 22
+  // Matches PlumberSign's raised plaque position (doorY - 42).
+  const plumberSignY = plumberDoorY - 42
 
   return (
     <div className={cn("relative", className)}>
@@ -906,19 +977,21 @@ function MainStreet({ className }: { className?: string }) {
           <ShopLabel shop={s.bakery} lines={["Closed since 6"]} />
         </g>
 
-        {/* 2. Salon — waiting customer + missed ✕ */}
+        {/* 2. Salon — red CLOSED sign + waiting customer + missed ✕ */}
         <g>
           <ShopBuilding shop={s.salon} />
           <ShopDoor shop={s.salon} />
+          <ClosedSign shop={s.salon} />
           <WaitingCustomer cx={salonCx} />
           <XChip cx={salonCx} cy={salonHeadCy - 11} />
           <ShopLabel shop={s.salon} lines={["On vacation —", "back Monday"]} />
         </g>
 
-        {/* 3. Plumber — phone glyph + missed-call ✕ above the sign */}
+        {/* 3. Plumber — red CLOSED sign + phone glyph + missed-call ✕ */}
         <g>
           <ShopBuilding shop={s.plumber} />
           <ShopDoor shop={s.plumber} />
+          <ClosedSign shop={s.plumber} />
           <PlumberSign shop={s.plumber} />
           <XChip cx={s.plumber.x + s.plumber.width / 2} cy={plumberSignY - 10} />
           <ShopLabel shop={s.plumber} lines={["Family emergency —", "couldn't pick up"]} />
@@ -934,18 +1007,20 @@ function MainStreet({ className }: { className?: string }) {
         </g>
         <SignBubble x={cafeCx} bottomY={cafeTop - 9} subtext="Open 24/7 — always answering." />
 
-        {/* 5. Florist — dead feed */}
+        {/* 5. Florist — red CLOSED sign + dead feed */}
         <g>
           <ShopBuilding shop={s.florist} />
           <ShopDoor shop={s.florist} />
+          <ClosedSign shop={s.florist} />
           <DashedGhostCard shop={s.florist} />
           <ShopLabel shop={s.florist} lines={["Haven't posted", "in months"]} />
         </g>
 
-        {/* 6. Barber — blank calendar */}
+        {/* 6. Barber — red CLOSED sign + blank calendar */}
         <g>
           <ShopBuilding shop={s.barber} />
           <ShopDoor shop={s.barber} />
+          <ClosedSign shop={s.barber} />
           <BlankCalendarGrid shop={s.barber} />
           <ShopLabel shop={s.barber} lines={["No idea what's", "booked"]} />
         </g>
@@ -961,10 +1036,11 @@ function MainStreet({ className }: { className?: string }) {
         </g>
       </svg>
       <p className="sr-only">
-        Illustration: a row of shops on Main Street, each with a sign explaining what it&apos;s missing — closed
-        since six, on vacation, a missed emergency call, months without a post, no idea what&apos;s booked, or
-        closed at six with messages waiting. The centre shop, lit warm and glowing with a sign reading &quot;We use
-        Lumina&quot; and open 24/7, always answering, has posts, replies, and bookings all handled.
+        Illustration: a row of shops on Main Street. A red CLOSED sign hangs on every shop but one, each with a
+        plaque explaining why — closed since six, on vacation, a missed emergency call, months without a post, no
+        idea what&apos;s booked, or closed at six with messages waiting. The centre shop is the only one glowing: an
+        amber OPEN 24/7 sign, a bubble reading &quot;We use Lumina&quot;, and posts, replies, and bookings all
+        handled.
       </p>
     </div>
   )
