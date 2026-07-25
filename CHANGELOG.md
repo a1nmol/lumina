@@ -1,6 +1,8 @@
-# CHANGELOG — LocalOS
+# CHANGELOG — Lumina
 
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
+
+- CI + test foundation: Vitest suite (32 tests — model routing/pricing guardrails incl. the PII-never-on-free-tiers rule, rate limiter, booking slots, class utils), GitHub Actions pipeline (lint · types · tests · keyless production build · gitleaks secret scan · env-file hygiene · advisory dependency audit), PR template; package renamed `lumina`.
 
 ## Unreleased
 - Brand redesign complete ✅ — "Main Street at Dusk": daylight/dusk token registers (AA-verified light-mode retune), dusk WebGL shader (context-loss safe), Wick the firefly mascot (6-state machine, edge-only deployment), 16-beat storytelling landing page at / (scroll day-story, animated hero phone loop, loop board, flip-sign FAQ, live early-access form + migration 0007), dashboard infusion (dusk login, Wick empty states, while-you-were-away receipt), protect-by-default route model, shared rate limiter, full review pass with all findings fixed.
