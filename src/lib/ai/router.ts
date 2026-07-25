@@ -67,7 +67,7 @@ export function pickModel(job: AiJob): string[] {
   return MODEL_CANDIDATES[job]
 }
 
-function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
+export function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
   const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING
   const inputCost = (promptTokens / 1_000_000) * pricing.inputPerMTok
   const outputCost = (completionTokens / 1_000_000) * pricing.outputPerMTok

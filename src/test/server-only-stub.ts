@@ -1,0 +1,3 @@
+// Empty stand-in for the `server-only` package under vitest (see
+// vitest.config.ts resolve.alias). Intentionally has no exports.
+export {}
