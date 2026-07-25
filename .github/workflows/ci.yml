@@ -50,9 +50,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # scan full history, not just the merge commit
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Raw binary instead of gitleaks-action: the action needs PR-read API
+      # access the default workflow token doesn't have, and the binary scan
+      # of full git history is all we actually want.
+      - name: Scan full git history with gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks git --no-banner --redact --exit-code 1 .
 
   env-hygiene:
     name: Env-file and key hygiene
@@ -77,13 +82,15 @@ jobs:
           fi
 
   audit:
-    name: Dependency audit (advisory)
+    name: Dependency audit
     runs-on: ubuntu-latest
-    continue-on-error: true # informational — does not block merges
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm audit --audit-level=high
+      - name: Warn on high-severity advisories (non-blocking)
+        run: npm audit --audit-level=high || echo "::warning::High-severity advisories present — run 'npm audit' locally and review."
+      - name: Block on critical advisories
+        run: npm audit --audit-level=critical
