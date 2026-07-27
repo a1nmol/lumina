@@ -2,6 +2,8 @@
 
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
 
+- Loop section round 2 — the Insight Card: beam-chain diagram replaced with the literal product artifact (a Lumina notification reading 'Your Tuesday cake post brought in 3 customers this week', ghost card behind, typing-dots reveal, 'Make more like this' chip); plain-language headline 'See which post brought them in.'; Wick line updated.
+
 - Landing compression wave (all-stars decision): problem section + 62% stat and shop-windows removed (one stakes line moved to trust bar) · outcome-cards deleted, lamps rebuilt as a slim three-jobs strip (387->56 lines) · loop-board rebuilt as the animated beam chain (post -> phone -> calendar, +3 rider, receipt ledger caption) · shop-picker re-framed in a product phone shell with cross-fades + tablist a11y · pilot menu + FAQ + final CTA merged into one conversion zone (side-by-side form on the chalkboard, 4 inline FAQs, street finale, backwards-jump CTA bug fixed) · 'Tonight, while you sleep' night ticker · Wick tour pruned to the new section set. Page is ~40% shorter.
 
 - Landing UX wave: Wick reading-band engine (band-coverage winner + 400ms dwell + velocity gate — accurate, cursor-free bubble timing; hover now instant override only) · day-strip rebuilt from 400vh pinned scroll-jack into a clickable 5-stop day timeline (tabs + gentle pausable auto-advance, per-stop outcome lines, scene micro-motion replayed per activation, WCAG 2.2.2-safe, scroll never touched) · hero street-strip signage moved from stretched SVG text to crisp HTML plaques/chips.

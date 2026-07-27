@@ -267,7 +267,7 @@ const WAYPOINTS: Waypoint[] = [
   },
   {
     id: "loop-board",
-    line: "Every thread is a customer a post brought in. No more guessing.",
+    line: "That notification? Lumina telling you which post made you money.",
     // Corkboard card is centered (max-w-3xl); heading sits above it —
     // anchored beside the heading, clear of the card and its string art.
     anchor: { topVh: 24, rightVw: 8 },
