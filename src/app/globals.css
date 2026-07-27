@@ -62,6 +62,7 @@
   --color-chalkboard: var(--chalkboard);
   --color-chalkboard-border: var(--chalkboard-border);
   --color-chalkboard-foreground: var(--chalkboard-foreground);
+  --color-chalkboard-destructive: var(--chalkboard-destructive);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -164,6 +165,11 @@
   --chalkboard: oklch(0.22 0.02 155);
   --chalkboard-border: oklch(0.32 0.03 60);
   --chalkboard-foreground: oklch(0.94 0.01 90);
+  /* Error text ON the chalkboard: the ambient --destructive is theme-aware
+     and its light-mode value only reaches 3.3:1 against the (theme-
+     invariant) chalkboard — this brighter fixed value measures 5.06:1,
+     AA for small text in both themes. */
+  --chalkboard-destructive: oklch(0.66 0.19 25);
   /* Day strip pinned scroll story (Gate 3) — the sky band that sweeps
      dawn → noon → dusk → night → dawn as the section scrubs. Theme-
      invariant like --chalkboard above: this is a literal time-of-day

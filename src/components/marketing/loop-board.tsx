@@ -129,6 +129,7 @@ export function LoopBoard() {
               <ChainNode
                 label="You post"
                 decorative
+                reduceMotion={!!reduceMotion}
                 className="w-full max-w-[180px]"
               >
                 <div className="w-full max-w-[160px] rounded-lg border border-border bg-card p-2.5 shadow-raised sm:-rotate-[1.5deg]">
@@ -140,24 +141,24 @@ export function LoopBoard() {
                 </div>
               </ChainNode>
 
-              <Beam axis="x" className="hidden sm:flex" draw={beam1Draw} />
-              <Beam axis="y" className="sm:hidden" draw={beam1Draw} />
+              <Beam axis="x" className="hidden sm:flex" draw={beam1Draw} reduceMotion={!!reduceMotion} />
+              <Beam axis="y" className="sm:hidden" draw={beam1Draw} reduceMotion={!!reduceMotion} />
 
-              <ChainNode label="They call & DM" popped={node2Popped} decorative>
+              <ChainNode label="They call & DM" popped={node2Popped} decorative reduceMotion={!!reduceMotion}>
                 <IconBadge icon={Phone} />
               </ChainNode>
 
-              <Beam axis="x" className="hidden sm:flex" draw={beam2Draw} badge="+3" badgeLanded={node3Popped} />
-              <Beam axis="y" className="sm:hidden" draw={beam2Draw} badge="+3" badgeLanded={node3Popped} />
+              <Beam axis="x" className="hidden sm:flex" draw={beam2Draw} badge="+3" badgeLanded={node3Popped} reduceMotion={!!reduceMotion} />
+              <Beam axis="y" className="sm:hidden" draw={beam2Draw} badge="+3" badgeLanded={node3Popped} reduceMotion={!!reduceMotion} />
 
-              <ChainNode label="They book" popped={node3Popped}>
+              <ChainNode label="They book" popped={node3Popped} reduceMotion={!!reduceMotion}>
                 <CalendarNode
                   popped={node3Popped}
                   tillCount={tillCount}
                   tooltipOpen={tooltipOpen}
+                  reduceMotion={!!reduceMotion}
                   onOpen={() => setTooltipOpen(true)}
                   onClose={() => setTooltipOpen(false)}
-                  onToggle={() => setTooltipOpen((open) => !open)}
                 />
               </ChainNode>
             </div>
@@ -168,7 +169,7 @@ export function LoopBoard() {
           <motion.div
             initial={false}
             animate={{ opacity: ledgerVisible ? 1 : 0, y: ledgerVisible ? 0 : 6 }}
-            transition={spring}
+            transition={reduceMotion ? { duration: 0 } : spring}
             className="mx-auto mt-8 flex max-w-md flex-wrap items-center justify-center gap-x-2 gap-y-2 border-t border-dashed border-border pt-4 font-mono text-xs text-muted-foreground"
           >
             <span className="text-foreground">Tuesday&apos;s cake post</span>
@@ -191,12 +192,15 @@ function ChainNode({
   children,
   popped = true,
   decorative = false,
+  reduceMotion = false,
   className,
 }: {
   label: string
   children: React.ReactNode
   /** False before this node's beam has arrived — plays a spring pop once true. */
   popped?: boolean
+  /** See Beam — framer springs need an explicit reduced-motion gate. */
+  reduceMotion?: boolean
   /** True for nodes with no interactive content — kept out of the a11y tree
    *  (the sr-only summary sentence covers their meaning); the calendar node
    *  is the one real button and is never marked decorative. */
@@ -208,7 +212,7 @@ function ChainNode({
       <motion.div
         initial={false}
         animate={{ scale: popped ? 1 : 0.9, opacity: popped ? 1 : 0.5 }}
-        transition={spring}
+        transition={reduceMotion ? { duration: 0 } : spring}
       >
         {children}
       </motion.div>
@@ -229,26 +233,31 @@ function CalendarNode({
   popped,
   tillCount,
   tooltipOpen,
+  reduceMotion,
   onOpen,
   onClose,
-  onToggle,
 }: {
   popped: boolean
   tillCount: number
   tooltipOpen: boolean
+  reduceMotion: boolean
   onOpen: () => void
   onClose: () => void
-  onToggle: () => void
 }) {
   return (
     <div className="relative flex flex-col items-center">
       <button
         type="button"
+        // No onClick toggle: a mouse click fires focus + click in one React
+        // batch, so open-then-toggle would cancel itself — hover/focus open
+        // and blur/Escape close cover pointer AND keyboard fully.
         onMouseEnter={onOpen}
         onMouseLeave={onClose}
         onFocus={onOpen}
         onBlur={onClose}
-        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose()
+        }}
         aria-expanded={tooltipOpen}
         aria-describedby="loop-chain-tooltip"
         aria-label="They book — see who"
@@ -260,7 +269,7 @@ function CalendarNode({
       <motion.span
         initial={false}
         animate={{ opacity: popped ? 1 : 0, y: popped ? 0 : -4, scale: popped ? 1 : 0.9 }}
-        transition={spring}
+        transition={reduceMotion ? { duration: 0 } : spring}
         className="absolute -top-2 -right-3 inline-flex items-center rounded-full border border-amber-glow/40 bg-card px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground shadow-soft"
       >
         {tillCount} booked
@@ -271,7 +280,7 @@ function CalendarNode({
         role="tooltip"
         initial={false}
         animate={{ opacity: tooltipOpen ? 1 : 0, y: tooltipOpen ? 0 : 4 }}
-        transition={{ duration: 0.15, ease: easing.out }}
+        transition={reduceMotion ? { duration: 0 } : { duration: 0.15, ease: easing.out }}
         className={cn(
           "absolute top-full left-1/2 z-10 mt-3 w-52 -translate-x-1/2 rounded-lg border border-border bg-card p-3 text-left shadow-raised",
           tooltipOpen ? "pointer-events-auto" : "pointer-events-none"
@@ -300,16 +309,24 @@ function Beam({
   draw,
   badge,
   badgeLanded,
+  reduceMotion = false,
   className,
 }: {
   axis: "x" | "y"
   draw: boolean
   badge?: string
   badgeLanded?: boolean
+  /** Framer transitions bypass the global reduced-motion CSS override, so
+   *  the gate has to be threaded in explicitly — duration 0 lands the beam
+   *  fully drawn the instant its phase flips. */
+  reduceMotion?: boolean
   className?: string
 }) {
   const isX = axis === "x"
   const pathD = isX ? "M0 10 L100 10" : "M10 0 L10 100"
+  const beamTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: BEAM_DURATION_MS / 1000, ease: easing.out }
 
   return (
     <div
@@ -334,7 +351,7 @@ function Beam({
           strokeLinecap="round"
           initial={false}
           animate={{ pathLength: draw ? 1 : 0 }}
-          transition={{ duration: BEAM_DURATION_MS / 1000, ease: easing.out }}
+          transition={beamTransition}
         />
       </svg>
 
@@ -355,7 +372,7 @@ function Beam({
               ? { left: "0%", opacity: 0 }
               : { top: "0%", opacity: 0 }
         }
-        transition={{ duration: BEAM_DURATION_MS / 1000, ease: easing.out }}
+        transition={beamTransition}
       />
 
       {badge ? (
@@ -374,7 +391,7 @@ function Beam({
                 ? { left: "0%", opacity: 0 }
                 : { top: "0%", opacity: 0 }
           }
-          transition={{ duration: BEAM_DURATION_MS / 1000, ease: easing.out }}
+          transition={beamTransition}
         >
           {badge}
         </motion.span>

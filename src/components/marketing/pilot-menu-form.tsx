@@ -111,8 +111,10 @@ export function PilotMenuForm() {
         />
       </div>
 
+      {/* text-chalkboard-destructive, not text-destructive: this form
+          renders directly on the chalkboard surface — see globals.css. */}
       {status === "error" && errorMessage && (
-        <p role="alert" className="text-sm text-destructive sm:col-span-2">
+        <p role="alert" className="text-sm text-chalkboard-destructive sm:col-span-2">
           {errorMessage}
         </p>
       )}
