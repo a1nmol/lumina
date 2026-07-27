@@ -331,6 +331,14 @@ const WAYPOINTS: Waypoint[] = [
     offsetY: -6,
   },
   {
+    id: "night-ticker",
+    line: "That's one night's work. Now imagine a month.",
+    // Centered narrow card (max-w-md) — wide empty margins both sides.
+    anchor: { topVh: 24, rightVw: 11 },
+    offsetX: 4,
+    offsetY: -8,
+  },
+  {
     id: "final-cta",
     line: "Ready when you are.",
     // Near the button, per the plan — final-cta already renders its own

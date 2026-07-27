@@ -10,6 +10,7 @@ import { FinalCta } from "@/components/marketing/final-cta"
 import { Hero } from "@/components/marketing/hero"
 import { Lamps } from "@/components/marketing/lamps"
 import { LoopBoard } from "@/components/marketing/loop-board"
+import { NightTicker } from "@/components/marketing/night-ticker"
 import { OutcomeCards } from "@/components/marketing/outcome-cards"
 import { PilotMenu } from "@/components/marketing/pilot-menu"
 import { Problem } from "@/components/marketing/problem"
@@ -65,6 +66,7 @@ export default async function MarketingHomePage() {
       <PilotMenu />
       <FaqSigns />
       <ScallopDivider />
+      <NightTicker />
       <FinalCta />
     </>
   )
