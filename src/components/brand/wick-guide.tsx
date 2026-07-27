@@ -51,38 +51,57 @@
  * change (not just on entering/leaving the day-strip section as a whole).
  *
  * Hover hints: any element anywhere on the page can carry a
- * `data-wick-hint="short line"` attribute. While the visitor is stopped (no
- * scroll ≥350ms) and the pointer rests ≥300ms over such an element, the
- * bubble swaps to that hint (instant fade/slide, no typing); leaving the
- * element restores whatever section/scene line was showing after ~600ms.
- * Generic + self-contained — see `useWickHoverHints` below. Future sections
- * just add the attribute, nothing else to wire up.
+ * `data-wick-hint="short line"` attribute. When the pointer rests ≥300ms
+ * over such an element, the bubble swaps to that hint immediately (instant
+ * fade/slide, no typing) — a desktop-only manual override that always beats
+ * the automatic scene bubble and never gates it; leaving the element
+ * restores whatever section/scene line was showing after ~600ms. Generic +
+ * self-contained — see `useWickHoverHints` below. Future sections just add
+ * the attribute, nothing else to wire up.
  *
- * Sync correctness (owner direction, hover/scroll hint sync fix): the dwell
- * timer never trusts a captured closure for WHICH element or WHAT text to
- * show — it always re-reads `hoverElRef.current` at the moment it actually
- * fires, so a wrong-element/stale hint is structurally impossible rather
- * than merely unlikely. A dwell that fires while the page is still settling
- * from a scroll (`stillRef` false) doesn't drop the hint silently — it
- * retries on a short interval (`STILLNESS_RETRY_MS` × up to
- * `STILLNESS_RETRY_MAX_ATTEMPTS`) so a hover that started right after a
- * scroll still resolves once things settle. Entering a new hinted element
- * always cancels any in-flight dwell/retry chain AND any pending restore
- * immediately (`clearDwell`/`clearRestore` in `handlePointerOver`), which is
- * also what keeps a direct A→B hover swap from ever flashing the underlying
- * section line in between. `handlePointerOut` no-ops on child-to-child moves
- * (`relatedTarget` still inside the same hinted element) so nested
- * interactive children don't spuriously restart the dwell/restore cycle.
- * In non-production builds only, the currently-active hint text is mirrored
- * onto `document.body[data-wick-hint-source]` for test harnesses to assert
+ * Sync correctness: the dwell timer never trusts a captured closure for
+ * WHICH element or WHAT text to show — it always re-reads
+ * `hoverElRef.current` at the moment it actually fires, so a
+ * wrong-element/stale hint is structurally impossible rather than merely
+ * unlikely. Entering a new hinted element always cancels any in-flight
+ * dwell AND any pending restore immediately (`clearDwell`/`clearRestore` in
+ * `handlePointerOver`), which is also what keeps a direct A→B hover swap
+ * from ever flashing the underlying section line in between.
+ * `handlePointerOut` no-ops on child-to-child moves (`relatedTarget` still
+ * inside the same hinted element) so nested interactive children don't
+ * spuriously restart the dwell/restore cycle. In non-production builds
+ * only, the currently-active hint text is mirrored onto
+ * `document.body[data-wick-hint-source]` for test harnesses to assert
  * against without needing to read component internals.
  *
- * Active-waypoint tracking mirrors day-strip.tsx's `DayStripStackedStory`
- * pattern: an IntersectionObserver with a thin center band
- * (`rootMargin: "-45% 0px -45% 0px"`) picks whichever watched section is
- * currently crossing the middle of the viewport. This observer keeps
- * running regardless of hero visibility, so the correct waypoint is already
- * known the instant the guide needs to mount.
+ * Active-scene tracking — the READING BAND engine (owner-approved Option A,
+ * research: docs-site scrollspy + newsroom scrollytelling patterns; see the
+ * wave transcript's reference report):
+ *
+ *   1. BAND — an invisible horizontal band across the middle of the
+ *      viewport (center ± READING_BAND_HALF) stands in for "where the
+ *      visitor is looking". A rAF-throttled scroll sampler measures how
+ *      many pixels of that band each watched section covers.
+ *   2. TIE-BREAK — whichever section covers the MOST band pixels is the
+ *      candidate. Deterministic: when two sections are each half-visible,
+ *      exactly one owns the band; "Wick describes the top section while
+ *      you read the bottom one" is structurally impossible.
+ *   3. DWELL + VELOCITY — the candidate only COMMITS (Wick flies + speaks)
+ *      after holding the band for WICK_DWELL_MS AND once scroll speed has
+ *      dropped under WICK_COMMIT_MAX_VELOCITY. Fly-through scrolling stays
+ *      quiet; settling anywhere commits within ~half a second, bounded.
+ *      The winner is re-measured at the commit instant, so a stale
+ *      candidate can never land late.
+ *
+ * The bubble is tied to the COMMITTED scene, not to scroll events: it
+ * appears on commit and stays up until the scene changes or the visitor
+ * dismisses it — never yanked away mid-read by a stray scroll tick (the
+ * old scroll-hide + 350ms rest-timer model, which momentum scrolling and
+ * slow readers both defeated, is gone). The sampler keeps running
+ * regardless of hero visibility, so the correct scene is already known the
+ * instant the guide needs to mount. Wick's continuous flight/position and
+ * the discrete "what he says" decision are deliberately separate systems —
+ * the flight can be cosmetic and springy while the speech stays stable.
  *
  * Placement: each waypoint carries its own authored anchor (`topVh`/
  * `rightVw`, viewport-relative percentages), chosen by reading that
@@ -123,10 +142,26 @@ import { easing, springGentle } from "@/lib/motion"
 const INTRO_SEEN_STORAGE_KEY = "lumina:guide-intro-seen:v2"
 const DESKTOP_QUERY = "(min-width: 1024px)"
 
-/** ~350ms of stillness after the last scroll event before a bubble pops — a
- *  "he noticed you stopped", not a rest-timer feel. Also the same signal
- *  that gates hover-hint eligibility ("stopped") — see `useWickHoverHints`. */
-const STOP_DELAY_MS = 350
+/** Reading-band half-height as a viewport fraction — the band spans
+ *  viewport center ± this (0.2 → the middle 40%). Wide enough that short
+ *  sections can own it outright, narrow enough that a section peeking in
+ *  from an edge never steals focus from the one mid-screen. */
+const READING_BAND_HALF = 0.2
+/** How long a candidate scene must continuously own the reading band before
+ *  Wick commits to it (flies + speaks). Rejects fly-through scrolling
+ *  without ever feeling laggy — well inside the 300–800ms dwell range the
+ *  read-tracking literature uses for "actually looking at this". */
+const WICK_DWELL_MS = 400
+/** Max scroll speed (px/ms) at which a commit is allowed — a settling
+ *  trackpad flick under this reads as "arriving", above it as "passing
+ *  through". ~500px/s. */
+const WICK_COMMIT_MAX_VELOCITY = 0.5
+/** Re-check cadence while waiting for velocity to drop below the commit
+ *  threshold after the dwell has already been served. */
+const VELOCITY_RECHECK_MS = 120
+/** No scroll events for this long → velocity is treated as zero (momentum
+ *  scrolling emits events until it truly stops, so silence means stopped). */
+const VELOCITY_IDLE_MS = 160
 /** Minimum time the INTRO bubble stays up, immune to scroll-hide, once it
  *  has actually appeared — see the root-cause note on `handleScroll` below. */
 const INTRO_MIN_DISPLAY_MS = 4000
@@ -134,17 +169,13 @@ const INTRO_MIN_DISPLAY_MS = 4000
  *  `sessionStorage` — short of this, a killed intro re-arms next appearance
  *  instead of being permanently suppressed. */
 const INTRO_SEEN_WRITE_MS = 1500
-/** Hover-hint dwell before the bubble swaps to a `data-wick-hint` line. */
+/** Hover-hint dwell before the bubble swaps to a `data-wick-hint` line —
+ *  pure hover-intent; hovering is an instant manual override with no
+ *  stillness precondition (the reading-band engine owns automatic timing). */
 const HOVER_HINT_DWELL_MS = 300
 /** How long after the pointer leaves a hinted element before the bubble
  *  restores the section/scene line. */
 const HOVER_HINT_RESTORE_MS = 600
-/** Retry interval for the dwell's stillness gate — a dwell that fires while
- *  the page is still settling from a scroll (`stillRef` false) re-checks on
- *  this cadence instead of dropping the hint outright. */
-const STILLNESS_RETRY_MS = 200
-/** Cap on stillness-gate retries (~1s total) before giving up quietly. */
-const STILLNESS_RETRY_MAX_ATTEMPTS = 5
 
 const WICK_SIZE = 84
 /** Bubble width cap for the guide instance — scaled up alongside `WICK_SIZE`
@@ -403,31 +434,113 @@ export function WickGuide() {
     return () => document.removeEventListener("visibilitychange", handleVisibility)
   }, [isDesktop])
 
-  // Active waypoint — center-band observer, same shape as
-  // DayStripStackedStory in day-strip.tsx. Runs independently of hero
-  // visibility so the correct waypoint is already resolved the instant
-  // heroGone flips (no flash of the wrong section on handoff).
+  // Active scene — the READING BAND engine (see the file doc's numbered
+  // walkthrough): band-coverage winner → dwell → velocity gate → commit.
+  // Runs independently of hero visibility so the correct scene is already
+  // resolved the instant heroGone flips (no flash of the wrong section on
+  // handoff). One rAF-throttled sampler reads 11 client rects per scroll
+  // frame (layout reads only, no writes — no thrash) and doubles as the
+  // velocity tracker, so band + tie-break + velocity all come from the same
+  // consistent snapshot instead of two systems racing.
   useEffect(() => {
     if (!isDesktop) return
     const nodes = WAYPOINTS.map((w) => document.querySelector(`[data-scene="${w.id}"]`)).filter(
       (node): node is Element => node !== null
     )
     if (nodes.length === 0) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const intersecting = entries.filter((entry) => entry.isIntersecting)
-        if (intersecting.length === 0) return
-        const topMost = intersecting.reduce((a, b) => (a.boundingClientRect.top < b.boundingClientRect.top ? a : b))
-        const id = topMost.target.getAttribute("data-scene")
-        if (id && id !== activeIdRef.current) {
-          activeIdRef.current = id
-          setActiveId(id)
+
+    let rafId = 0
+    let commitTimer: ReturnType<typeof setTimeout> | null = null
+    let lastY = window.scrollY
+    let lastSampleAt = performance.now()
+    let velocity = 0 // px/ms, signed
+    let candidate: string | null = null
+    let candidateSince = 0
+
+    /** Band-coverage winner: the section covering the most pixels of the
+     *  center band right now, or null if none touches it. */
+    function measureWinner(): string | null {
+      const vh = window.innerHeight
+      const bandTop = vh * (0.5 - READING_BAND_HALF)
+      const bandBottom = vh * (0.5 + READING_BAND_HALF)
+      let best: string | null = null
+      let bestPx = 0
+      for (const node of nodes) {
+        const rect = node.getBoundingClientRect()
+        const coveredPx = Math.min(rect.bottom, bandBottom) - Math.max(rect.top, bandTop)
+        if (coveredPx > bestPx) {
+          bestPx = coveredPx
+          best = node.getAttribute("data-scene")
         }
-      },
-      { rootMargin: "-45% 0px -45% 0px", threshold: 0 }
-    )
-    nodes.forEach((node) => observer.observe(node))
-    return () => observer.disconnect()
+      }
+      return best
+    }
+
+    function scheduleCommit(delayMs: number) {
+      if (commitTimer) clearTimeout(commitTimer)
+      commitTimer = setTimeout(tryCommit, delayMs)
+    }
+
+    function tryCommit() {
+      commitTimer = null
+      const now = performance.now()
+      // Momentum scrolling emits events until it truly stops — event
+      // silence past VELOCITY_IDLE_MS means the page is at rest.
+      if (now - lastSampleAt > VELOCITY_IDLE_MS) velocity = 0
+      if (!candidate || candidate === activeIdRef.current) return
+      const held = now - candidateSince
+      if (held < WICK_DWELL_MS) {
+        scheduleCommit(WICK_DWELL_MS - held)
+        return
+      }
+      if (Math.abs(velocity) > WICK_COMMIT_MAX_VELOCITY) {
+        scheduleCommit(VELOCITY_RECHECK_MS)
+        return
+      }
+      // Re-measure at the commit instant — a commit can only ever land for
+      // whatever genuinely owns the band right now, never a stale winner.
+      const winner = measureWinner()
+      if (winner !== candidate) {
+        candidate = winner
+        candidateSince = now
+        if (winner) scheduleCommit(WICK_DWELL_MS)
+        return
+      }
+      activeIdRef.current = candidate
+      setActiveId(candidate)
+    }
+
+    function sample() {
+      rafId = 0
+      const now = performance.now()
+      const y = window.scrollY
+      const dt = now - lastSampleAt
+      if (dt > 0) velocity = (y - lastY) / dt
+      lastY = y
+      lastSampleAt = now
+      const winner = measureWinner()
+      if (winner !== candidate) {
+        candidate = winner
+        candidateSince = now
+      }
+      if (candidate && candidate !== activeIdRef.current) {
+        scheduleCommit(Math.max(WICK_DWELL_MS - (now - candidateSince), 16))
+      }
+    }
+
+    function requestSample() {
+      if (!rafId) rafId = requestAnimationFrame(sample)
+    }
+
+    sample() // resolve the initial scene without waiting for a scroll
+    window.addEventListener("scroll", requestSample, { passive: true })
+    window.addEventListener("resize", requestSample)
+    return () => {
+      window.removeEventListener("scroll", requestSample)
+      window.removeEventListener("resize", requestSample)
+      if (rafId) cancelAnimationFrame(rafId)
+      if (commitTimer) clearTimeout(commitTimer)
+    }
   }, [isDesktop])
 
   const waypoint = useMemo(() => WAYPOINTS.find((w) => w.id === activeId) ?? WAYPOINTS[0], [activeId])
@@ -620,7 +733,6 @@ function GuideBody({
   // the scroll-timeout callback below rather than a bare effect body.
   const [bubble, setBubble] = useState<BubbleState | null>(null)
   const [shownContentKey, setShownContentKey] = useState<string | null>(null)
-  const restTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // A live ref mirror of `bubble` — needed so the scroll handler (a plain
   // DOM listener, registered once per effect run) can read the CURRENT
@@ -631,25 +743,12 @@ function GuideBody({
     bubbleRef.current = bubble
   }, [bubble])
 
-  // Intro-bubble protection (bug fix — see build brief §1). ROOT CAUSE: the
-  // guide mounts the instant hero visibility flips false, which is exactly
-  // when the visitor is mid-scroll (that flip IS caused by scrolling). The
-  // very next native 'scroll' event — often within ~100ms, well inside one
-  // momentum-scroll gesture — used to null out whatever bubble was showing
-  // unconditionally, including a freshly-mounted intro that hadn't even
-  // finished its typing-dots phase yet. In practice nobody scrolls past the
-  // hero and then holds perfectly still for 350ms before the very next tick,
-  // so the intro died on effectively every real visit. Fix: once the intro
-  // is actually shown, it's immune to scroll-hide for `INTRO_MIN_DISPLAY_MS`
-  // (or until the visitor dismisses it via X) — `isIntroProtected` gates
-  // every place that would otherwise clear/replace the bubble.
+  // When the intro actually appeared — under the reading-band model nothing
+  // hides bubbles on scroll anymore, so the intro's only remaining
+  // protection concern is a committed SCENE trying to replace it too early:
+  // the scene-bubble effect below defers its swap until the greeting has
+  // been on screen for `INTRO_MIN_DISPLAY_MS` (or the visitor dismissed it).
   const introShownAtRef = useRef<number | null>(null)
-  function isIntroProtected(state: BubbleState | null): boolean {
-    if (state?.kind !== "intro") return false
-    const shownAt = introShownAtRef.current
-    if (shownAt === null) return false
-    return Date.now() - shownAt < INTRO_MIN_DISPLAY_MS
-  }
 
   // Clears a stale waypoint bubble and resets "already shown" the instant
   // the active content (waypoint, or day-strip SCENE) changes — the same
@@ -681,6 +780,11 @@ function GuideBody({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBubble({ kind: "intro", text: INTRO_LINE, key: "intro" })
     introShownAtRef.current = Date.now()
+    // The intro owns the first stop: mark the mount-time scene as already
+    // shown so the scene-bubble effect below doesn't queue a swap that
+    // yanks the greeting the moment its protection window closes. The next
+    // COMMITTED scene change swaps naturally.
+    setShownContentKey(contentKey)
     // Only marks the intro "seen" in sessionStorage once it's actually been
     // ON SCREEN for INTRO_SEEN_WRITE_MS — if this GuideBody instance
     // unmounts before then (visitor scrolled back up into the hero, killing
@@ -693,23 +797,34 @@ function GuideBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Scene bubble — appears the instant a scene COMMITS and stays up until
+  // the scene changes or the visitor dismisses it. No scroll listener here
+  // at all: the reading-band engine upstream already served the dwell +
+  // velocity gate (a second wait here would read as lag), and nothing
+  // hides the bubble on scroll anymore — the old scroll-hide model is what
+  // made bubbles vanish mid-read for slow scrollers. If the intro is still
+  // inside its protected window, the swap defers until that window closes
+  // instead of being dropped.
   useEffect(() => {
-    function handleScroll() {
-      if (!isIntroProtected(bubbleRef.current)) {
-        setBubble(null)
+    if (shownContentKey === contentKey) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    function show() {
+      timer = null
+      const state = bubbleRef.current
+      if (state?.kind === "intro") {
+        const shownAt = introShownAtRef.current
+        const remaining = shownAt === null ? 0 : INTRO_MIN_DISPLAY_MS - (Date.now() - shownAt)
+        if (remaining > 0) {
+          timer = setTimeout(show, remaining)
+          return
+        }
       }
-      if (restTimerRef.current) clearTimeout(restTimerRef.current)
-      restTimerRef.current = setTimeout(() => {
-        if (isIntroProtected(bubbleRef.current)) return
-        if (shownContentKey === contentKey) return
-        setShownContentKey(contentKey)
-        setBubble({ kind: "waypoint", text: waypointLine, key: contentKey })
-      }, STOP_DELAY_MS)
+      setShownContentKey(contentKey)
+      setBubble({ kind: "waypoint", text: waypointLine, key: contentKey })
     }
-    window.addEventListener("scroll", handleScroll, { passive: true })
+    show()
     return () => {
-      window.removeEventListener("scroll", handleScroll)
-      if (restTimerRef.current) clearTimeout(restTimerRef.current)
+      if (timer) clearTimeout(timer)
     }
   }, [contentKey, waypointLine, shownContentKey])
 
@@ -807,68 +922,42 @@ function GuideBody({
 /**
  * Hover-hint mechanism (owner direction #6) — generic and self-contained:
  * any element anywhere on the page can carry `data-wick-hint="short line"`.
- * While the visitor is stopped (no scroll for `STOP_DELAY_MS`, mirroring the
- * bubble's own rest-timer) AND the pointer rests over such an element for
- * `HOVER_HINT_DWELL_MS`, this returns that element's hint text; leaving
- * clears it again after `HOVER_HINT_RESTORE_MS`, so a quick pass-through
- * doesn't cause a swap-then-immediately-revert flash.
+ * When the pointer rests over such an element for `HOVER_HINT_DWELL_MS`,
+ * this returns that element's hint text; leaving clears it again after
+ * `HOVER_HINT_RESTORE_MS`, so a quick pass-through doesn't cause a
+ * swap-then-immediately-revert flash.
+ *
+ * Hover is a pure MANUAL OVERRIDE (reading-band redesign): it fires on
+ * hover intent alone, with no stillness precondition — the old
+ * scroll-stillness gate (and its retry chain) existed to reconcile hover
+ * with the scroll-stop bubble model, and that model is gone. Pointing at
+ * something answers immediately; the automatic scene bubble never depends
+ * on the pointer at all, so touch devices lose nothing.
  *
  * Event-delegated (two listeners on `document`, not one per hinted element)
  * so future sections opt in just by adding the attribute — nothing to wire
  * up here. Pointer-only (never focus-driven), so it can never steal
  * keyboard focus from the element the visitor is actually interacting with.
  *
- * Sync-correctness invariants (bug fix pass — see the file-level doc above
- * for the summary):
- *  - `attemptCommit` NEVER trusts the `target` it closed over for anything
+ * Sync-correctness invariants:
+ *  - `commitHint` NEVER trusts the `target` it closed over for anything
  *    but identity comparison — the hint text itself is always re-read from
  *    `hoverElRef.current.getAttribute(...)` at the instant it fires, so a
  *    commit can only ever show the hint for whatever element is genuinely
  *    still being hovered right now, never a stale one.
- *  - `handlePointerOver` cancels BOTH the in-flight dwell/retry chain
- *    (`clearDwell`) and any pending restore (`clearRestore`) the instant a
- *    *different* hinted element is entered — this is what makes an A→B
- *    direct hover swap update straight from A's hint to B's without ever
- *    flashing the underlying section/scene line in between.
+ *  - `handlePointerOver` cancels BOTH the in-flight dwell (`clearDwell`)
+ *    and any pending restore (`clearRestore`) the instant a *different*
+ *    hinted element is entered — this is what makes an A→B direct hover
+ *    swap update straight from A's hint to B's without ever flashing the
+ *    underlying section/scene line in between.
  *  - `handlePointerOut` no-ops when `relatedTarget` is still inside the
  *    element being left (a child-to-child move within the same hinted
  *    element) — mousing over nested interactive children never restarts the
  *    dwell/restore cycle.
- *  - A dwell that fires while `stillRef` is false (the visitor hovered right
- *    as a scroll was settling) retries every `STILLNESS_RETRY_MS` up to
- *    `STILLNESS_RETRY_MAX_ATTEMPTS` times instead of silently dropping the
- *    hint — `attemptCommit` re-checks `hoverElRef.current === target` on
- *    every retry, so if the visitor has since moved on, the retry chain
- *    (already canceled via `clearDwell` from the new pointerover/out pair)
- *    simply never runs again.
  */
 function useWickHoverHints(active: boolean): string | null {
-  const [isStill, setIsStill] = useState(true)
   const [hoverHint, setHoverHint] = useState<string | null>(null)
-  const stillRef = useRef(true)
   const hoverElRef = useRef<Element | null>(null)
-
-  useEffect(() => {
-    stillRef.current = isStill
-  }, [isStill])
-
-  // Independent stillness tracking (same STOP_DELAY_MS debounce as the
-  // section bubble's own rest-timer, kept separate so this hook has no
-  // dependency on GuideBody's internals).
-  useEffect(() => {
-    if (!active) return
-    let stillTimer: ReturnType<typeof setTimeout> | null = null
-    function handleScroll() {
-      setIsStill(false)
-      if (stillTimer) clearTimeout(stillTimer)
-      stillTimer = setTimeout(() => setIsStill(true), STOP_DELAY_MS)
-    }
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => {
-      window.removeEventListener("scroll", handleScroll)
-      if (stillTimer) clearTimeout(stillTimer)
-    }
-  }, [active])
 
   useEffect(() => {
     if (!active) {
@@ -896,16 +985,11 @@ function useWickHoverHints(active: boolean): string | null {
       }
     }
 
-    function attemptCommit(target: Element, attempt: number) {
+    function commitHint(target: Element) {
       // The element being dwelt on has changed (or been left) since this
-      // chain started — a fresh pointerover/pointerout already owns the
-      // timer slot (or cleared it), so this stale chain link is a no-op.
+      // dwell started — a fresh pointerover/pointerout already owns the
+      // timer slot (or cleared it), so this stale link is a no-op.
       if (hoverElRef.current !== target) return
-      if (!stillRef.current) {
-        if (attempt >= STILLNESS_RETRY_MAX_ATTEMPTS) return
-        dwellTimer = setTimeout(() => attemptCommit(target, attempt + 1), STILLNESS_RETRY_MS)
-        return
-      }
       // Re-derived from the ref, never the closed-over `target`/a captured
       // hint string — this is the element genuinely under the pointer right
       // now, at the exact instant of commit.
@@ -916,15 +1000,15 @@ function useWickHoverHints(active: boolean): string | null {
     function handlePointerOver(event: PointerEvent) {
       const target = (event.target as Element | null)?.closest?.("[data-wick-hint]")
       if (!target || target === hoverElRef.current) return
-      // New hinted target: any in-flight dwell/retry chain for the
-      // previous target, and any pending restore-to-section-line, are both
-      // canceled immediately — this is what prevents a stale hint from
-      // landing late and what keeps a direct A→B swap from ever flashing
-      // the underlying section line in between.
+      // New hinted target: any in-flight dwell for the previous target, and
+      // any pending restore-to-section-line, are both canceled immediately —
+      // this is what prevents a stale hint from landing late and what keeps
+      // a direct A→B swap from ever flashing the underlying section line in
+      // between.
       clearDwell()
       clearRestore()
       hoverElRef.current = target
-      dwellTimer = setTimeout(() => attemptCommit(target, 0), HOVER_HINT_DWELL_MS)
+      dwellTimer = setTimeout(() => commitHint(target), HOVER_HINT_DWELL_MS)
     }
 
     function handlePointerOut(event: PointerEvent) {
