@@ -2,6 +2,8 @@
 
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
 
+- Landing UX wave: Wick reading-band engine (band-coverage winner + 400ms dwell + velocity gate — accurate, cursor-free bubble timing; hover now instant override only) · day-strip rebuilt from 400vh pinned scroll-jack into a clickable 5-stop day timeline (tabs + gentle pausable auto-advance, per-stop outcome lines, scene micro-motion replayed per activation, WCAG 2.2.2-safe, scroll never touched) · hero street-strip signage moved from stretched SVG text to crisp HTML plaques/chips.
+
 - CI + test foundation: Vitest suite (32 tests — model routing/pricing guardrails incl. the PII-never-on-free-tiers rule, rate limiter, booking slots, class utils), GitHub Actions pipeline (lint · types · tests · keyless production build · gitleaks secret scan · env-file hygiene · advisory dependency audit), PR template; package renamed `lumina`.
 
 ## Unreleased

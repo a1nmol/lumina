@@ -215,7 +215,7 @@ const DAY_STRIP_SCENE_LINES: Record<string, string> = {
   "11pm": "Everyone's asleep. I'm still taking cake orders.",
   "645am": "And the morning receipt — everything I caught overnight.",
 }
-const DAY_STRIP_FALLBACK_LINE = "One full day at your shop — keep scrolling to live it."
+const DAY_STRIP_FALLBACK_LINE = "One full day at your shop — tap any time on the timeline."
 
 type Anchor = { topVh: number; rightVw: number }
 
