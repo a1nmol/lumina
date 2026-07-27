@@ -2,6 +2,8 @@
 
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
 
+- Live-data purge: admin page queries real orgs/plans/usage (was 100% hardcoded demo) · studio previews + no-AI fallback drafts grounded in the org's real Business Brain (bakery fiction gone) · growth QR/embed/preview use the real org slug and the review dialog counts real phone contacts · demo brain/sidebar fallbacks replaced with honest blanks · fabricated analytics sparklines and +0% deltas removed · account settings (profile/email/password) + sidebar user menu + password-first login. Signed-in orgs now see zero demo strings anywhere.
+
 - Loop section round 2 — the Insight Card: beam-chain diagram replaced with the literal product artifact (a Lumina notification reading 'Your Tuesday cake post brought in 3 customers this week', ghost card behind, typing-dots reveal, 'Make more like this' chip); plain-language headline 'See which post brought them in.'; Wick line updated.
 
 - Landing compression wave (all-stars decision): problem section + 62% stat and shop-windows removed (one stakes line moved to trust bar) · outcome-cards deleted, lamps rebuilt as a slim three-jobs strip (387->56 lines) · loop-board rebuilt as the animated beam chain (post -> phone -> calendar, +3 rider, receipt ledger caption) · shop-picker re-framed in a product phone shell with cross-fades + tablist a11y · pilot menu + FAQ + final CTA merged into one conversion zone (side-by-side form on the chalkboard, 4 inline FAQs, street finale, backwards-jump CTA bug fixed) · 'Tonight, while you sleep' night ticker · Wick tour pruned to the new section set. Page is ~40% shorter.

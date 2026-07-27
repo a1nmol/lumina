@@ -250,7 +250,9 @@ export async function getBusinessBrain(): Promise<BusinessBrain> {
   if (!isSupabaseConfigured()) return DEMO_BUSINESS_BRAIN
 
   const orgId = await getCurrentOrgId()
-  if (!orgId) return DEMO_BUSINESS_BRAIN
+  // Configured but no org resolved yet (e.g. bootstrap hasn't run): a blank
+  // brain shape, never the seeded demo business.
+  if (!orgId) return blankBusinessBrain("")
 
   const supabase = await createClient()
   const { data } = await supabase

@@ -27,12 +27,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // src/lib/org.ts. Calling ensureOrgBootstrap once per request here means
   // every authenticated page load self-heals that case for free. Cheap
   // no-op once the user already has an org.
+  let authedUserEmail: string | null = null
   if (isSupabaseConfigured()) {
     const supabase = await createClient()
     const {
       data: { user },
     } = await supabase.auth.getUser()
     if (user) {
+      authedUserEmail = user.email ?? null
       await ensureOrgBootstrap(user.id, user.email ?? null)
     }
   }
@@ -50,7 +52,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         userEmail: sidebarContext.userEmail,
         userName: sidebarContext.userName ?? undefined,
       }
-    : DEMO_SIDEBAR_CONTEXT
+    : isSupabaseConfigured()
+      ? {
+          orgName: "Your business",
+          orgSlug: "",
+          planName: "Free test plan",
+          userEmail: authedUserEmail ?? "",
+          userName: undefined,
+        }
+      : DEMO_SIDEBAR_CONTEXT
 
   return (
     <NotificationsProvider>

@@ -3,7 +3,7 @@
 // Growth-page showcase for the FrontDesk web chat widget
 // (MASTER_PLAN.md §4.D / docs/design-briefs/phase-2-inbox-frontdesk-crm.md
 // "Web chat widget"). Shows the one-line embed snippet (copyable) plus a
-// live preview of the demo org's widget in a new tab.
+// live preview of this org's own widget in a new tab.
 
 import { useState } from "react"
 import { Check, Copy, ExternalLink, MessageCircle } from "lucide-react"
@@ -11,19 +11,20 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { DEMO_ORG } from "@/lib/demo"
 
 const COPIED_RESET_MS = 2000
 
 interface WidgetEmbedCardProps {
   /** This deployment's own origin, resolved server-side (src/app/(app)/growth/page.tsx) so the snippet works without a client effect. */
   origin: string
+  /** This org's public slug (src/app/(app)/growth/page.tsx) — empty only in the unreachable orphaned-user case, in which case the snippet/preview link is left slug-less rather than pointing at another org's widget. */
+  orgSlug: string
 }
 
-export function WidgetEmbedCard({ origin }: WidgetEmbedCardProps) {
+export function WidgetEmbedCard({ origin, orgSlug }: WidgetEmbedCardProps) {
   const [copied, setCopied] = useState(false)
 
-  const snippet = `<script src="${origin}/widget.js" data-org="${DEMO_ORG.slug}" defer></script>`
+  const snippet = `<script src="${origin}/widget.js" data-org="${orgSlug}" defer></script>`
 
   async function handleCopy() {
     try {
@@ -72,7 +73,7 @@ export function WidgetEmbedCard({ origin }: WidgetEmbedCardProps) {
           type="button"
           variant="outline"
           className="self-start"
-          onClick={() => window.open(`/widget/${DEMO_ORG.slug}`, "_blank", "noopener,noreferrer")}
+          onClick={() => window.open(`/widget/${orgSlug}`, "_blank", "noopener,noreferrer")}
         >
           <ExternalLink aria-hidden="true" data-icon="inline-start" />
           Preview widget

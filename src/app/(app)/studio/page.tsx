@@ -3,9 +3,10 @@ import type { Metadata } from "next"
 import { PageHeader } from "@/components/page-header"
 import { Composer } from "@/components/studio/composer"
 import { listTemplates } from "@/lib/content"
-import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
+
+import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
 import { DEMO_TEMPLATES, mapTemplate } from "./demo-templates"
 import type { StudioTemplate } from "./types"
@@ -24,7 +25,12 @@ async function loadInitialTemplates(): Promise<StudioTemplate[]> {
 }
 
 export default async function StudioPage() {
-  const templates = await loadInitialTemplates()
+  // getBusinessBrain() already falls back to DEMO_BUSINESS_BRAIN (Sunrise
+  // Bakery) whenever Supabase isn't configured or there's no resolvable org
+  // — see src/app/(app)/settings/brain/actions.ts — so demo mode keeps its
+  // existing preview exactly, while real orgs get their own saved name (or
+  // a neutral placeholder before Brain setup) instead of the demo bakery's.
+  const [templates, businessBrain] = await Promise.all([loadInitialTemplates(), getBusinessBrain()])
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -32,7 +38,7 @@ export default async function StudioPage() {
         title="Content Studio"
         description="Describe what you want to post — AI drafts the caption, image, and hashtags, ready for every platform."
       />
-      <Composer businessName={DEMO_BUSINESS_BRAIN.business_name ?? "Your Business"} templates={templates} />
+      <Composer businessName={businessBrain.business_name ?? "Your Business"} templates={templates} />
     </div>
   )
 }

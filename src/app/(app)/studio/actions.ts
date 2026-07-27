@@ -2,14 +2,20 @@
 
 // Server actions for the Content Studio Composer.
 //
-// generateDraft: when Supabase + OpenRouter are configured, calls through the
-// shared model router (src/lib/ai/generate-content.ts) + fal.ai
-// (src/lib/ai/generate-image.ts) and persists the result via
-// src/lib/content.ts. Falls back to a canned demo draft whenever either
-// isn't configured, or the model can't produce usable JSON — see
-// docs/backend-notes.md for the full seam description. A real quota denial
-// (AllowanceDeniedError) is NOT a demo fallback — it's surfaced to the
-// composer as a typed { error: "allowance" } result.
+// generateDraft:
+// - Supabase not configured (true demo mode): returns a canned demo draft
+//   (pickCannedDraft, written for the demo Sunrise Bakery org) after a short
+//   simulated delay.
+// - Supabase configured: calls through the shared model router
+//   (src/lib/ai/generate-content.ts) + fal.ai (src/lib/ai/generate-image.ts)
+//   and persists the result via src/lib/content.ts when OpenRouter is
+//   configured and produces usable JSON. When OpenRouter isn't configured,
+//   there's no resolvable org, or the model can't produce usable JSON, it
+//   falls back to groundedFallbackDraft — a real draft built from the org's
+//   OWN Business Brain data, never the demo bakery's fictional copy. See
+//   docs/backend-notes.md for the full seam description. A real quota denial
+//   (AllowanceDeniedError) is NOT a fallback case — it's surfaced to the
+//   composer as a typed { error: "allowance" } result.
 //
 // rateDraft / saveDraftAsTemplate / addToQueue persist the Composer's
 // action-row buttons once a draft has been generated; all are demo-safe
@@ -37,7 +43,7 @@ import {
 } from "@/lib/media/slideshow"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
-import type { ContentRating } from "@/lib/types"
+import type { BusinessBrain, ContentRating } from "@/lib/types"
 
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
@@ -133,8 +139,89 @@ async function tryRealGeneration(input: GenerateDraftInput): Promise<GeneratedDr
   }
 }
 
+const NO_OPENROUTER_PREFIX = "Add your OpenRouter key to generate posts — here's a starter:"
+const GENERIC_VERTICAL_HASHTAGS = ["smallbusiness", "shoplocal", "supportlocal"]
+const MAX_FALLBACK_HASHTAGS = 5
+// Small rotation so "Regenerate" on the fallback path isn't a dead click —
+// it still reads as one honest, grounded draft, just phrased differently.
+const FALLBACK_CLOSERS = [
+  "Stop by or reach out — we'd love to help.",
+  "We'd love to see you soon.",
+  "Reach out anytime — happy to help.",
+]
+
+function capitalizeFirst(value: string): string {
+  return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value
+}
+
+function slugifyHashtag(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30)
+}
+
+/** Real, honest hashtags from the org's own name/category — never fictional demo copy. */
+function deriveFallbackHashtags(businessName: string | null, category: string | null): string[] {
+  const tags = new Set<string>()
+  const businessSlug = businessName ? slugifyHashtag(businessName) : ""
+  if (businessSlug) tags.add(businessSlug)
+  const categorySlug = category ? slugifyHashtag(category) : ""
+  if (categorySlug) tags.add(categorySlug)
+  for (const tag of GENERIC_VERTICAL_HASHTAGS) {
+    if (tags.size >= MAX_FALLBACK_HASHTAGS) break
+    tags.add(tag)
+  }
+  return Array.from(tags)
+}
+
 /**
- * Generates (in demo mode: picks a canned) post draft for the Composer.
+ * A graceful, non-AI fallback draft for when Supabase is configured but a
+ * real AI draft couldn't be produced (OpenRouter not configured, no
+ * resolvable org, or the model failed to return usable JSON). Mirrors
+ * src/app/(app)/inbox/actions.ts's groundedFallbackDraft: built from the
+ * org's own real Business Brain data (business name + top service) rather
+ * than serving fictional demo-bakery copy to a real org. When the Brain
+ * itself is empty, the caption says so honestly instead of inventing
+ * anything, and doubles as a nudge to add an OpenRouter key.
+ */
+function groundedFallbackDraft(
+  input: GenerateDraftInput,
+  businessBrain: BusinessBrain | null,
+  attempt: number
+): GeneratedDraft {
+  const businessName = businessBrain?.business_name?.trim() || null
+  const topService = businessBrain?.services?.[0]?.name?.trim() || null
+  const topic = input.prompt.trim()
+  const hashtags = deriveFallbackHashtags(businessName, businessBrain?.category?.trim() || null)
+  const closer = FALLBACK_CLOSERS[attempt % FALLBACK_CLOSERS.length]
+
+  if (!businessName && !topService) {
+    const subject = topic || "what's new"
+    return {
+      caption: `${NO_OPENROUTER_PREFIX} "${capitalizeFirst(subject)}" — add a few real details from your Business Brain and you're ready to post!`,
+      hashtags,
+      imageDescription: topic || "Your business",
+    }
+  }
+
+  const name = businessName ?? "Your business"
+  const parts = [topic ? `${capitalizeFirst(topic)} at ${name}!` : `Something new at ${name}!`]
+  if (topService) parts.push(`Ask us about ${topService}.`)
+  parts.push(closer)
+
+  return {
+    caption: parts.join(" "),
+    hashtags,
+    imageDescription: topic || topService || name,
+  }
+}
+
+/**
+ * Generates a post draft for the Composer:
+ * - Demo mode (Supabase unconfigured): picks a canned draft.
+ * - Configured, AI available: a real routed generation.
+ * - Configured, AI unavailable for this call: a grounded fallback built from
+ *   the org's own Business Brain (see groundedFallbackDraft) — never the
+ *   canned demo copy.
+ *
  * `attempt` lets the client ask for a *different* variant on "Regenerate"
  * without changing the prompt.
  */
@@ -149,6 +236,11 @@ export async function generateDraft(
     throw new Error("generateDraft: invalid attempt")
   }
 
+  if (!isSupabaseConfigured()) {
+    await sleep(SIMULATED_LATENCY_MS)
+    return pickCannedDraft(input.format, input.prompt, attempt)
+  }
+
   try {
     const real = await tryRealGeneration(input)
     if (real) return real
@@ -159,8 +251,9 @@ export async function generateDraft(
     throw error
   }
 
+  const businessBrain = await getBusinessBrain()
   await sleep(SIMULATED_LATENCY_MS)
-  return pickCannedDraft(input.format, input.prompt, attempt)
+  return groundedFallbackDraft(input, businessBrain, attempt)
 }
 
 export interface RateDraftResult {

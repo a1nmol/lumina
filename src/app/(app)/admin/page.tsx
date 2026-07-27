@@ -15,13 +15,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { relativeTime } from "@/app/(app)/contacts/utils"
 import { isPlatformAdmin } from "@/lib/admin"
+import { getAdminStats } from "@/lib/admin-stats"
 import { DEMO_ORG } from "@/lib/demo"
 import { formatMonthlyPrice, PLAN_CATALOG, PLAN_LIMIT_LABELS, PLAN_ORDER } from "@/lib/plans"
+import { isSupabaseConfigured } from "@/lib/supabase/admin"
 
 export const metadata: Metadata = { title: "Admin" }
 
-const STATS = [
+const DEMO_STATS = [
   {
     label: "Accounts",
     value: 1,
@@ -33,7 +36,7 @@ const STATS = [
     icon: <Activity aria-hidden="true" className="size-3.5" />,
   },
   {
-    label: "AI spend this month",
+    label: "Total AI spend",
     value: "$0.00",
     icon: <CircleDollarSign aria-hidden="true" className="size-3.5" />,
   },
@@ -44,8 +47,40 @@ const STATS = [
   },
 ]
 
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`
+}
+
 export default async function AdminPage() {
   if (!(await isPlatformAdmin())) notFound()
+
+  const live = isSupabaseConfigured()
+  const stats = live ? await getAdminStats() : null
+
+  const statCards = stats
+    ? [
+        {
+          label: "Accounts",
+          value: stats.totalAccounts,
+          icon: <Users aria-hidden="true" className="size-3.5" />,
+        },
+        {
+          label: "Active this week",
+          value: stats.activeThisWeek,
+          icon: <Activity aria-hidden="true" className="size-3.5" />,
+        },
+        {
+          label: "Total AI spend",
+          value: formatUsd(stats.totalSpendUsd),
+          icon: <CircleDollarSign aria-hidden="true" className="size-3.5" />,
+        },
+        {
+          label: "Usage events",
+          value: stats.totalEvents,
+          icon: <Gauge aria-hidden="true" className="size-3.5" />,
+        },
+      ]
+    : DEMO_STATS
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -55,7 +90,7 @@ export default async function AdminPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {STATS.map((stat, index) => (
+        {statCards.map((stat, index) => (
           <StatCard key={stat.label} index={index} {...stat} />
         ))}
       </div>
@@ -73,23 +108,55 @@ export default async function AdminPage() {
               <TableRow>
                 <TableHead>Business</TableHead>
                 <TableHead>Plan</TableHead>
-                <TableHead>Usage this month</TableHead>
+                <TableHead>Last activity</TableHead>
                 <TableHead>Spend</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell className="font-medium text-foreground">{DEMO_ORG.name}</TableCell>
-                <TableCell className="text-muted-foreground">Free test</TableCell>
-                <TableCell className="text-muted-foreground">—</TableCell>
-                <TableCell className="text-muted-foreground">$0.00</TableCell>
-                <TableCell>
-                  <Badge variant="secondary" className="bg-success/10 text-success">
-                    Active
-                  </Badge>
-                </TableCell>
-              </TableRow>
+              {stats ? (
+                stats.accounts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No accounts yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  stats.accounts.map((account) => (
+                    <TableRow key={account.id}>
+                      <TableCell className="font-medium text-foreground">{account.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{account.planName}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {account.lastActivityAt ? relativeTime(account.lastActivityAt) : "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{formatUsd(account.spendUsd)}</TableCell>
+                      <TableCell>
+                        {account.isActiveThisWeek ? (
+                          <Badge variant="secondary" className="bg-success/10 text-success">
+                            Active
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-muted text-muted-foreground">
+                            Quiet
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )
+              ) : (
+                <TableRow>
+                  <TableCell className="font-medium text-foreground">{DEMO_ORG.name}</TableCell>
+                  <TableCell className="text-muted-foreground">Free test</TableCell>
+                  <TableCell className="text-muted-foreground">—</TableCell>
+                  <TableCell className="text-muted-foreground">$0.00</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="bg-success/10 text-success">
+                      Active
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

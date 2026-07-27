@@ -9,11 +9,12 @@ import { CircleDollarSign } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DEMO_ORG } from "@/lib/demo"
-import { getEntitlements } from "@/lib/entitlements"
+import { FREE_TEST_LIMITS, getEntitlements, type ResolvedEntitlements } from "@/lib/entitlements"
 import { getCurrentOrgId } from "@/lib/org"
 import { formatMonthlyPrice, PLAN_CATALOG, type PlanId } from "@/lib/plans"
+import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { PlanLimits, UsageFeature } from "@/lib/types"
-import { getUsageSummary } from "@/lib/usage"
+import { getUsageSummary, type UsageSummary } from "@/lib/usage"
 
 import { UsageBar } from "./usage-bar"
 
@@ -37,14 +38,36 @@ function formatBar(used: number, limit: number | null, format: (value: number) =
   return { valueText, percent, nearLimit }
 }
 
+/** Zero usage, free_test limits — for a live org that hasn't resolved yet (no org id to query). */
+function emptyUsageState(): { entitlements: ResolvedEntitlements; usage: UsageSummary } {
+  return {
+    entitlements: { orgId: "", planId: "free_test", limits: { ...FREE_TEST_LIMITS }, featureFlags: {} },
+    usage: {
+      unitsByFeature: {},
+      costByFeature: {},
+      totalCostUsd: 0,
+      periodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+    },
+  }
+}
+
+/** Loads entitlements + usage for the given org id, falling back to the demo org's data when Supabase isn't configured (local/demo mode). */
+async function loadUsageState(orgId: string): Promise<{ entitlements: ResolvedEntitlements; usage: UsageSummary }> {
+  const [entitlements, usage] = await Promise.all([getEntitlements(orgId), getUsageSummary(orgId)])
+  return { entitlements, usage }
+}
+
 export async function UsageCard() {
   const orgId = await getCurrentOrgId()
-  const resolvedOrgId = orgId ?? DEMO_ORG.id
 
-  const [entitlements, usage] = await Promise.all([
-    getEntitlements(resolvedOrgId),
-    getUsageSummary(resolvedOrgId),
-  ])
+  // Demo mode always has an org (the seeded demo org); a live, configured
+  // deployment with no resolved org id has no org to query yet — render the
+  // honest zero state rather than borrowing the demo org's usage.
+  const { entitlements, usage } = orgId
+    ? await loadUsageState(orgId)
+    : isSupabaseConfigured()
+      ? emptyUsageState()
+      : await loadUsageState(DEMO_ORG.id)
 
   const plan = isKnownPlanId(entitlements.planId) ? PLAN_CATALOG[entitlements.planId] : PLAN_CATALOG.free_test
   const spendCap = entitlements.limits.spend_cap_usd ?? null

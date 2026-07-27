@@ -139,6 +139,10 @@ async function loadDashboardData(): Promise<DashboardData> {
 export default async function DashboardPage() {
   const isLive = isSupabaseConfigured()
   const [{ greetName, stats }, digestRows] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
+  // A live org with real activity shouldn't be told to "get started" —
+  // only prompt to connect channels in demo mode or when the org's stats
+  // are genuinely all zero (nothing to show yet).
+  const showConnectPrompt = !isLive || stats.every((stat) => stat.value === 0)
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -157,14 +161,16 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <EmptyState
-        icon={<Link2 aria-hidden="true" className="size-6" />}
-        title="Connect your channels"
-        description="Link Google Business, Instagram, and SMS so Lumina can post content and catch every lead automatically."
-        actionLabel="Connect a channel"
-        actionHref="/settings"
-        withWick
-      />
+      {showConnectPrompt && (
+        <EmptyState
+          icon={<Link2 aria-hidden="true" className="size-6" />}
+          title="Connect your channels"
+          description="Link Google Business, Instagram, and SMS so Lumina can post content and catch every lead automatically."
+          actionLabel="Connect a channel"
+          actionHref="/settings"
+          withWick
+        />
+      )}
 
       {isLive && <DigestSeenTracker />}
     </div>
