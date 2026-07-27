@@ -4,19 +4,14 @@ import { redirect } from "next/navigation"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { createClient } from "@/lib/supabase/server"
 
+import { ConversionZone } from "@/components/marketing/conversion-zone"
 import { DayStrip } from "@/components/marketing/day-strip"
-import { FaqSigns } from "@/components/marketing/faq-signs"
-import { FinalCta } from "@/components/marketing/final-cta"
 import { Hero } from "@/components/marketing/hero"
 import { Lamps } from "@/components/marketing/lamps"
 import { LoopBoard } from "@/components/marketing/loop-board"
 import { NightTicker } from "@/components/marketing/night-ticker"
-import { OutcomeCards } from "@/components/marketing/outcome-cards"
-import { PilotMenu } from "@/components/marketing/pilot-menu"
-import { Problem } from "@/components/marketing/problem"
 import { ScallopDivider } from "@/components/marketing/scallop-divider"
 import { ShopPicker } from "@/components/marketing/shop-picker"
-import { ShopWindows } from "@/components/marketing/shop-windows"
 import { TrustBar } from "@/components/marketing/trust-bar"
 
 export const metadata: Metadata = {
@@ -55,19 +50,13 @@ export default async function MarketingHomePage() {
       <Hero />
       <TrustBar />
       <ScallopDivider />
-      <Problem />
       <Lamps />
-      <ScallopDivider />
       <DayStrip />
       <LoopBoard />
-      <OutcomeCards />
       <ShopPicker />
-      <ShopWindows />
-      <PilotMenu />
-      <FaqSigns />
       <ScallopDivider />
       <NightTicker />
-      <FinalCta />
+      <ConversionZone />
     </>
   )
 }

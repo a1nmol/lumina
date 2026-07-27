@@ -29,19 +29,15 @@
  * used throughout as the one consistent selector). Full coverage — one line
  * for every visible band, no dead zones (owner direction):
  *
- *   data-scene     | rendered by
- *   ---------------|---------------------------------
- *   trust-bar      | trust-bar.tsx
- *   problem        | problem.tsx
- *   lamps          | lamps.tsx            (id="how-it-works")
- *   day-strip      | day-strip.tsx        (per-SCENE lines — see below)
- *   loop-board     | loop-board.tsx
- *   outcome-cards  | outcome-cards.tsx    (id="features")
- *   shop-picker    | shop-picker.tsx      (id="pick-your-shop")
- *   shop-windows   | shop-windows.tsx
- *   pilot-menu     | pilot-menu.tsx
- *   faq            | faq-signs.tsx
- *   final-cta      | final-cta.tsx
+ *   data-scene      | rendered by
+ *   ----------------|---------------------------------
+ *   trust-bar       | trust-bar.tsx
+ *   lamps           | lamps.tsx            (id="how-it-works")
+ *   day-strip       | day-strip.tsx        (per-SCENE lines — see below)
+ *   loop-board      | loop-board.tsx
+ *   shop-picker     | shop-picker.tsx      (id="pick-your-shop")
+ *   night-ticker    | night-ticker.tsx
+ *   conversion-zone | conversion-zone.tsx  (id="pilot-menu" — nav/hero anchor)
  *
  * day-strip is special-cased: instead of one static line for the whole
  * section, the guide reads day-strip.tsx's own active-scene store (same
@@ -248,16 +244,6 @@ const WAYPOINTS: Waypoint[] = [
     offsetY: -4,
   },
   {
-    id: "problem",
-    line: "This is every evening without help — three customers, no answers.",
-    // The counter-phone card sits mid-viewport, right-justified inside its
-    // container but well short of the actual viewport edge at desktop
-    // widths. Anchored high, clear of the card.
-    anchor: { topVh: 20, rightVw: 8 },
-    offsetX: 0,
-    offsetY: -8,
-  },
-  {
     id: "lamps",
     line: "Three jobs Lumina handles. That's the whole idea.",
     // Three lamp columns fill the width edge-to-edge under the heading —
@@ -289,46 +275,12 @@ const WAYPOINTS: Waypoint[] = [
     offsetY: 8,
   },
   {
-    id: "outcome-cards",
-    line: "Pick your flavor: booked up, well-known, or home by dinner.",
-    // Three awning cards fill the grid edge-to-edge with no heading above
-    // them — anchored high, clear of the third card's header stripe. This
-    // is also where the per-card hover hints live (see outcome-cards.tsx).
-    anchor: { topVh: 14, rightVw: 9 },
-    offsetX: -4,
-    offsetY: 6,
-  },
-  {
     id: "shop-picker",
     line: "Tap your kind of shop — the page redresses itself for you.",
     // Narrow centered content (pill tabs + demo card) — lots of margin.
     anchor: { topVh: 30, rightVw: 10 },
     offsetX: 8,
     offsetY: -16,
-  },
-  {
-    id: "shop-windows",
-    line: "Real pilot shops light up here soon — only real numbers, promise.",
-    // Centered heading + subtext, then a 3-up grid of narrow "window" cards
-    // (max-w-[220px] each) — generous side margin at desktop widths.
-    anchor: { topVh: 16, rightVw: 9 },
-    offsetX: 4,
-    offsetY: -6,
-  },
-  {
-    id: "pilot-menu",
-    line: "Free while we build together. This little form is the whole signup.",
-    // Chalkboard card is centered and narrow (max-w-md) — very wide margins.
-    anchor: { topVh: 26, rightVw: 12 },
-    offsetX: -6,
-    offsetY: 14,
-  },
-  {
-    id: "faq",
-    line: "The questions every owner asks us first.",
-    anchor: { topVh: 20, rightVw: 10 },
-    offsetX: 8,
-    offsetY: -6,
   },
   {
     id: "night-ticker",
@@ -339,14 +291,13 @@ const WAYPOINTS: Waypoint[] = [
     offsetY: -8,
   },
   {
-    id: "final-cta",
-    line: "Ready when you are.",
-    // Near the button, per the plan — final-cta already renders its own
-    // small inline Wick directly above the button in the centered column;
-    // this anchor sits beside it (same vertical band, off to the side) so
-    // the two never overlap.
-    anchor: { topVh: 55, rightVw: 9 },
-    offsetX: 0,
+    id: "conversion-zone",
+    line: "Free while we build together. This little form is the whole signup.",
+    // One merged closing zone: chalkboard + form centered (max-w-2xl),
+    // mini-FAQ grid below, street finale at the bottom — anchor beside the
+    // heading/card band where the margins are widest.
+    anchor: { topVh: 22, rightVw: 11 },
+    offsetX: -6,
     offsetY: 10,
   },
 ]

@@ -57,6 +57,9 @@ export function TrustBar() {
         <ScrollReveal delay={0.1} className="mt-4 text-center text-sm text-muted-foreground">
           Free for invited local businesses during the pilot.
         </ScrollReveal>
+        <ScrollReveal delay={0.15} className="mt-1 text-center text-sm text-muted-foreground">
+          Built for main street — where after-hours calls go unanswered more often than not.
+        </ScrollReveal>
       </div>
     </section>
   )
