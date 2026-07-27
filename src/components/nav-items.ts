@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  UserRound,
   Users,
   type LucideIcon,
 } from "lucide-react"
@@ -47,4 +48,12 @@ export const SETTINGS_NAV: NavItem = {
   icon: BrainCircuit,
 }
 
-export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, ADMIN_NAV, SETTINGS_NAV]
+/** Personal account settings — reached from the sidebar user menu, not the
+ *  nav lists; registered here so RouteBreadcrumb resolves its label. */
+export const ACCOUNT_NAV: NavItem = {
+  href: "/account",
+  label: "My account",
+  icon: UserRound,
+}
+
+export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, ADMIN_NAV, SETTINGS_NAV, ACCOUNT_NAV]

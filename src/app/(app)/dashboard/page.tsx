@@ -101,13 +101,15 @@ function liveStats(overview: AnalyticsOverviewStats): DashboardStat[] {
 
 type DashboardData = {
   orgName: string
+  /** Who the greeting addresses — the user's real name when set, else the org name. */
+  greetName: string
   stats: DashboardStat[]
 }
 
 /** Loads the Command Center greeting name + stat strip, falling back to the rich demo dataset when Supabase isn't configured or the org can't be resolved yet. */
 async function loadDashboardData(): Promise<DashboardData> {
   if (!isSupabaseConfigured()) {
-    return { orgName: DEMO_ORG.name, stats: DEMO_STATS }
+    return { orgName: DEMO_ORG.name, greetName: DEMO_ORG.name, stats: DEMO_STATS }
   }
 
   const context = await getOrgSidebarContext()
@@ -117,6 +119,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     // honest all-zero strip rather than querying analytics with no org id.
     return {
       orgName: "your business",
+      greetName: "your business",
       stats: liveStats({
         rangeDays: 7,
         postsPublished: 0,
@@ -130,17 +133,17 @@ async function loadDashboardData(): Promise<DashboardData> {
   }
 
   const overview = await getOverviewStats(context.orgId, 7)
-  return { orgName: context.orgName, stats: liveStats(overview) }
+  return { orgName: context.orgName, greetName: context.userName ?? context.orgName, stats: liveStats(overview) }
 }
 
 export default async function DashboardPage() {
   const isLive = isSupabaseConfigured()
-  const [{ orgName, stats }, digestRows] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
+  const [{ greetName, stats }, digestRows] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
 
   return (
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
-        title={`${getGreeting()}, ${orgName}`}
+        title={`${getGreeting()}, ${greetName}`}
         description="Here's how your content and front desk loop performed this week."
       />
 

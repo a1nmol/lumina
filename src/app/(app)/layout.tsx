@@ -48,6 +48,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         orgSlug: sidebarContext.orgSlug,
         planName: sidebarContext.planName,
         userEmail: sidebarContext.userEmail,
+        userName: sidebarContext.userName ?? undefined,
       }
     : DEMO_SIDEBAR_CONTEXT
 
