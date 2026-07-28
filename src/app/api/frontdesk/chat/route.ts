@@ -22,6 +22,7 @@ import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
+import { sendLeadAlertEmail } from "@/lib/email"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Contact, Conversation, Message } from "@/lib/types"
 
@@ -191,6 +192,19 @@ export async function POST(request: NextRequest) {
       } catch (analyticsError) {
         console.error("[frontdesk/chat] failed to record lead_captured event", analyticsError)
       }
+
+      // Instant lead alert — fire-and-forget (never await): the customer is
+      // waiting on the AI reply below, an email round trip must not add to
+      // that latency, and email delivery problems must never surface to the
+      // widget. See src/lib/email.ts#sendLeadAlertEmail's own header.
+      sendLeadAlertEmail({
+        orgId: resolved.orgId,
+        channel: "web_chat",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: trimmedMessage,
+      }).catch((emailError) => console.error("[frontdesk/chat] failed to send lead alert email", emailError))
     }
     if (isNewConversation) {
       try {

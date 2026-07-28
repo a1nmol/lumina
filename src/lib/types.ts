@@ -269,6 +269,15 @@ export type Appointment = {
   updated_at: string
 }
 
+/** supabase/migrations/0009_org_phone_numbers.sql — maps a Twilio number (E.164) to the org it's provisioned for. Provisioned by the platform admin/CLI, not end users. */
+export type OrgPhoneNumber = {
+  id: string
+  org_id: string
+  phone_number: string
+  twilio_sid: string | null
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Analytics loop + Reviews (Phase 3) — mirrors supabase/migrations/0004_analytics.sql.
 // ---------------------------------------------------------------------------
@@ -342,6 +351,25 @@ export type EarlyAccessLead = {
   business_name: string
   email: string
   created_at: string
+}
+
+export type SocialProvider = "meta"
+
+/** supabase/migrations/0008_social_connections.sql — one row per connected Facebook Page (+ its linked Instagram Business account, when present). Connection layer only — publishing/insights are a later wave (MASTER_PLAN.md §4.B/§4.E). */
+export type SocialConnection = {
+  id: string
+  org_id: string
+  provider: SocialProvider
+  page_id: string
+  page_name: string | null
+  ig_user_id: string | null
+  ig_username: string | null
+  /** Long-lived Page access token — never sent to the client, only read server-side via the service-role admin client. */
+  access_token: string
+  token_expires_at: string | null
+  connected_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -550,6 +578,18 @@ export interface Database {
         Row: EarlyAccessLead
         Insert: Partial<EarlyAccessLead> & Pick<EarlyAccessLead, "business_name" | "email">
         Update: Partial<EarlyAccessLead>
+        Relationships: []
+      }
+      social_connections: {
+        Row: SocialConnection
+        Insert: Partial<SocialConnection> & Pick<SocialConnection, "org_id" | "provider" | "page_id" | "access_token">
+        Update: Partial<SocialConnection>
+        Relationships: []
+      }
+      org_phone_numbers: {
+        Row: OrgPhoneNumber
+        Insert: Partial<OrgPhoneNumber> & Pick<OrgPhoneNumber, "org_id" | "phone_number">
+        Update: Partial<OrgPhoneNumber>
         Relationships: []
       }
     }

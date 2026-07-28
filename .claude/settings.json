@@ -29,13 +29,14 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(gh *)",
+      "Bash(vercel *)",
+      "Bash(npx vercel *)",
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(supabase *)"
     ],
     "deny": [
       "Bash(rm -rf *)",
-      "Bash(vercel deploy*)",
       "Read(.env)",
       "Read(.env.local)"
     ]

@@ -6,12 +6,22 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { getBusinessBrain } from "./brain/actions"
 import { computeBrainCompleteness } from "./brain-completeness"
 import { BrainSummaryCard } from "./brain-summary-card"
+import { ChannelsCard } from "./channels-card"
 import { FaqCard } from "./faq-card"
 import { UsageCard } from "./usage-card"
 
 export const metadata: Metadata = { title: "Settings & Brain" }
 
-export default async function SettingsPage() {
+type SettingsPageProps = {
+  searchParams: Promise<{ connected?: string | string[]; metaError?: string | string[] }>
+}
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
+  const params = await searchParams
   const brain = await getBusinessBrain()
   const completeness = computeBrainCompleteness(brain)
 
@@ -23,6 +33,7 @@ export default async function SettingsPage() {
       />
       <BrainSummaryCard brain={brain} completeness={completeness} />
       <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
+      <ChannelsCard connectedParam={firstParam(params.connected)} errorParam={firstParam(params.metaError)} />
       <UsageCard />
     </div>
   )

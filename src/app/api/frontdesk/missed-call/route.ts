@@ -16,6 +16,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
+import { sendLeadAlertEmail } from "@/lib/email"
 import { resolveWidgetOrg, ORG_SLUG_RE } from "@/app/widget/resolve-org"
 import type { BusinessBrain } from "@/lib/types"
 
@@ -162,6 +163,19 @@ export async function POST(request: NextRequest) {
       } catch (analyticsError) {
         console.error("[frontdesk/missed-call] failed to record lead_captured event", analyticsError)
       }
+
+      // Instant lead alert — fire-and-forget (never await), see
+      // src/lib/email.ts#sendLeadAlertEmail's own header. The templated
+      // first text (already sent below) doubles as the preview so the owner
+      // sees exactly what the caller received.
+      sendLeadAlertEmail({
+        orgId: resolved.orgId,
+        channel: "missed_call",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: text,
+      }).catch((emailError) => console.error("[frontdesk/missed-call] failed to send lead alert email", emailError))
     }
     if (isNewConversation) {
       try {
