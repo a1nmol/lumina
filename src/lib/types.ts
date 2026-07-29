@@ -353,7 +353,15 @@ export type EarlyAccessLead = {
   created_at: string
 }
 
-export type SocialProvider = "meta"
+/**
+ * 'meta' = Facebook Page (+ its linked Instagram Business account, when
+ * present) via the Facebook Login dialog (src/lib/social/meta.ts). 'instagram'
+ * = an Instagram professional account connected directly via Instagram
+ * Business Login (src/lib/social/instagram.ts) — no Facebook Page required.
+ * See supabase/migrations/0010_social_connections_instagram.sql for the
+ * column-reuse convention on 'instagram' rows.
+ */
+export type SocialProvider = "meta" | "instagram"
 
 /** supabase/migrations/0008_social_connections.sql — one row per connected Facebook Page (+ its linked Instagram Business account, when present). Connection layer only — publishing/insights are a later wave (MASTER_PLAN.md §4.B/§4.E). */
 export type SocialConnection = {

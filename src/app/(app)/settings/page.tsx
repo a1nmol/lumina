@@ -13,7 +13,11 @@ import { UsageCard } from "./usage-card"
 export const metadata: Metadata = { title: "Settings & Brain" }
 
 type SettingsPageProps = {
-  searchParams: Promise<{ connected?: string | string[]; metaError?: string | string[] }>
+  searchParams: Promise<{
+    connected?: string | string[]
+    metaError?: string | string[]
+    igError?: string | string[]
+  }>
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -33,7 +37,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       />
       <BrainSummaryCard brain={brain} completeness={completeness} />
       <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
-      <ChannelsCard connectedParam={firstParam(params.connected)} errorParam={firstParam(params.metaError)} />
+      <ChannelsCard
+        connectedParam={firstParam(params.connected)}
+        errorParam={firstParam(params.metaError)}
+        igErrorParam={firstParam(params.igError)}
+      />
       <UsageCard />
     </div>
   )
