@@ -75,6 +75,11 @@ interface InstagramEntry {
   id?: string
   time?: number
   messaging?: InstagramMessagingEvent[]
+  /** v2x Instagram-Login delivery envelope: messages arrive as
+   *  changes[{field:"messages", value:<same event shape>}] instead of
+   *  messaging[] (discovered live: real DMs used this shape and slipped
+   *  through the messaging[]-only loop unparsed). */
+  changes?: Array<{ field?: string; value?: InstagramMessagingEvent }>
 }
 
 interface InstagramWebhookPayload {
@@ -169,7 +174,22 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient()
 
   for (const entry of payload.entry) {
-    const messagingEvents = Array.isArray(entry.messaging) ? entry.messaging : []
+    // Normalize both delivery envelopes into one event list: classic
+    // Messenger-style entry.messaging[] AND the newer entry.changes[]
+    // (field "messages") that Instagram-Login apps receive on current
+    // webhook versions. Real DMs arrive via changes[]; synthetic/legacy
+    // payloads via messaging[].
+    const messagingEvents: InstagramMessagingEvent[] = Array.isArray(entry.messaging) ? [...entry.messaging] : []
+    if (Array.isArray(entry.changes)) {
+      for (const change of entry.changes) {
+        if (change?.field === "messages" && change.value && typeof change.value === "object") {
+          messagingEvents.push(change.value)
+        }
+      }
+    }
+    if (messagingEvents.length === 0) {
+      console.warn("[webhooks/instagram] entry with no parseable events — keys:", Object.keys(entry as object).join(","))
+    }
     for (const event of messagingEvents) {
       try {
         await handleMessagingEvent(admin, entry, event)
