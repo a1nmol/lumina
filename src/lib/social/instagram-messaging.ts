@@ -40,22 +40,33 @@ interface SendInstagramMessageResponse {
  * row's token — either provider, per the webhook route's connection
  * lookup). Throws InstagramMessagingApiError on a non-2xx response; never
  * logs the token itself, only the HTTP status.
+ *
+ * `tag`, when set to `"HUMAN_AGENT"`, adds Meta's human-agent message tag
+ * (`{"tag": "HUMAN_AGENT"}` in the request body) — the only way to reply
+ * outside the standard 24-hour messaging window, and ONLY permitted for a
+ * genuine human reply (never an AI auto-send). See
+ * src/app/(app)/inbox/actions.ts#sendReply, the owner-composer send path,
+ * for the 24h/7d window logic that decides when to pass this.
  */
 export async function sendInstagramMessage(
   accessToken: string,
   recipientId: string,
-  text: string
+  text: string,
+  tag?: "HUMAN_AGENT"
 ): Promise<SendInstagramMessageResult> {
+  const body: Record<string, unknown> = {
+    recipient: { id: recipientId },
+    message: { text },
+  }
+  if (tag) body.tag = tag
+
   const res = await fetch(`${GRAPH_INSTAGRAM_BASE}/${GRAPH_INSTAGRAM_API_VERSION}/me/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text },
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {

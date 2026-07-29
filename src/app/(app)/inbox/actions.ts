@@ -33,7 +33,10 @@ import {
   upsertContact,
 } from "@/lib/frontdesk"
 import { getCurrentOrgId } from "@/lib/org"
+import { sendInstagramMessage } from "@/lib/social/instagram-messaging"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
+import { createClient } from "@/lib/supabase/server"
+import { isTwilioConfigured, sendSms } from "@/lib/twilio"
 import type {
   Appointment,
   BusinessBrain,
@@ -367,6 +370,127 @@ export async function rewriteDraft(text: string, mode: RewriteMode): Promise<Rew
   }
 }
 
+// ---------------------------------------------------------------------------
+// Delivery — the owner's manual-send counterpart to the AI auto-reply sends
+// already wired in src/app/api/webhooks/instagram/route.ts (Instagram) and
+// src/app/api/twilio/sms/route.ts (SMS). sendReply below calls deliverReply
+// BEFORE persisting the outbound message row: a failed delivery must never
+// be recorded as "sent" to the thread, so every helper here throws a clear,
+// human-readable Error on failure rather than returning a typed result —
+// sendReply lets it propagate, and persists nothing.
+// ---------------------------------------------------------------------------
+
+/** Meta's standard messaging window — a plain send is only allowed within this. */
+const INSTAGRAM_STANDARD_WINDOW_MS = 24 * 60 * 60 * 1000
+/**
+ * Meta's HUMAN_AGENT tag extends replies out to 7 days after the customer's
+ * last message, but ONLY for a genuine human reply — never an AI auto-send.
+ * sendReply only ever runs from the owner's composer, so every send on this
+ * path legitimately qualifies.
+ */
+const INSTAGRAM_HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * Sends via the Instagram Graph API, honoring Meta's App-Review-mandated
+ * messaging windows: plain send inside 24h of the customer's last inbound
+ * message, HUMAN_AGENT-tagged send from 24h out to 7 days, and an honest
+ * failure past 7 days (or if the customer never messaged in) — there is no
+ * way to deliver, so this never fakes success.
+ */
+async function deliverInstagramReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+  const igsid =
+    typeof conversation.contact?.custom?.instagram_igsid === "string"
+      ? (conversation.contact.custom.instagram_igsid as string)
+      : null
+
+  const supabase = await createClient()
+  const { data: connection, error } = await supabase
+    .from("social_connections")
+    .select()
+    .eq("org_id", orgId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`sendReply: failed to load Instagram connection: ${error.message}`)
+  }
+  if (!connection || !igsid) {
+    throw new Error("This Instagram conversation isn't connected for sending.")
+  }
+
+  const lastInbound = [...conversation.messages].reverse().find((message) => message.direction === "inbound")
+  const ageMs = lastInbound ? Date.now() - new Date(lastInbound.created_at).getTime() : null
+
+  if (ageMs === null || ageMs > INSTAGRAM_HUMAN_AGENT_WINDOW_MS) {
+    throw new Error("Instagram only allows replies within 7 days of the customer's last message.")
+  }
+
+  try {
+    await sendInstagramMessage(
+      connection.access_token,
+      igsid,
+      body,
+      ageMs >= INSTAGRAM_STANDARD_WINDOW_MS ? "HUMAN_AGENT" : undefined
+    )
+  } catch {
+    // The underlying call already logs the HTTP status (never the token) —
+    // see src/lib/social/instagram-messaging.ts. Nothing more to log here.
+    throw new Error("Couldn't deliver to Instagram — try again.")
+  }
+}
+
+/** Sends via Twilio's SMS REST API, using the org's provisioned number as the "From". */
+async function deliverSmsReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+  if (!isTwilioConfigured()) {
+    throw new Error("SMS sending isn't configured yet.")
+  }
+
+  const to = conversation.contact?.phone?.trim()
+  if (!to) {
+    throw new Error("This contact doesn't have a phone number on file.")
+  }
+
+  const supabase = await createClient()
+  const { data: numberRow, error } = await supabase
+    .from("org_phone_numbers")
+    .select("phone_number")
+    .eq("org_id", orgId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`sendReply: failed to load org phone number: ${error.message}`)
+  }
+  if (!numberRow) {
+    throw new Error("This business doesn't have a phone number connected for SMS yet.")
+  }
+
+  try {
+    await sendSms(to, numberRow.phone_number, body)
+  } catch (sendError) {
+    console.error("[inbox/actions] failed to send SMS reply", sendError)
+    throw new Error("Couldn't deliver the text message — try again.")
+  }
+}
+
+/**
+ * Delivers a customer-facing reply on its channel. instagram and sms
+ * actually push the message out; web_chat (and any other/future channel)
+ * is a deliberate no-op — the widget conversation is request/response over
+ * the browser tab that's already open, so there's no separate channel to
+ * push a reply to, and the existing persist-only behavior is correct.
+ */
+async function deliverReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+  switch (conversation.channel) {
+    case "instagram":
+      return deliverInstagramReply(orgId, conversation, body)
+    case "sms":
+      return deliverSmsReply(orgId, conversation, body)
+    default:
+      return
+  }
+}
+
 export interface SendReplyInput {
   conversationId: string
   body: string
@@ -377,7 +501,13 @@ export interface SendReplyInput {
   costUsd?: number
 }
 
-/** Sends a reply or internal note. Demo mode synthesizes a Message for optimistic append; configured mode persists via sendMessage. */
+/**
+ * Sends a reply or internal note. Demo mode synthesizes a Message for
+ * optimistic append; configured mode delivers first (see deliverReply — skipped
+ * for internal notes, which never leave Lumina) and only persists via
+ * sendMessage once delivery succeeds. A delivery failure throws and nothing
+ * is persisted — the composer's catch surfaces the thrown message as a toast.
+ */
 export async function sendReply(input: SendReplyInput): Promise<Message | null> {
   const trimmed = input.body.trim()
   if (!trimmed || trimmed.length > MAX_BODY_LENGTH) {
@@ -402,6 +532,14 @@ export async function sendReply(input: SendReplyInput): Promise<Message | null> 
 
   const orgId = await getCurrentOrgId()
   if (!orgId) return null
+
+  if (input.kind !== "note") {
+    const conversation = await getConversation(orgId, input.conversationId)
+    if (!conversation) {
+      throw new Error("This conversation could not be found.")
+    }
+    await deliverReply(orgId, conversation, trimmed)
+  }
 
   return await sendMessage(orgId, input.conversationId, {
     body: trimmed,

@@ -296,9 +296,14 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setDraftMeta({})
       setSuggestions([])
       setAnnouncement(kind === "note" ? "Note added" : "Reply sent")
-    } catch {
+    } catch (error) {
       if (!isMountedRef.current) return
-      toast.error(kind === "note" ? "Couldn't add note" : "Couldn't send reply", { description: "Please try again." })
+      // sendReply throws a clear, human-readable message for a real delivery
+      // failure (e.g. an Instagram messaging-window miss, SMS not
+      // configured) — surface that instead of a generic "try again" when
+      // one is available.
+      const description = error instanceof Error && error.message ? error.message : "Please try again."
+      toast.error(kind === "note" ? "Couldn't add note" : "Couldn't send reply", { description })
     } finally {
       if (isMountedRef.current) setIsSending(false)
     }
