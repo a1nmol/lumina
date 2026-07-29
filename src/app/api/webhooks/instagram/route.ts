@@ -173,6 +173,14 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient()
 
+  // Durable diagnostic receipt — see migration 0012. Fire-and-forget.
+  void admin
+    .from("webhook_receipts")
+    .insert({ source: "instagram", payload: payload as never })
+    .then(({ error }) => {
+      if (error) console.error("[webhooks/instagram] receipt insert failed", error.message)
+    })
+
   for (const entry of payload.entry) {
     // Normalize both delivery envelopes into one event list: classic
     // Messenger-style entry.messaging[] AND the newer entry.changes[]

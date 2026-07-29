@@ -594,6 +594,12 @@ export interface Database {
         Update: Partial<EarlyAccessLead>
         Relationships: []
       }
+      webhook_receipts: {
+        Row: { id: string; source: string; payload: unknown; created_at: string }
+        Insert: { id?: string; source: string; payload: unknown; created_at?: string }
+        Update: { source?: string; payload?: unknown }
+        Relationships: []
+      }
       social_connections: {
         Row: SocialConnection
         Insert: Partial<SocialConnection> & Pick<SocialConnection, "org_id" | "provider" | "page_id" | "access_token">
