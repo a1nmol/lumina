@@ -249,12 +249,15 @@ export async function exchangeForLongLivedToken(shortLivedToken: string): Promis
 }
 
 interface InstagramProfileResponse {
+  id?: string | number
   user_id?: string | number
   username?: string
   account_type?: string
 }
 
 export interface InstagramProfile {
+  /** App-scoped id — what webhooks carry in entry.id/recipient.id. Stored as page_id. */
+  appScopedId?: string
   userId: string
   username: string | null
   accountType: string | null
@@ -263,7 +266,7 @@ export interface InstagramProfile {
 /** Step 3: the connected account's own basic profile. */
 export async function fetchInstagramProfile(accessToken: string): Promise<InstagramProfile> {
   const url = new URL(`${GRAPH_INSTAGRAM_BASE}/${GRAPH_INSTAGRAM_API_VERSION}/me`)
-  url.searchParams.set("fields", "user_id,username,account_type")
+  url.searchParams.set("fields", "id,user_id,username,account_type")
   url.searchParams.set("access_token", accessToken)
 
   const res = await fetch(url, { method: "GET" })
@@ -277,6 +280,10 @@ export async function fetchInstagramProfile(accessToken: string): Promise<Instag
 
   return {
     userId: String(data.user_id),
+    // App-scoped id — the id space Meta uses in webhook entry/recipient
+    // fields (learned live: storing only user_id made every webhook's org
+    // lookup miss silently). Falls back to user_id if absent.
+    appScopedId: data.id != null ? String(data.id) : String(data.user_id),
     username: data.username ?? null,
     accountType: data.account_type ?? null,
   }
@@ -330,7 +337,8 @@ export async function upsertInstagramConnection(
   const row: Partial<SocialConnection> & Pick<SocialConnection, "org_id" | "provider" | "page_id" | "access_token"> = {
     org_id: orgId,
     provider: "instagram",
-    page_id: profile.userId,
+    // App-scoped id (webhook id space) — see fetchInstagramProfile.
+    page_id: profile.appScopedId ?? profile.userId,
     page_name: null,
     ig_user_id: profile.userId,
     ig_username: profile.username,
