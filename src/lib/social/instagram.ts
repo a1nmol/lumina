@@ -291,6 +291,29 @@ export async function fetchInstagramProfile(accessToken: string): Promise<Instag
  * Service-role write: writes to this table are intentionally restricted to
  * the service role (tokens are sensitive).
  */
+
+/**
+ * Subscribes the connected account to the app's webhooks. REQUIRED for DM
+ * delivery with Instagram Business Login: app-level webhook config alone
+ * delivers nothing — each account must opt in via /me/subscribed_apps
+ * (discovered live: the verification handshake succeeded but no events
+ * arrived until this call was made for the account). Best-effort: a
+ * failure here shouldn't fail the whole connect, the account can be
+ * re-subscribed later.
+ */
+export async function subscribeToWebhooks(accessToken: string): Promise<boolean> {
+  const res = await fetch(
+    `https://graph.instagram.com/${GRAPH_INSTAGRAM_API_VERSION}/me/subscribed_apps?subscribed_fields=messages,comments&access_token=${encodeURIComponent(accessToken)}`,
+    { method: "POST" }
+  )
+  if (!res.ok) {
+    console.error(`instagram subscribeToWebhooks failed: HTTP ${res.status}`)
+    return false
+  }
+  const body = (await res.json().catch(() => null)) as { success?: boolean } | null
+  return body?.success === true
+}
+
 export async function upsertInstagramConnection(
   orgId: string,
   connectedByUserId: string,

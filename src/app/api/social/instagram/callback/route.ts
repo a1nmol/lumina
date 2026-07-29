@@ -17,6 +17,7 @@ import {
   exchangeForLongLivedToken,
   fetchInstagramProfile,
   isInstagramConfigured,
+  subscribeToWebhooks,
   upsertInstagramConnection,
   verifyInstagramState,
 } from "@/lib/social/instagram"
@@ -72,6 +73,8 @@ export async function GET(request: NextRequest) {
     const profile = await fetchInstagramProfile(longLived.accessToken)
 
     await upsertInstagramConnection(orgId, user.id, profile, longLived)
+    // Required for DM delivery — see subscribeToWebhooks doc. Best-effort.
+    await subscribeToWebhooks(longLived.accessToken).catch(() => false)
 
     return NextResponse.redirect(new URL("/settings?connected=instagram", request.url), 302)
   } catch (error) {
