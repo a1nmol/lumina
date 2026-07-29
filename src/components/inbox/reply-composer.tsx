@@ -1,19 +1,37 @@
 "use client"
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react"
-import { Loader2, RefreshCw, Send, Sparkles, X } from "lucide-react"
+import { Loader2, RefreshCw, Send, Sparkles, Wand2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { Message, MessageKind } from "@/lib/types"
 
-import { draftReply, sendReply } from "@/app/(app)/inbox/actions"
+import { draftReply, rewriteDraft, sendReply, suggestReplies } from "@/app/(app)/inbox/actions"
 
 const AI_FAILURE_TOAST = "I couldn't answer this — flagging for you."
 
 type ComposerMode = "reply" | "note"
+
+/** Mirrors src/lib/ai/reply-assist.ts's RewriteMode — kept as a local literal
+ *  union (rather than importing that server-only module's type) so this
+ *  client component has zero coupling to server-only code. */
+type RewriteMode = "friendlier" | "shorter" | "more_formal" | "translate_es"
+
+const REWRITE_MODE_OPTIONS: { value: RewriteMode; label: string }[] = [
+  { value: "friendlier", label: "Friendlier" },
+  { value: "shorter", label: "Shorter" },
+  { value: "more_formal", label: "More formal" },
+  { value: "translate_es", label: "Spanish" },
+]
 
 /**
  * Reply/Note pill toggle — a single logical choice, not a tabbed panel set
@@ -55,6 +73,9 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
   const [isDrafting, setIsDrafting] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [announcement, setAnnouncement] = useState("")
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [isSuggesting, setIsSuggesting] = useState(false)
+  const [isRewriting, setIsRewriting] = useState(false)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -71,6 +92,9 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     setDraftMeta({})
     setIsDrafting(false)
     setIsSending(false)
+    setSuggestions([])
+    setIsSuggesting(false)
+    setIsRewriting(false)
   }, [conversationId])
 
   useEffect(() => {
@@ -167,6 +191,79 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     textareaRef.current?.focus()
   }
 
+  /** Fetches up to 3 quick-tap reply chips for the customer's latest message. Never auto-fills the composer — the human still has to tap one. */
+  async function requestSuggestions() {
+    const requestConversationId = conversationId
+
+    setIsSuggesting(true)
+    try {
+      const result = await suggestReplies(requestConversationId)
+      if (!isMountedRef.current || requestConversationId !== conversationId) return
+
+      if ("error" in result) {
+        toast.error("You're out of AI reply quota this month", { description: result.message })
+        return
+      }
+
+      if (result.suggestions.length === 0) {
+        toast.error("Couldn't come up with suggestions", { description: "Please try again." })
+        return
+      }
+
+      setSuggestions(result.suggestions)
+    } catch {
+      if (!isMountedRef.current || requestConversationId !== conversationId) return
+      toast.error("Couldn't get suggestions", { description: "Please try again." })
+    } finally {
+      if (isMountedRef.current && requestConversationId === conversationId) setIsSuggesting(false)
+    }
+  }
+
+  /** A tapped suggestion chip REPLACES the compose text (never sends) and focuses the box so the human can edit before sending. */
+  function handleSelectSuggestion(suggestion: string) {
+    setText(suggestion)
+    setSuggestions([])
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  function handleDismissSuggestion(index: number) {
+    setSuggestions((current) => current.filter((_, i) => i !== index))
+  }
+
+  /** Rewrites whatever is currently in the compose box and replaces it in place, with a one-level "Undo" via the confirmation toast's action button. Never sends. */
+  async function handleRewrite(mode: RewriteMode) {
+    const trimmed = text.trim()
+    if (!trimmed || isRewriting) return
+
+    const previousText = text
+
+    setIsRewriting(true)
+    try {
+      const result = await rewriteDraft(trimmed, mode)
+      if (!isMountedRef.current) return
+
+      if ("error" in result) {
+        if (result.error === "allowance") {
+          toast.error("You're out of AI reply quota this month", { description: result.message })
+        } else {
+          toast.error("Couldn't rewrite that", { description: result.message })
+        }
+        return
+      }
+
+      setText(result.text)
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      toast("Rewrote your reply", {
+        action: { label: "Undo", onClick: () => setText(previousText) },
+      })
+    } catch {
+      if (!isMountedRef.current) return
+      toast.error("Couldn't rewrite that", { description: "Please try again." })
+    } finally {
+      if (isMountedRef.current) setIsRewriting(false)
+    }
+  }
+
   async function handleSend() {
     const trimmed = text.trim()
     if (!trimmed || isSending) return
@@ -197,6 +294,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setText("")
       setIsDraftPending(false)
       setDraftMeta({})
+      setSuggestions([])
       setAnnouncement(kind === "note" ? "Note added" : "Reply sent")
     } catch {
       if (!isMountedRef.current) return
@@ -256,6 +354,31 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           )
         })}
       </div>
+
+      {mode === "reply" && suggestions.length > 0 && (
+        <div role="list" aria-label="Suggested replies" className="flex flex-wrap gap-1.5">
+          {suggestions.map((suggestion, index) => (
+            <div key={`${index}-${suggestion}`} role="listitem" className="group relative">
+              <button
+                type="button"
+                title={suggestion}
+                onClick={() => handleSelectSuggestion(suggestion)}
+                className="max-w-64 truncate rounded-full border border-border bg-muted/60 py-1 pr-6 pl-2.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {suggestion}
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss suggestion"
+                onClick={() => handleDismissSuggestion(index)}
+                className="absolute top-1/2 right-1 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X aria-hidden="true" className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="relative">
         {isDraftPending && (
@@ -325,23 +448,67 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           </Button>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {mode === "reply" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={requestDraft}
-              disabled={isDrafting}
-              className="gap-1.5"
-            >
-              {isDrafting ? (
-                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-              ) : (
-                <Sparkles aria-hidden="true" className="size-3.5" />
-              )}
-              {isDrafting ? "Drafting…" : "AI draft"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={requestDraft}
+                disabled={isDrafting}
+                className="gap-1.5"
+              >
+                {isDrafting ? (
+                  <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                ) : (
+                  <Sparkles aria-hidden="true" className="size-3.5" />
+                )}
+                {isDrafting ? "Drafting…" : "AI draft"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={requestSuggestions}
+                disabled={isSuggesting}
+                className="gap-1.5"
+              >
+                {isSuggesting ? (
+                  <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                ) : (
+                  <Sparkles aria-hidden="true" className="size-3.5" />
+                )}
+                {isSuggesting ? "Suggesting…" : "Suggest"}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!text.trim() || isRewriting}
+                      className="gap-1.5"
+                    />
+                  }
+                >
+                  {isRewriting ? (
+                    <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                  ) : (
+                    <Wand2 aria-hidden="true" className="size-3.5" />
+                  )}
+                  Rewrite
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {REWRITE_MODE_OPTIONS.map((option) => (
+                    <DropdownMenuItem key={option.value} onClick={() => handleRewrite(option.value)}>
+                      {option.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           ) : (
             <span />
           )}

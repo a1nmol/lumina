@@ -14,6 +14,11 @@
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
+import {
+  rewriteDraft as rewriteDraftInternal,
+  suggestReplies as suggestRepliesInternal,
+  type RewriteMode,
+} from "@/lib/ai/reply-assist"
 import { DEMO_APPOINTMENTS, DEMO_CONVERSATIONS, DEMO_ORG, type DemoConversationDetail } from "@/lib/demo"
 import {
   getContactWithTimeline,
@@ -55,6 +60,41 @@ const GENERIC_DEMO_DRAFT =
 const AI_FAILURE_MESSAGE = "I couldn't answer this — flagging for you."
 const MAX_SERVICES_IN_FALLBACK = 3
 const MAX_HOURS_IN_FALLBACK = 3
+
+// AI-assist pair (suggested replies + tone rewriter) — demo-mode delay and
+// canned copy, matching GENERIC_DEMO_DRAFT's conventions above.
+const AI_ASSIST_DEMO_DELAY_MS = 700
+const DEMO_SUGGESTED_REPLIES = [
+  "Thanks so much for reaching out — happy to help with that! Let me pull the details together for you.",
+  "Good question! Could you tell me a bit more about what you're looking for so I point you in the right direction?",
+  "Appreciate your patience on this one — I'll get it sorted and follow up with you shortly!",
+]
+const MAX_REWRITE_TEXT_LENGTH = 1000
+const REWRITE_NOTHING_TO_REWRITE_MESSAGE = "Nothing to rewrite."
+const REWRITE_UNAVAILABLE_MESSAGE = "AI rewriting isn't available right now."
+const REWRITE_FAILED_MESSAGE = "Couldn't rewrite that — please try again."
+
+/** Small, deterministic demo-mode stand-in for rewriteDraft when Supabase/OpenRouter aren't configured — never calls a model. */
+function demoRewriteText(text: string, mode: RewriteMode): string {
+  switch (mode) {
+    case "friendlier":
+      return `${text.replace(/[.!]+$/, "")}! Happy to help however I can.`
+    case "shorter": {
+      const firstSentence = text.match(/^[^.!?]*[.!?]/)?.[0]?.trim()
+      return firstSentence && firstSentence.length < text.length ? firstSentence : text
+    }
+    case "more_formal":
+      return text
+        .replace(/\bwe're\b/gi, "we are")
+        .replace(/\byou'll\b/gi, "you will")
+        .replace(/\bthat's\b/gi, "that is")
+        .replace(/\bwe'll\b/gi, "we will")
+    case "translate_es":
+      return "Gracias por tu mensaje, en breve te confirmamos los detalles."
+    default:
+      return text
+  }
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -231,6 +271,94 @@ export async function draftReply(conversationId: string): Promise<DraftReplyResu
     }
 
     return { draft: result.reply, model: result.model, costUsd: result.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
+  }
+}
+
+export type SuggestRepliesResult =
+  | { suggestions: string[]; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+
+/**
+ * Suggests up to 3 quick-tap reply options for a conversation's most recent
+ * customer message (never auto-sent — the composer fills its textarea from
+ * whichever chip the human taps).
+ *
+ * - Supabase not configured (true demo mode) or no org resolved: canned
+ *   DEMO_SUGGESTED_REPLIES after a short simulated delay, mirroring draftReply.
+ * - Supabase configured but OpenRouter not: no model available, returns an
+ *   empty list rather than a fake draft (there's nothing grounded to offer
+ *   for 3 *alternative* replies the way groundedFallbackDraft can for one).
+ * - Both configured: delegates to suggestReplies (src/lib/ai/reply-assist.ts).
+ *   A parse failure there already degrades to an empty list; only a real
+ *   spend-guard/quota denial is surfaced as an error here.
+ */
+export async function suggestReplies(conversationId: string): Promise<SuggestRepliesResult> {
+  if (!isSupabaseConfigured()) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { suggestions: DEMO_SUGGESTED_REPLIES }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { suggestions: DEMO_SUGGESTED_REPLIES }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    return { suggestions: [] }
+  }
+
+  try {
+    const result = await suggestRepliesInternal({ orgId, conversationId })
+    return { suggestions: result?.suggestions ?? [], model: result?.model, costUsd: result?.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
+  }
+}
+
+export type RewriteDraftResult =
+  | { text: string; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+  | { error: "invalid" | "failed"; message: string }
+
+/**
+ * Rewrites a draft reply already sitting in the composer (friendlier /
+ * shorter / more formal / Spanish translation) — never auto-sent, only
+ * replaces the composer's text; the human still has to press Send.
+ */
+export async function rewriteDraft(text: string, mode: RewriteMode): Promise<RewriteDraftResult> {
+  const trimmed = text.trim()
+  if (!trimmed || trimmed.length > MAX_REWRITE_TEXT_LENGTH) {
+    return { error: "invalid", message: REWRITE_NOTHING_TO_REWRITE_MESSAGE }
+  }
+
+  if (!isSupabaseConfigured()) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { text: demoRewriteText(trimmed, mode) }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { text: demoRewriteText(trimmed, mode) }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    return { error: "failed", message: REWRITE_UNAVAILABLE_MESSAGE }
+  }
+
+  try {
+    const result = await rewriteDraftInternal({ orgId, text: trimmed, mode })
+    if (!result) return { error: "failed", message: REWRITE_FAILED_MESSAGE }
+    return { text: result.text, model: result.model, costUsd: result.costUsd }
   } catch (error) {
     if (error instanceof AllowanceDeniedError) {
       return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
