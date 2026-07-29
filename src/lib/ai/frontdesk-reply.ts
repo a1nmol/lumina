@@ -62,7 +62,29 @@ const MAX_DESCRIPTION_CHARS_IN_PROMPT = 400
 
 const VALID_CONTACT_STATUSES: readonly ContactStatus[] = ["lead", "contacted", "booked", "customer"]
 
-/** Builds a tight (~350 token) system prompt from the Business Brain — hours, services, prices, faq, tone. */
+// Voice rules (owner direction, 2026-07-29): replies must read like the shop
+// owner texting back from their phone between customers — not "AI customer
+// support." Concretely this means short and matched to the customer's own
+// length/energy, no em dashes/semicolons/bullet lists, no corporate stock
+// phrases ("I'd be happy to assist you", "As an AI"), contractions always,
+// and natural texting touches (occasional lowercase sentence starts, sparing
+// exclamation points, casual glue words like "yep"/"for sure"/"no worries").
+// Explicitly NOT deliberate typos/bad grammar — the owner wants raw and
+// human, not sloppy. Emoji only mirrors the customer (max one, never leads).
+// This sits UNDER the org's saved Business Brain tone: tone still governs
+// formality/personality, this just forces the delivery to read like a person,
+// not a bot. The escalation contract and output JSON shape are untouched.
+const STYLE_GUIDE = [
+  "How you write: short, casual, warm, like the shop owner texting back between customers, not a corporate support bot.",
+  "Match the customer's length and energy — a one-line question gets a one or two line answer, don't over-explain or pad it out.",
+  'No em dashes, no semicolons, no bullet lists, and no stock phrases like "I\'d be happy to assist you" or "As an AI". Write plain sentences with commas, and always use contractions ("we\'re", "you\'ll", "that\'s").',
+  'Text like a real person would: it\'s fine to start a sentence lowercase sometimes, use an exclamation point here and there (sparingly), and skip formal sign-offs. Casual words like "yep", "for sure", or "no worries" are welcome when they fit the shop\'s tone.',
+  "Never add typos or bad grammar on purpose — keep it clean, just relaxed and human, not sloppy.",
+  "Only use an emoji if the customer used one first in their message, and never more than one.",
+  'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
+].join(" ")
+
+/** Builds a tight (~450 token) system prompt from the Business Brain — hours, services, prices, faq, tone — plus the texting-voice rules above. */
 function buildSystemPrompt(brain: BusinessBrain | null): string {
   const intro = brain
     ? `You are the front-desk assistant for ${brain.business_name ?? "a local business"}${
@@ -73,6 +95,7 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
   if (!brain) {
     return [
       intro,
+      STYLE_GUIDE,
       "Try to answer, qualify, or book the customer whenever you reasonably can.",
       'If you are not confident you can answer correctly, or the request needs a human (unknown pricing/policy, a complaint, anything sensitive or urgent), set needsHuman true and say why.',
     ].join(" ")
@@ -102,6 +125,7 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
   const lines = [
     intro,
     brain.tone ? `Brand voice: ${brain.tone}.` : null,
+    STYLE_GUIDE,
     description ? `About the business: ${description}` : null,
     hoursLines.length > 0 ? `Hours: ${hoursLines.join(", ")}.` : null,
     services ? `Services/prices: ${services}.` : null,

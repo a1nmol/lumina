@@ -34,7 +34,7 @@ import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { validateTwilioSignature } from "@/lib/twilio"
-import type { Contact, Conversation, Message } from "@/lib/types"
+import type { Contact, Conversation, ConversationAiMode, Message } from "@/lib/types"
 
 import { checkRateLimit, sweepStaleRateLimitBuckets } from "../../frontdesk/_shared"
 
@@ -190,9 +190,14 @@ export async function POST(request: NextRequest) {
     const isNewConversation = !conversation
 
     if (!conversation) {
+      // New conversation's AI autonomy defaults from the org's Business
+      // Brain setting (migration 0011 `business_brain.frontdesk_auto_reply`,
+      // defaults true) — 'auto' unless the owner has explicitly turned org-
+      // wide auto-reply off. See src/app/(app)/settings/frontdesk-auto-reply-card.tsx.
+      const initialAiMode: ConversationAiMode = brain?.frontdesk_auto_reply === false ? "off" : "auto"
       const { data: createdConversation, error: conversationInsertError } = await admin
         .from("conversations")
-        .insert({ org_id: orgId, contact_id: contact.id, channel: "sms" })
+        .insert({ org_id: orgId, contact_id: contact.id, channel: "sms", ai_mode: initialAiMode })
         .select()
         .single()
 
@@ -291,6 +296,24 @@ export async function POST(request: NextRequest) {
       await admin
         .from("conversations")
         .update({ ai_state: "escalated" })
+        .eq("id", conversation.id)
+        .eq("org_id", orgId)
+
+      return emptyTwiml()
+    }
+
+    if (conversation.ai_mode === "off") {
+      // This thread's AI autonomy is off (migration 0011 — the owner's
+      // per-conversation override, or the org default it was created with):
+      // the AI never sends on its own here. No SMS goes out; the draft is
+      // discarded rather than persisted verbatim (no dedicated draft-text
+      // column) — the thread surfaces as ai_state 'ai_draft' and the owner
+      // regenerates the draft on demand from the Inbox composer's "AI
+      // draft" button, exactly like a manually-requested draft on any other
+      // thread. unread is already true from the inbound-message update above.
+      await admin
+        .from("conversations")
+        .update({ ai_state: "ai_draft" })
         .eq("id", conversation.id)
         .eq("org_id", orgId)
 

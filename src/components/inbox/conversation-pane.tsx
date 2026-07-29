@@ -17,10 +17,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
-import type { ConversationStatus, Message } from "@/lib/types"
+import type { ConversationAiMode, ConversationStatus, Message } from "@/lib/types"
 
 import type { InboxConversationDetail } from "@/app/(app)/inbox/actions"
 
+import { AiModeToggle } from "./ai-mode-toggle"
 import { AiStateChip } from "./ai-state-chip"
 import { ChannelGlyph, CHANNEL_GLYPHS } from "./channel-glyphs"
 import { initialsFromName } from "./inbox-filters"
@@ -35,6 +36,7 @@ type ConversationPaneProps = {
   loading: boolean
   onBack: () => void
   onStatusChange: (status: ConversationStatus) => void
+  onAiModeChange: (mode: ConversationAiMode) => void
   onMessageSent: (message: Message) => void
   onEscalated: (conversationId: string, reason: string) => void
   onOpenContext: () => void
@@ -47,6 +49,7 @@ export function ConversationPane({
   loading,
   onBack,
   onStatusChange,
+  onAiModeChange,
   onMessageSent,
   onEscalated,
   onOpenContext,
@@ -143,6 +146,7 @@ export function ConversationPane({
               </SelectContent>
             </Select>
             <AiStateChip state={detail.ai_state} />
+            <AiModeToggle mode={detail.ai_mode} onChange={onAiModeChange} />
           </div>
         </div>
 

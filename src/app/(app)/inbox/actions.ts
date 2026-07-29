@@ -22,6 +22,7 @@ import {
   markConversationRead,
   sendMessage,
   setAiState,
+  setConversationAiMode as persistConversationAiMode,
   setConversationStatus,
   updateContactStatus,
   upsertContact,
@@ -32,6 +33,7 @@ import type {
   Appointment,
   BusinessBrain,
   ContactStatus,
+  ConversationAiMode,
   ConversationAiState,
   ConversationDetail,
   ConversationStatus,
@@ -310,6 +312,29 @@ export async function setState(conversationId: string, aiState: ConversationAiSt
 
   try {
     await setAiState(orgId, conversationId, aiState)
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/**
+ * Sets a conversation's per-thread AI autonomy — 'auto' lets the AI send
+ * replies itself, 'off' makes it draft-only (see migration 0011 and the
+ * enforcement in src/app/api/frontdesk/chat/route.ts /
+ * src/app/api/twilio/sms/route.ts). Demo-safe no-op when unconfigured — the
+ * inbox UI itself skips calling this action in demo mode (see
+ * InboxShell#handleAiModeChange) and shows the standard "changes aren't
+ * saved" toast instead, matching src/app/(app)/settings/faq-card.tsx.
+ */
+export async function setConversationAiMode(conversationId: string, mode: ConversationAiMode): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: true }
+
+  try {
+    await persistConversationAiMode(orgId, conversationId, mode)
     return { ok: true }
   } catch {
     return { ok: false }

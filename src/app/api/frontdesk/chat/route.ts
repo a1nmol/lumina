@@ -24,7 +24,7 @@ import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { sendLeadAlertEmail } from "@/lib/email"
 import { createAdminClient } from "@/lib/supabase/admin"
-import type { Contact, Conversation, Message } from "@/lib/types"
+import type { Contact, Conversation, ConversationAiMode, Message } from "@/lib/types"
 
 import { ORG_SLUG_RE, resolveWidgetOrg } from "@/app/widget/resolve-org"
 
@@ -164,9 +164,14 @@ export async function POST(request: NextRequest) {
     const isNewConversation = !conversation
 
     if (!conversation) {
+      // New conversation's AI autonomy defaults from the org's Business
+      // Brain setting (migration 0011 `business_brain.frontdesk_auto_reply`,
+      // defaults true) — 'auto' unless the owner has explicitly turned org-
+      // wide auto-reply off. See src/app/(app)/settings/frontdesk-auto-reply-card.tsx.
+      const initialAiMode: ConversationAiMode = resolved.brain?.frontdesk_auto_reply === false ? "off" : "auto"
       const { data: createdConversation, error: conversationInsertError } = await admin
         .from("conversations")
-        .insert({ org_id: resolved.orgId, contact_id: contact.id, channel: "web_chat" })
+        .insert({ org_id: resolved.orgId, contact_id: contact.id, channel: "web_chat", ai_mode: initialAiMode })
         .select()
         .single()
 
@@ -312,6 +317,26 @@ export async function POST(request: NextRequest) {
       // unread stays true so the thread surfaces under "Needs you".
       await persistEscalationReply(draft.reply)
       return NextResponse.json({ reply: draft.reply, ai: true, escalated: true })
+    }
+
+    if (conversation.ai_mode === "off") {
+      // This thread's AI autonomy is off (migration 0011 — the owner's
+      // per-conversation override, or the org default it was created with):
+      // the AI never sends on its own here. The draft above is discarded
+      // rather than persisted verbatim — there's no dedicated draft-text
+      // column, so "prepares a draft" means the thread surfaces as
+      // ai_state 'ai_draft' and the owner regenerates it on demand from the
+      // Inbox composer's "AI draft" button (same draftCustomerReply call,
+      // same conversation history), exactly like a manually-requested draft
+      // on any other thread. unread is already true from the inbound-
+      // message update above, so the thread surfaces under "Needs you".
+      await admin
+        .from("conversations")
+        .update({ ai_state: "ai_draft" })
+        .eq("id", conversation.id)
+        .eq("org_id", resolved.orgId)
+
+      return NextResponse.json({ ai: false })
     }
 
     const { data: outboundMessage, error: outboundError } = await admin

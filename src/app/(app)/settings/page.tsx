@@ -8,6 +8,7 @@ import { computeBrainCompleteness } from "./brain-completeness"
 import { BrainSummaryCard } from "./brain-summary-card"
 import { ChannelsCard } from "./channels-card"
 import { FaqCard } from "./faq-card"
+import { FrontdeskAutoReplyCard } from "./frontdesk-auto-reply-card"
 import { UsageCard } from "./usage-card"
 
 export const metadata: Metadata = { title: "Settings & Brain" }
@@ -37,6 +38,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       />
       <BrainSummaryCard brain={brain} completeness={completeness} />
       <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
+      <FrontdeskAutoReplyCard initialEnabled={brain.frontdesk_auto_reply} isLive={isSupabaseConfigured()} />
       <ChannelsCard
         connectedParam={firstParam(params.connected)}
         errorParam={firstParam(params.metaError)}

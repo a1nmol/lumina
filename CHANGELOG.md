@@ -2,6 +2,8 @@
 
 Fable adds one line here after each feature is fully built + reviewed. Newest on top.
 
+- 24/7 conversations wave: Instagram DM webhook -> live Inbox sync with AI replies (signature-verified, mid-deduped, org-mapped via social_connections, lead emails) · per-conversation AI autonomy (ai_mode auto/off toggle in every thread + org default in Settings; off = AI drafts, owner sends; enforced across chat/SMS/Instagram) · FrontDesk reply voice humanized (short, casual, texting register, no em dashes/semicolons/corporate filler, no fake typos) · widget shows a neutral ack instead of a false error on AI-off threads. Migration 0011 applied live.
+
 - Live-data purge: admin page queries real orgs/plans/usage (was 100% hardcoded demo) · studio previews + no-AI fallback drafts grounded in the org's real Business Brain (bakery fiction gone) · growth QR/embed/preview use the real org slug and the review dialog counts real phone contacts · demo brain/sidebar fallbacks replaced with honest blanks · fabricated analytics sparklines and +0% deltas removed · account settings (profile/email/password) + sidebar user menu + password-first login. Signed-in orgs now see zero demo strings anywhere.
 
 - Loop section round 2 — the Insight Card: beam-chain diagram replaced with the literal product artifact (a Lumina notification reading 'Your Tuesday cake post brought in 3 customers this week', ghost card behind, typing-dots reveal, 'Make more like this' chip); plain-language headline 'See which post brought them in.'; Wick line updated.

@@ -11,14 +11,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { cn } from "@/lib/utils"
-import type { ConversationStatus, ContactStatus, Message } from "@/lib/types"
+import type { ConversationAiMode, ConversationStatus, ContactStatus, Message } from "@/lib/types"
 
 import {
   addContactTag,
   getConversationDetail,
   markRead,
   setContactPipelineStatus,
+  setConversationAiMode,
   setState,
   setStatus,
   type InboxConversationDetail,
@@ -129,6 +131,39 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
         current.map((c) => (c.id === conversationId ? { ...c, status: previousStatus } : c))
       )
       toast.error("Couldn't update status", { description: "Please try again." })
+    }
+  }
+
+  /**
+   * Sets the selected conversation's per-thread AI autonomy (Auto/Off).
+   * Optimistic like handleStatusChange above. Demo mode is a local-only
+   * no-op with the standard "changes aren't saved" toast (matching
+   * src/app/(app)/settings/faq-card.tsx) instead of round-tripping to the
+   * server action, which would otherwise silently no-op with no feedback.
+   */
+  async function handleAiModeChange(mode: ConversationAiMode) {
+    if (!selectedDetail) return
+    const conversationId = selectedDetail.id
+    const previousMode = selectedDetail.ai_mode
+    if (mode === previousMode) return
+
+    setSelectedDetail((prev) => (prev ? { ...prev, ai_mode: mode } : prev))
+    setConversations((current) => current.map((c) => (c.id === conversationId ? { ...c, ai_mode: mode } : c)))
+
+    if (!isSupabaseConfigured()) {
+      toast.success(mode === "auto" ? "AI replies set to Auto" : "AI replies set to Off", {
+        description: "Demo mode — changes aren't saved.",
+      })
+      return
+    }
+
+    const result = await setConversationAiMode(conversationId, mode)
+    if (!result.ok) {
+      setSelectedDetail((prev) => (prev && prev.id === conversationId ? { ...prev, ai_mode: previousMode } : prev))
+      setConversations((current) =>
+        current.map((c) => (c.id === conversationId ? { ...c, ai_mode: previousMode } : c))
+      )
+      toast.error("Couldn't update AI replies", { description: "Please try again." })
     }
   }
 
@@ -279,6 +314,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
           loading={detailLoading}
           onBack={handleBack}
           onStatusChange={handleStatusChange}
+          onAiModeChange={handleAiModeChange}
           onMessageSent={handleMessageSent}
           onEscalated={handleEscalated}
           onOpenContext={() => setContextSheetOpen(true)}

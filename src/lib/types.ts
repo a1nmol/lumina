@@ -117,6 +117,8 @@ export type BusinessBrain = {
   onboarding_step: number
   completed: boolean
   updated_at: string
+  /** Org-wide default AI autonomy for NEW conversations (migration 0011). */
+  frontdesk_auto_reply: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -230,11 +232,15 @@ export type Conversation = {
   channel: ConversationChannel
   status: ConversationStatus
   ai_state: ConversationAiState
+  /** Per-thread AI autonomy: 'auto' = AI may send replies itself; 'off' = drafts only, never sends. Migration 0011. */
+  ai_mode: ConversationAiMode
   last_message_at: string | null
   unread: boolean
   created_at: string
   updated_at: string
 }
+
+export type ConversationAiMode = "auto" | "off"
 
 export type MessageDirection = "inbound" | "outbound"
 

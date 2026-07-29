@@ -34,6 +34,7 @@ function blankBusinessBrain(orgId: string): BusinessBrain {
     brand_kit: {},
     connected_channels: {},
     onboarding_step: 0,
+    frontdesk_auto_reply: true,
     completed: false,
     updated_at: new Date(0).toISOString(),
   }
@@ -308,6 +309,37 @@ export async function saveFaq(faq: BusinessFaq[]): Promise<SaveFaqResult> {
 
   const supabase = await createClient()
   const { error } = await supabase.from("business_brain").upsert({ faq, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveFrontdeskAutoReplyResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide default AI autonomy for NEW conversations (migration
+ * 0011 `business_brain.frontdesk_auto_reply`) — used by the Settings hub's
+ * FrontDesk auto-reply card (src/app/(app)/settings/frontdesk-auto-reply-card.tsx).
+ * true -> new conversations start with `ai_mode: 'auto'`; false -> 'off'
+ * (still drafts, never sends) — see the enforcement in
+ * src/app/api/frontdesk/chat/route.ts and src/app/api/twilio/sms/route.ts.
+ * The owner can always override per conversation from the Inbox regardless
+ * of this default. Independent of the wizard's step-by-step draft flow,
+ * same standalone-card pattern as saveFaq. No-ops in demo mode.
+ */
+export async function saveFrontdeskAutoReply(frontdeskAutoReply: boolean): Promise<SaveFrontdeskAutoReplyResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ frontdesk_auto_reply: frontdeskAutoReply, org_id: orgId }, { onConflict: "org_id" })
 
   return { ok: !error }
 }

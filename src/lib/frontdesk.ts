@@ -31,6 +31,7 @@ import type {
   ContactTimelineEvent,
   ContactWithTimeline,
   Conversation,
+  ConversationAiMode,
   ConversationAiState,
   ConversationChannel,
   ConversationDetail,
@@ -274,6 +275,36 @@ export async function setAiState(
 
   if (error) {
     throw new Error(`setAiState: failed to update conversation ${conversationId}: ${error.message}`)
+  }
+
+  return data
+}
+
+/**
+ * Sets a conversation's per-thread AI autonomy (migration 0011). 'auto' =
+ * the AI may send replies on its own; 'off' = the AI still drafts, but only
+ * the owner sends — see src/app/api/frontdesk/chat/route.ts and
+ * src/app/api/twilio/sms/route.ts for the enforcement side of this contract.
+ * Demo-safe no-op when unconfigured.
+ */
+export async function setConversationAiMode(
+  orgId: string,
+  conversationId: string,
+  aiMode: ConversationAiMode
+): Promise<Conversation | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ ai_mode: aiMode })
+    .eq("id", conversationId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`setConversationAiMode: failed to update conversation ${conversationId}: ${error.message}`)
   }
 
   return data
