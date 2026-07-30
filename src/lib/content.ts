@@ -15,6 +15,7 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { ContentItem, ContentRating, ContentStatus, ContentFormat, Template } from "@/lib/types"
@@ -264,7 +265,11 @@ export async function saveSlideshowMediaAsset(
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false
 
-  const supabase = await createClient()
+  // Service-role client: the "media" bucket is PRIVATE with no storage RLS
+  // policies for authenticated users — session-context uploads fail with
+  // "new row violates row-level security policy" (diagnosed live). This is
+  // a server-only path whose org is already authorized by the caller.
+  const supabase = createAdminClient()
   const bytes = await readFile(input.filePath)
   const storagePath = `${orgId}/slideshows/${input.id}.mp4`
 
@@ -276,13 +281,19 @@ export async function saveSlideshowMediaAsset(
   // above. Swallow so a missing bucket never breaks slideshow rendering.
   if (uploadError) return false
 
-  const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
+  // Signed URL, not getPublicUrl: public URLs 400 on a private bucket.
+  // One-year expiry for the pilot; revisit (public bucket or a proxy
+  // route) before assets need to outlive it.
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("media")
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+  if (signedError || !signedData?.signedUrl) return false
 
   const { error: insertError } = await supabase.from("media_assets").insert({
     org_id: orgId,
     content_id: input.contentId ?? null,
     kind: "video",
-    url: publicUrlData.publicUrl,
+    url: signedData.signedUrl,
     provider: "ffmpeg-local",
     cost_usd: 0,
     metadata: { durationSec: input.durationSec, source: "slideshow", renderId: input.id },
@@ -316,7 +327,10 @@ export async function saveRenderedPosterAsset(
 ): Promise<string | null> {
   if (!isSupabaseConfigured()) return null
 
-  const supabase = await createClient()
+  // Service-role + signed URL — same private-bucket reality as
+  // saveSlideshowMediaAsset above (RLS blocked session uploads, public
+  // URLs 400 on private buckets; both diagnosed live in production).
+  const supabase = createAdminClient()
   const id = randomUUID()
   const storagePath = `${orgId}/posters/${id}.png`
 
@@ -326,13 +340,16 @@ export async function saveRenderedPosterAsset(
 
   if (uploadError) return null
 
-  const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("media")
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+  if (signedError || !signedData?.signedUrl) return null
 
   const { error: insertError } = await supabase.from("media_assets").insert({
     org_id: orgId,
     content_id: input.contentId ?? null,
     kind: "image",
-    url: publicUrlData.publicUrl,
+    url: signedData.signedUrl,
     provider: "template-render",
     cost_usd: 0,
     metadata: { templateId: input.templateId, renderId: id },
@@ -345,7 +362,7 @@ export async function saveRenderedPosterAsset(
     console.error(`saveRenderedPosterAsset: media_assets insert failed for org ${orgId}: ${insertError.message}`)
   }
 
-  return publicUrlData.publicUrl
+  return signedData.signedUrl
 }
 
 /**
