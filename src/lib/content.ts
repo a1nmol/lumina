@@ -12,6 +12,7 @@ import "server-only"
 // so future server actions can call these unconditionally and fall back to
 // demo data exactly like src/app/(app)/studio/actions.ts does today.
 
+import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 
 import { createClient } from "@/lib/supabase/server"
@@ -288,6 +289,63 @@ export async function saveSlideshowMediaAsset(
   })
 
   return !insertError
+}
+
+export interface SaveRenderedPosterAssetInput {
+  /** The flattened PNG bytes from src/lib/templates/render.ts#renderTemplate. */
+  bytes: Buffer
+  templateId: string
+  contentId?: string | null
+}
+
+/**
+ * Uploads a code-rendered poster PNG (src/lib/templates/render.ts) to the
+ * Supabase Storage bucket "media" and records a media_assets row, mirroring
+ * saveSlideshowMediaAsset's shape above. Unlike that function, this returns
+ * the public URL directly (not a boolean) — the Studio composer needs the
+ * URL immediately to show the rendered poster in the phone-mockup preview,
+ * exactly like it already does for a fal.ai-generated raw image
+ * (src/app/(app)/studio/actions.ts). Returns null on any failure (Supabase
+ * not configured, or the "media" bucket isn't provisioned yet — see the TODO
+ * on saveSlideshowMediaAsset above) so the caller can fall back to the old
+ * raw-image path rather than losing the draft entirely.
+ */
+export async function saveRenderedPosterAsset(
+  orgId: string,
+  input: SaveRenderedPosterAssetInput
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const id = randomUUID()
+  const storagePath = `${orgId}/posters/${id}.png`
+
+  const { error: uploadError } = await supabase.storage
+    .from("media")
+    .upload(storagePath, input.bytes, { contentType: "image/png", upsert: true })
+
+  if (uploadError) return null
+
+  const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
+
+  const { error: insertError } = await supabase.from("media_assets").insert({
+    org_id: orgId,
+    content_id: input.contentId ?? null,
+    kind: "image",
+    url: publicUrlData.publicUrl,
+    provider: "template-render",
+    cost_usd: 0,
+    metadata: { templateId: input.templateId, renderId: id },
+  })
+
+  // The upload itself succeeded either way — surface the URL so the
+  // composer can still show the poster even if this bookkeeping insert
+  // failed for some reason (RLS edge case, transient error, etc).
+  if (insertError) {
+    console.error(`saveRenderedPosterAsset: media_assets insert failed for org ${orgId}: ${insertError.message}`)
+  }
+
+  return publicUrlData.publicUrl
 }
 
 /**

@@ -22,6 +22,7 @@
 // no-ops (returning { ok: true }) when Supabase isn't configured.
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
+import { designPost } from "@/lib/ai/design-post"
 import { generateContentDraft, type GeneratedContentDraft } from "@/lib/ai/generate-content"
 import { generateImage, isFalConfigured } from "@/lib/ai/generate-image"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
@@ -31,6 +32,7 @@ import {
   queueContentItem,
   rateContentItem,
   saveContentItem,
+  saveRenderedPosterAsset,
   saveSlideshowMediaAsset,
   saveTemplate,
 } from "@/lib/content"
@@ -43,6 +45,8 @@ import {
 } from "@/lib/media/slideshow"
 import { getCurrentOrgId } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
+import { renderTemplate, type RenderBackgroundInput } from "@/lib/templates/render"
+import { recordUsage } from "@/lib/usage"
 import type { BusinessBrain, ContentRating } from "@/lib/types"
 
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
@@ -80,6 +84,97 @@ function isValidAttempt(attempt: number): boolean {
 }
 
 /**
+ * The code-rendered template pipeline for a single-image post: designPost
+ * (pick a template + write field copy — src/lib/ai/design-post.ts) ->
+ * optionally generate a text-free AI background photo (fal.ai) -> renderTemplate
+ * (src/lib/templates/render.ts, Satori+resvg+sharp) -> upload the flattened
+ * PNG exactly where a raw generated image would otherwise go. Returns
+ * undefined (never throws) when designPost itself says "not available" (demo
+ * mode, no OpenRouter, or the model couldn't produce usable JSON) — that's
+ * not a failure, it's "nothing to render yet", so the caller falls through
+ * to the raw-image path below. A real render/upload failure IS caught here
+ * and logged, then also falls through — a template render is strictly an
+ * upgrade over the old raw-image path, never a way to lose the image
+ * entirely.
+ */
+async function tryTemplateRenderedPoster(params: {
+  orgId: string
+  prompt: string
+  businessBrain: BusinessBrain | null
+}): Promise<string | undefined> {
+  const designed = await designPost({ orgId: params.orgId, prompt: params.prompt, businessBrain: params.businessBrain })
+  if (!designed) return undefined
+
+  let background: RenderBackgroundInput = { type: designed.background.type === "photo_ai" ? "solid" : designed.background.type }
+  if (designed.background.type === "photo_ai" && designed.background.prompt && isFalConfigured()) {
+    try {
+      const bg = await generateImage({ orgId: params.orgId, prompt: designed.background.prompt })
+      if (bg) background = { type: "photo_ai", imageUrl: bg.url }
+      // generateImage() already records its own "images" usage/cost for this
+      // fal.ai call — no separate accounting needed for the photo itself.
+    } catch {
+      // No photo — renderTemplate/the template defs demote cleanly to a
+      // brand solid/gradient background when none is supplied.
+    }
+  }
+
+  const png = await renderTemplate({
+    templateId: designed.templateId,
+    fields: designed.fields,
+    colorway: designed.colorway,
+    background,
+    brandKit: params.businessBrain?.brand_kit ?? null,
+  })
+
+  const publicUrl = await saveRenderedPosterAsset(params.orgId, { bytes: png, templateId: designed.templateId })
+  if (!publicUrl) throw new Error("Rendered poster PNG failed to upload to Storage")
+
+  // Records the code-render step itself (distinct from the background
+  // photo's own "images" event above, which — if it happened — already
+  // carried the real fal.ai dollar cost). This event's cost is $0 (the
+  // render itself is local CPU, like src/lib/media/slideshow.ts's own
+  // units:1/cost:0 pattern) — it exists so a template-rendered poster still
+  // consumes one unit of the org's "images" allowance, same as the raw-image
+  // path it replaces.
+  await recordUsage(params.orgId, {
+    feature: "images",
+    model: "template-render",
+    units: 1,
+    costUsd: 0,
+    metadata: { templateId: designed.templateId, background: designed.background.type },
+  })
+
+  return publicUrl
+}
+
+/** Single-image post art: tries the code-rendered template pipeline first, silently falling back to the old raw fal.ai image on any failure (never blocks the draft). */
+async function generateSingleImagePost(params: {
+  orgId: string
+  prompt: string
+  businessBrain: BusinessBrain | null
+  rawImageDescription: string
+}): Promise<string | undefined> {
+  try {
+    const rendered = await tryTemplateRenderedPoster(params)
+    if (rendered) return rendered
+  } catch (error) {
+    console.error(
+      `[studio] Template-rendered poster failed, falling back to raw image generation: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+  }
+
+  if (!isFalConfigured()) return undefined
+  try {
+    const image = await generateImage({ orgId: params.orgId, prompt: params.rawImageDescription })
+    return image?.url
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Attempts real generation (content + optional image + persistence). Returns
  * null when not configured, no resolvable org, or the model couldn't produce
  * usable JSON — all of which mean "fall back to the demo draft". Throws
@@ -104,11 +199,23 @@ async function tryRealGeneration(input: GenerateDraftInput): Promise<GeneratedDr
 
   if (!generated) return null
 
-  // Image generation is best-effort: never let a fal.ai failure (including a
-  // quota denial on the separate "images" allowance) block an otherwise-good
-  // caption/hashtag draft from being returned.
+  // Image generation is best-effort: never let a rendering/fal.ai failure
+  // (including a quota denial on the separate "images" allowance) block an
+  // otherwise-good caption/hashtag draft from being returned. Single-image
+  // posts get the code-rendered template treatment (real typography, not
+  // raw diffusion text) with the old raw-image path kept as a silent
+  // fallback; carousel/slideshow formats are unaffected and keep using the
+  // raw fal.ai image directly (a template is one flattened poster, not
+  // several slides).
   let imageUrl: string | undefined
-  if (isFalConfigured()) {
+  if (input.format === "single") {
+    imageUrl = await generateSingleImagePost({
+      orgId,
+      prompt: input.prompt,
+      businessBrain,
+      rawImageDescription: generated.imageDescription,
+    })
+  } else if (isFalConfigured()) {
     try {
       const image = await generateImage({ orgId, prompt: generated.imageDescription })
       imageUrl = image?.url
