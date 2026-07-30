@@ -106,17 +106,12 @@ async function tryTemplateRenderedPoster(params: {
   const designed = await designPost({ orgId: params.orgId, prompt: params.prompt, businessBrain: params.businessBrain })
   if (!designed) return undefined
 
-  let background: RenderBackgroundInput = { type: designed.background.type === "photo_ai" ? "solid" : designed.background.type }
-  if (designed.background.type === "photo_ai" && designed.background.prompt && isFalConfigured()) {
-    try {
-      const bg = await generateImage({ orgId: params.orgId, prompt: designed.background.prompt })
-      if (bg) background = { type: "photo_ai", imageUrl: bg.url }
-      // generateImage() already records its own "images" usage/cost for this
-      // fal.ai call — no separate accounting needed for the photo itself.
-    } catch {
-      // No photo — renderTemplate/the template defs demote cleanly to a
-      // brand solid/gradient background when none is supplied.
-    }
+  // Owner product law (memory: graphics-style-rules): AI-image poster
+  // backgrounds are banned — flat color/gradient/shape compositions only.
+  // designPost no longer offers photo_ai; this coercion guards against any
+  // stale/misparsed value ever reaching the renderer.
+  const background: RenderBackgroundInput = {
+    type: designed.background.type === "photo_ai" ? "gradient" : designed.background.type,
   }
 
   const png = await renderTemplate({
@@ -125,6 +120,7 @@ async function tryTemplateRenderedPoster(params: {
     colorway: designed.colorway,
     background,
     theme: designed.theme ?? undefined,
+    elements: designed.elements,
     brandKit: params.businessBrain?.brand_kit ?? null,
     // Fresh seed per render: accent-arrangement variety across
     // generations (and honest variety on Regenerate). Tests use fixed

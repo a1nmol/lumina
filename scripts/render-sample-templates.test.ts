@@ -18,8 +18,11 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { pickFillStrategy } from "@/lib/templates/density"
 import { renderTemplate } from "@/lib/templates/render"
+import { TEMPLATE_SIZES } from "@/lib/templates/types"
 import type { BrandKit } from "@/lib/types"
+import { pickAxis } from "@/lib/templates/variants"
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 /** A real rendered poster (1080-wide, real typography) should always be well above this — a corrupt/near-blank render would be far smaller. */
@@ -191,8 +194,9 @@ describe("render-sample-templates (script)", () => {
     )
 
     // Wave 3 — themed decorative stickers (src/lib/templates/themes.ts +
-    // decorations.ts#stickerElement). Proves the vendored Noto/IconPark SVGs
-    // actually composite through Satori+resvg (a broken SVG here would
+    // decorations.ts#stickerElement). Proves the vendored IconPark/MingCute
+    // SVGs (Wave 4 — drawn-style, Noto retired) actually composite through
+    // Satori+resvg (a broken SVG here would
     // either throw or silently shrink the PNG well under
     // MIN_NONTRIVIAL_PNG_BYTES) and that the palette hint blends into the
     // resolved colors without breaking the render.
@@ -314,5 +318,263 @@ describe("render-sample-templates (script)", () => {
       fields: baseFields,
     })
     expect(repeatPng.equals(pngs[0])).toBe(true)
+  })
+
+  // ==========================================================================
+  // Wave 4 — semantic elements + connectors + anti-repetition + fill-the-canvas
+  // ==========================================================================
+
+  it("(a) renders a hackathon event-poster with THREE different seeds — pairwise distinct compositions, never identical", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-hackathon-"))
+    const hackathonFields = {
+      eyebrow: "Saturday, March 14",
+      headline: "Local Business AI Hackathon",
+      highlight: "$1,000 PRIZE POOL",
+      subhead: "Build the future of small-business tools in 24 hours.",
+      dateLine: "March 14–15, 2026",
+      locationLine: "Downtown Innovation Hub",
+      ctaLine: "Register free — link in bio",
+    }
+    const seeds = ["hackathon-alpha", "hackathon-bravo", "hackathon-charlie"]
+
+    // Eyeball-report which axes actually differ per seed, straight from the
+    // same pure pickAxis() the template itself uses — a cheap, honest way to
+    // confirm this isn't a no-op before even looking at the PNGs.
+    const HEADLINE_ALIGNMENTS = ["left", "center", "stacked-banner"] as const
+    const COMPOSITIONS = ["type-dominant", "element-dominant", "split"] as const
+    const BIG_ACCENTS = ["ring", "band", "dots", "blob"] as const
+    for (const seed of seeds) {
+      console.log(
+        `[render-sample-templates] event-poster-v1 axis report seed="${seed}": ` +
+          `headlineAlignment=${pickAxis(seed, "headlineAlignment", HEADLINE_ALIGNMENTS)}, ` +
+          `composition=${pickAxis(seed, "composition", COMPOSITIONS)}, ` +
+          `bigAccent=${pickAxis(seed, "bigAccent", BIG_ACCENTS)}`
+      )
+    }
+
+    const pngs: Buffer[] = []
+    for (const seed of seeds) {
+      const png = await renderTemplate({
+        templateId: "event-poster-v1",
+        colorway: "brand",
+        background: { type: "gradient" },
+        brandKit: SAMPLE_BRAND_KIT,
+        seed,
+        fields: hackathonFields,
+      })
+      assertRealPng(png)
+      pngs.push(png)
+      const outPath = await renderAndSave(`wave4-hackathon-${seed}`, dir, png)
+      console.log(`[render-sample-templates] (a) event-poster-v1 (seed="${seed}") -> ${outPath} (${png.length} bytes)`)
+    }
+
+    expect(pngs[0].equals(pngs[1])).toBe(false)
+    expect(pngs[0].equals(pngs[2])).toBe(false)
+    expect(pngs[1].equals(pngs[2])).toBe(false)
+  })
+
+  it("(b) sparse-input promo-v1 (offer field only, rich density) fills the canvas via exactly one fill strategy", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-sparse-"))
+    // No finePrint at all — the only optional field on promo-v1 — so
+    // computeDensityMode(...) is always "rich" for this render (see
+    // promo-v1.ts's module header). "promo-sparse-2" is a hand-picked seed
+    // whose connector axis lands on "none" (verified via pickAxis below) so
+    // the fill strategy is guaranteed to actually apply (applyFill requires
+    // !useConnector) rather than being silently skipped.
+    const seed = "promo-sparse-2"
+    const connectorPool = ["none", "none", "none", "scribble-circle", "starburst", "scribble-underline", "curved-arrow"] as const
+    const connectorChoice = pickAxis(seed, "connector", connectorPool)
+    expect(connectorChoice).toBe("none")
+    const firedStrategy = pickFillStrategy(seed)
+    console.log(`[render-sample-templates] (b) promo-v1 sparse-fill seed="${seed}" fired fillStrategy="${firedStrategy}"`)
+
+    const png = await renderTemplate({
+      templateId: "promo-v1",
+      colorway: "brand",
+      background: { type: "solid" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed,
+      fields: {
+        offer: "20% OFF",
+        offerLine: "Everything in store, this weekend",
+        finePrint: "",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave(`wave4-promo-sparse-${firedStrategy}`, dir, png)
+    console.log(`[render-sample-templates] (b) promo-v1 (seed="${seed}") -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(c) café promo renders with semantic Tier-B topic elements (vendored coffee/cake icons) — square, per format-density coupling", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-cafe-"))
+    // Unpinned — this is the "café promo square seed" proof: promo-v1's
+    // densityMode is always "rich" (only one optional field), so
+    // render.ts's format-density coupling (resolveFormat) now keeps the
+    // seeded auto-pick on square for this content rather than portrait.
+    const png = await renderTemplate({
+      templateId: "promo-v1",
+      colorway: "brand",
+      background: { type: "solid" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed: "cafe-promo-elements",
+      elements: ["coffee-machine", "cake-slice"],
+      fields: {
+        offer: "BOGO",
+        offerLine: "Buy one latte, get one free — this week only",
+        finePrint: "Dine-in only.",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave("wave4-cafe-promo-elements-square", dir, png)
+    console.log(`[render-sample-templates] (c) promo-v1 with elements=["coffee-machine","cake-slice"] (auto-picked square) -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(c2) design-review round 2 proof: the SAME café promo copy, explicitly pinned to portrait, must still read full (tall-format mid-band guarantee)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-cafe-portrait-"))
+    // An explicit size pin always overrides the format-density coupling
+    // (real callers — e.g. the Composer's own format picker — can and do
+    // request portrait for sparse content) — this is exactly the scenario
+    // decorations.ts#midBandFiller exists to cover.
+    const png = await renderTemplate({
+      templateId: "promo-v1",
+      colorway: "brand",
+      background: { type: "solid" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed: "cafe-promo-elements",
+      size: TEMPLATE_SIZES.portrait,
+      elements: ["coffee-machine", "cake-slice"],
+      fields: {
+        offer: "BOGO",
+        offerLine: "Buy one latte, get one free — this week only",
+        finePrint: "Dine-in only.",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave("wave4-cafe-promo-elements-portrait-pinned", dir, png)
+    console.log(`[render-sample-templates] (c2) promo-v1 with elements (pinned portrait) -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(d) connector showcase: event poster with a scribble-circle wrapping the prize badge", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-connector-"))
+    // "probe-seed-2" is a hand-picked seed whose connector axis lands on
+    // "scribble-circle" for a render with both `highlight` and `subhead`
+    // present (verified via pickAxis below) — the exact pairing rule this
+    // proves: a connector wraps ONLY the highlight/price field.
+    const seed = "probe-seed-2"
+    const connectorPool = [
+      "none",
+      "none",
+      "none",
+      "curved-arrow",
+      "scribble-underline",
+      "scribble-circle",
+      "starburst",
+    ] as const
+    const connectorChoice = pickAxis(seed, "connector", connectorPool)
+    expect(["scribble-circle", "starburst", "curved-arrow"]).toContain(connectorChoice)
+    console.log(`[render-sample-templates] (d) event-poster-v1 connector showcase seed="${seed}" fired connector="${connectorChoice}"`)
+
+    const png = await renderTemplate({
+      templateId: "event-poster-v1",
+      colorway: "brand",
+      background: { type: "gradient" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed,
+      fields: {
+        eyebrow: "Saturday Night",
+        headline: "Trivia Night Championship",
+        highlight: "$500 CASH PRIZE",
+        subhead: "Six rounds, top team takes it all.",
+        dateLine: "Every Thursday, 8pm",
+        locationLine: "The Tap Room",
+        ctaLine: "Reserve your table",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave(`wave4-connector-showcase-${connectorChoice}`, dir, png)
+    console.log(`[render-sample-templates] (d) event-poster-v1 (seed="${seed}") -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(e) design-review fix proof: promo-v1 café with ALL fields filled + elements — balanced full-height fill, no connector", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-cafe-full-"))
+    // "cafe-full-0" is a hand-picked seed whose connector axis lands on
+    // "none" (verified via pickAxis below) — isolates the pure
+    // space-between vertical-fill layout (top-weighted offer + bottom bar
+    // flanking fine print with the element chip cluster) from any
+    // connector's own visual interest.
+    const seed = "cafe-full-0"
+    const connectorPool = ["none", "none", "none", "scribble-circle", "starburst", "scribble-underline", "curved-arrow"] as const
+    const connectorChoice = pickAxis(seed, "connector", connectorPool)
+    expect(connectorChoice).toBe("none")
+
+    const png = await renderTemplate({
+      templateId: "promo-v1",
+      colorway: "brand",
+      background: { type: "solid" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed,
+      elements: ["coffee-machine", "cake-slice"],
+      fields: {
+        offer: "15% OFF",
+        offerLine: "All pastries, every weekday morning",
+        finePrint: "While supplies last. One per customer.",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave("wave4-cafe-promo-all-fields", dir, png)
+    console.log(`[render-sample-templates] (e) promo-v1 all-fields (seed="${seed}", connector="${connectorChoice}") -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(f) design-review round 2 proof: story-format (1080x1920) event poster proves the tall-format mid-band guarantee scales past portrait", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-story-"))
+    // Explicitly pinned to story — event-poster-v1's densest sample content
+    // (the hackathon fields) is rich enough it could plausibly auto-pick a
+    // tall format on its own, but pinning removes any doubt and directly
+    // proves the guarantee at the tallest aspect ratio this catalog ships.
+    const seed = "story-format-proof"
+    const png = await renderTemplate({
+      templateId: "event-poster-v1",
+      colorway: "brand",
+      background: { type: "gradient" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed,
+      size: TEMPLATE_SIZES.story,
+      fields: {
+        eyebrow: "Saturday, March 14",
+        headline: "Local Business AI Hackathon",
+        highlight: "$1,000 PRIZE POOL",
+        subhead: "Build the future of small-business tools in 24 hours.",
+        dateLine: "March 14–15, 2026",
+        locationLine: "Downtown Innovation Hub",
+        ctaLine: "Register free — link in bio",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave("wave4-event-poster-story-format", dir, png)
+    console.log(`[render-sample-templates] (f) event-poster-v1 story-format (seed="${seed}") -> ${outPath} (${png.length} bytes)`)
+  })
+
+  it("(g) design-review round 2 proof: sparse-input story-format event poster (no highlight/subhead/location) still fills the mid-band", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lumina-template-samples-wave4-story-sparse-"))
+    // Required fields only — the sparsest case, and the one most likely to
+    // land in the "elements-only"/"sparse-plain" branch where nothing else
+    // would otherwise occupy the mid-gap.
+    const seed = "story-sparse-proof"
+    const png = await renderTemplate({
+      templateId: "event-poster-v1",
+      colorway: "brand",
+      background: { type: "gradient" },
+      brandKit: SAMPLE_BRAND_KIT,
+      seed,
+      size: TEMPLATE_SIZES.story,
+      fields: {
+        headline: "Fresh Bagels Every Morning",
+        dateLine: "Every day, 7am–2pm",
+        ctaLine: "Stop by today",
+      },
+    })
+    assertRealPng(png)
+    const outPath = await renderAndSave("wave4-event-poster-story-sparse", dir, png)
+    console.log(`[render-sample-templates] (g) event-poster-v1 story-format sparse (seed="${seed}") -> ${outPath} (${png.length} bytes)`)
   })
 })

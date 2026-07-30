@@ -6,15 +6,19 @@
 // a brand-toned diagonal gradient (never a flat single color — a bare block
 // with one line of text reads unfinished).
 //
-// Decoration: intentionally almost none — a thin accentBar above the
-// caption is the only accent, and it's a coin-flip per seed whether it even
-// shows, exactly per the "restraint" half of the design method. The logo
-// (when present) sits opposite the caption so it never has to fight it.
+// Wave 4 variety axes (alignment + accent + connector only, per the brief —
+// this template has exactly one field, so there's no room for
+// composition/scalePlay/density to mean anything):
+//   alignment: left (unchanged) or center — the caption line's own
+//     alignment; the logo corner still independently alternates per seed.
+//   accentBar: the existing show/hide coin-flip, now a named axis.
+//   connector: none (weighted, restraint is the whole point of this
+//     template) / scribble-underline under the caption.
 
-import { autofitText } from "../autofit"
-import { accentBar } from "../decorations"
+import { autofitText, measureTextWidth } from "../autofit"
+import { accentBar, scribbleUnderline, type ConnectorKey } from "../decorations"
 import { box, el, img, type PhotoLayerSpec, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema, type TemplateSize } from "../types"
-import { pickVariant } from "../variants"
+import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1350 }
 const SAFE_MARGIN_RATIO = 0.06
@@ -24,10 +28,17 @@ const FIELDS: TemplateFieldSchema[] = [
   { key: "caption", label: "Caption", required: true, maxChars: 90, helpText: "One short line — this template keeps text minimal by design" },
 ]
 
-const VARIANTS = [{ showAccentBar: true, logoCorner: "top-left" as const }, { showAccentBar: false, logoCorner: "top-right" as const }]
+const ALIGNMENTS = ["left", "center"] as const
+type Alignment = (typeof ALIGNMENTS)[number]
+const ACCENT_BAR_OPTIONS = ["show", "hide"] as const
+const LOGO_CORNERS = ["top-left", "top-right"] as const
 
 function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
+}
+
+function connectorPool(): Array<ConnectorKey | "none"> {
+  return ["none", "none", "none", "none", "scribble-underline"]
 }
 
 function buildPhotoCaption(ctx: TemplateBuildContext) {
@@ -36,7 +47,13 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
   const contentWidth = size.width - m * 2
   const hasPhoto = backgroundKind === "photo_ai"
 
-  const variant = VARIANTS[pickVariant(seed, VARIANTS.length)]
+  const alignment: Alignment = pickAxis(seed, "alignment", ALIGNMENTS)
+  const showAccentBar = pickAxis(seed, "accentBar", ACCENT_BAR_OPTIONS) === "show"
+  const logoCorner = pickAxis(seed, "logoCorner", LOGO_CORNERS)
+  const isCentered = alignment === "center"
+
+  const connectorChoice = pickAxis(seed, "connector", connectorPool())
+  const useConnector = connectorChoice !== "none"
 
   const captionFit = autofitText({
     text: fields.caption,
@@ -52,6 +69,8 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
     box(
       {
         flexDirection: "row",
+        justifyContent: isCentered ? "center" : "flex-start",
+        textAlign: isCentered ? "center" : "left",
         fontFamily,
         fontWeight: 700,
         fontSize: captionFit.fontSize,
@@ -70,6 +89,11 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
     ? {} // photo_ai: leave transparent — render.ts composites the photo + scrim underneath.
     : { backgroundImage: `linear-gradient(150deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
 
+  const captionUnderline =
+    useConnector && connectorChoice === "scribble-underline"
+      ? scribbleUnderline(measureTextWidth(captionFit.lines[captionFit.lines.length - 1] ?? fields.caption, captionFit.fontSize), roles.accent, seed, 7)
+      : null
+
   return el("div", {
     style: {
       display: "flex",
@@ -87,12 +111,13 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
         ? box({
             position: "absolute",
             top: m,
-            ...(variant.logoCorner === "top-left" ? { left: m } : { right: m }),
+            ...(logoCorner === "top-left" ? { left: m } : { right: m }),
           }, [img(logoDataUri, { width: 60, height: 60, objectFit: "contain", borderRadius: 10 })])
         : null,
-      box({ flexDirection: "column" }, [
-        variant.showAccentBar ? box({ marginBottom: 18 }, [accentBar(64, 4, roles.accent, 3)]) : null,
+      box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start" }, [
+        showAccentBar ? box({ marginBottom: 18 }, [accentBar(64, 4, roles.accent, 3)]) : null,
         box({ flexDirection: "column" }, captionLines),
+        captionUnderline ? box({ marginTop: 2 }, [captionUnderline]) : null,
       ]),
     ].filter(Boolean),
   })

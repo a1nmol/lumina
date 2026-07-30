@@ -15,6 +15,7 @@ import "server-only"
 
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { clampFieldsToSchema, getTemplate, listTemplates } from "@/lib/templates/catalog"
+import { elementCatalogKeys, parseElementKeys } from "@/lib/templates/elements"
 import { isThemeKey, THEMES } from "@/lib/templates/themes"
 import type { Colorway } from "@/lib/templates/types"
 import type { BusinessBrain } from "@/lib/types"
@@ -46,6 +47,8 @@ export interface DesignedPost {
   colorway: Colorway
   background: DesignedBackground
   theme: DesignedTheme
+  /** Wave 4 — semantic elements (0-4 keys from elements.ts's combined catalog) chosen by breaking down the request's concepts (e.g. "hackathon" -> keyboard/code/trophy). Passed straight into render.ts#renderTemplate's `RenderTemplateInput.elements`. */
+  elements: string[]
   model: string
   costUsd: number
 }
@@ -54,7 +57,11 @@ const MAX_PROMPT_LENGTH = 2000
 const MAX_BACKGROUND_PROMPT_LENGTH = 300
 const MAX_RETRIES = 1 // one regeneration attempt on parse failure, matching generate-content.ts / frontdesk-reply.ts.
 const VALID_COLORWAYS: readonly Colorway[] = ["brand", "dark", "light"]
-const VALID_BACKGROUND_TYPES: readonly DesignBackgroundType[] = ["solid", "gradient", "photo_ai"]
+// Owner product law (memory: graphics-style-rules): AI-image backgrounds
+// are BANNED — solid/gradient shape compositions only. photo_ai remains in
+// the type union solely so old stored values parse; it is never offered to
+// the model and is coerced to "gradient" if it ever appears.
+const VALID_BACKGROUND_TYPES: readonly DesignBackgroundType[] = ["solid", "gradient"]
 
 /** Appended to every photo_ai background prompt so the background stays a clean, text-free plate the composited typography sits on top of. */
 const PHOTO_AI_PROMPT_SUFFIX =
@@ -89,10 +96,13 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
     ...catalogLines,
     "Every field value MUST fit within its stated max character count — write to length, don't rely on truncation.",
     'Pick "colorway": "brand" (default, uses the business\'s own brand color), "dark", or "light".',
-    'Pick "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}. Only set type "photo_ai" (with a vivid, text-free scene description in prompt) when a real photo would clearly elevate this specific post and the template allows it — otherwise use "solid" or "gradient" with prompt null.',
+    'Pick "background": {"type": "solid"|"gradient", "prompt": null}. Never suggest photographic or AI-image backgrounds — posters are flat color/gradient/shape compositions by design.',
     'Pick "theme": {"key": string} or null. Available theme keys:',
     ...themeCatalogLines(),
     'Only set a theme when the request CLEARLY references a specific occasion, festival, or celebration by name or unmistakable implication (e.g. "Christmas sale", "Halloween special", "our anniversary party" -> "celebration-generic"). Default to null — most requests are NOT themed. Never guess a theme from a generic promo/announcement with no occasion mentioned.',
+    'Pick "elements": a list of 0-4 keys from this catalog, chosen by breaking down the SPECIFIC concepts in the request (e.g. a hackathon -> ["keyboard","code","trophy"]; a yoga studio\'s new class -> ["yoga"]; a plain "20% off this weekend" with no vertical mentioned -> []). Never invent a key not in this list — drop anything you\'re unsure of instead:',
+    elementCatalogKeys().join(", "),
+    'Elements are a light finishing touch, not required — most requests need 0-2. Never pick "confetti" unless the request is genuinely celebratory (a party, a grand opening, a milestone) — not for routine promos.',
   ].join("\n")
 }
 
@@ -101,7 +111,7 @@ function buildUserPrompt(prompt: string): string {
     `Design request: ${prompt}`,
     "",
     "Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape:",
-    '{"template_id": string, "fields": { [fieldKey: string]: string }, "colorway": "brand"|"dark"|"light", "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}, "theme": {"key": string}|null}',
+    '{"template_id": string, "fields": { [fieldKey: string]: string }, "colorway": "brand"|"dark"|"light", "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}, "theme": {"key": string}|null, "elements": string[]}',
   ].join("\n")
 }
 
@@ -111,6 +121,7 @@ interface ParsedDesignJson {
   colorway: Colorway
   background: DesignedBackground
   theme: DesignedTheme
+  elements: string[]
 }
 
 /** Defensively extracts + validates the model's JSON reply. Returns null on any shape/length/unknown-template problem, which callers treat as "retry, then give up." */
@@ -152,8 +163,9 @@ function parseDesignJson(raw: string): ParsedDesignJson | null {
 
   const background = parseBackground(def.allowedBackgrounds, obj.background)
   const theme = parseTheme(obj.theme)
+  const elements = parseElementKeys(obj.elements)
 
-  return { templateId, fields, colorway, background, theme }
+  return { templateId, fields, colorway, background, theme, elements }
 }
 
 /** Defensively parses the model's `"theme"` field — an unrecognized key (typo, invented key, or a stale key from a future/removed theme) demotes to null rather than failing the whole parse, since a theme is always optional decoration, never required content. */

@@ -42,7 +42,7 @@
   },
   "devDependencies": {
     "@iconify-json/icon-park": "^1.2.4",
-    "@iconify-json/noto": "^1.2.7",
+    "@iconify-json/mingcute": "^1.2.7",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

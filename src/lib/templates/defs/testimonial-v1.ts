@@ -1,16 +1,24 @@
 // testimonial-v1 — a customer-review card (1080x1080, square). A fixed row
 // of 5 star iconChips up top, an autofit quote (same auto-fit discipline as
 // quote-v1), then attribution + an optional role/context line. Restrained
-// by design (per the brief) — no watermark, no bleed accent; the only
-// per-render variety is which resolved role colors the stars and whether a
-// short accentBar sits under the attribution. Background: calm solid/
+// by design — no watermark, no bleed accent. Background: calm solid/
 // gradient only — never a photo, for the same long-form-text-legibility
 // reason as quote-v1.
+//
+// Wave 4 variety axes (alignment + accent + connector only, per the brief):
+//   alignment: center (unchanged) or left.
+//   accentBar (the existing show/hide toggle, now a named pickAxis-driven
+//     axis) x paletteRole (which resolved role colors the stars/bar) — two
+//     independent axes instead of one combined 3-option VARIANTS array, so
+//     they vary independently.
+//   connector: none (weighted) / scribble-underline under the attribution
+//     line (always present, required) / tape-strip pinned at the top —
+//     a review card "pinned up" is a natural, restrained motif fit.
 
-import { autofitText } from "../autofit"
-import { accentBar, iconChip } from "../decorations"
+import { autofitText, measureTextWidth } from "../autofit"
+import { accentBar, iconChip, positioned, scribbleUnderline, tapeStrip, type ConnectorKey } from "../decorations"
 import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
-import { pickVariant } from "../variants"
+import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
 const SAFE_MARGIN_RATIO = 0.08
@@ -22,19 +30,17 @@ const FIELDS: TemplateFieldSchema[] = [
   { key: "context", label: "Context", required: false, maxChars: 40, helpText: "e.g. Verified customer, regular since 2019" },
 ]
 
-interface Variant {
-  useUnderRole: boolean
-  showAccentBar: boolean
-}
-
-const VARIANTS: Variant[] = [
-  { useUnderRole: false, showAccentBar: false },
-  { useUnderRole: true, showAccentBar: true },
-  { useUnderRole: false, showAccentBar: true },
-]
+const ALIGNMENTS = ["center", "left"] as const
+type Alignment = (typeof ALIGNMENTS)[number]
+const PALETTE_ROLES = ["accent", "primary"] as const
+const ACCENT_BAR_OPTIONS = ["show", "hide"] as const
 
 function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
+}
+
+function connectorPool(): Array<ConnectorKey | "none"> {
+  return ["none", "none", "none", "scribble-underline", "tape-strip"]
 }
 
 function buildTestimonial(ctx: TemplateBuildContext) {
@@ -42,11 +48,17 @@ function buildTestimonial(ctx: TemplateBuildContext) {
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
 
-  const variant = VARIANTS[pickVariant(seed, VARIANTS.length)]
-  const starColor = variant.useUnderRole ? roles.primary : roles.accent
+  const alignment: Alignment = pickAxis(seed, "alignment", ALIGNMENTS)
+  const paletteRole = pickAxis(seed, "paletteRole", PALETTE_ROLES)
+  const showAccentBar = pickAxis(seed, "accentBar", ACCENT_BAR_OPTIONS) === "show"
+  const starColor = paletteRole === "primary" ? roles.primary : roles.accent
+  const isCentered = alignment === "center"
+
+  const connectorChoice = ctx.theme ? "none" : pickAxis(seed, "connector", connectorPool())
+  const useConnector = connectorChoice !== "none"
 
   const starsRow = box(
-    { flexDirection: "row", justifyContent: "center" },
+    { flexDirection: "row", justifyContent: isCentered ? "center" : "flex-start" },
     Array.from({ length: 5 }, (_, index) => box({ marginLeft: index === 0 ? 0 : 6 }, [iconChip("star", starColor, 28)]))
   )
 
@@ -71,8 +83,8 @@ function buildTestimonial(ctx: TemplateBuildContext) {
     box(
       {
         flexDirection: "row",
-        justifyContent: "center",
-        textAlign: "center",
+        justifyContent: isCentered ? "center" : "flex-start",
+        textAlign: isCentered ? "center" : "left",
         fontFamily,
         fontWeight: 700,
         fontSize: quoteFit.fontSize,
@@ -89,40 +101,45 @@ function buildTestimonial(ctx: TemplateBuildContext) {
       ? { backgroundImage: `linear-gradient(135deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  const attributionUnderline =
+    useConnector && connectorChoice === "scribble-underline"
+      ? scribbleUnderline(measureTextWidth(fields.attribution, 26), roles.accent, seed, 7)
+      : null
+
+  const tapeStripEl =
+    useConnector && connectorChoice === "tape-strip" ? positioned(tapeStrip(120, 44, roles.accent, seed, 0.8), { top: -14, left: Math.round(size.width * 0.5 - 60) }) : null
+
   return el("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      alignItems: "center",
+      alignItems: isCentered ? "center" : "flex-start",
+      position: "relative",
       width: size.width,
       height: size.height,
       padding: m,
       fontFamily,
+      overflow: "hidden",
       ...rootBackgroundStyle,
     },
     children: [
+      tapeStripEl,
       starsRow,
-      box({ flexDirection: "column", alignItems: "center", overflow: "hidden", marginTop: 30 }, quoteLines),
-      variant.showAccentBar ? box({ marginTop: 26 }, [accentBar(56, 4, roles.accent, 3)]) : null,
-      box(
-        {
-          flexDirection: "row",
-          justifyContent: "center",
-          marginTop: variant.showAccentBar ? 22 : 32,
-          fontFamily,
-          fontWeight: 700,
-          fontSize: 26,
-          color: roles.accent,
-          letterSpacing: "0.01em",
-        },
-        fields.attribution
-      ),
+      box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", overflow: "hidden", marginTop: 30 }, quoteLines),
+      showAccentBar ? box({ marginTop: 26 }, [accentBar(56, 4, roles.accent, 3)]) : null,
+      box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", marginTop: showAccentBar ? 22 : 32 }, [
+        box(
+          { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 26, color: roles.accent, letterSpacing: "0.01em" },
+          fields.attribution
+        ),
+        attributionUnderline ? box({ marginTop: -4 }, [attributionUnderline]) : null,
+      ]),
       fields.context
         ? box(
             {
               flexDirection: "row",
-              justifyContent: "center",
+              justifyContent: isCentered ? "center" : "flex-start",
               marginTop: 6,
               fontFamily,
               fontWeight: 400,
@@ -134,7 +151,7 @@ function buildTestimonial(ctx: TemplateBuildContext) {
           )
         : null,
       logoDataUri
-        ? box({ flexDirection: "row", justifyContent: "center", marginTop: 24 }, [
+        ? box({ flexDirection: "row", justifyContent: isCentered ? "center" : "flex-start", marginTop: 24 }, [
             img(logoDataUri, { width: LOGO_SIZE, height: LOGO_SIZE, objectFit: "contain", borderRadius: 8 }),
           ])
         : null,

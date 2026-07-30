@@ -5,15 +5,20 @@
 // wants the detail. Background: calm solid/gradient only — no photo, this
 // is a reference card people screenshot, not a mood piece.
 //
-// Decoration: a single clock iconChip grounds the title; ruleLine dividers
-// separate the day rows. No large bleed accent — "calm background" per the
-// brief — the only per-render variety is which resolved role colors the
-// chip/dividers/label text.
+// Wave 4 variety axes (alignment + accent + connector only, per the brief —
+// kept deliberately quiet to respect this template's own "calm background,
+// no large bleed accent" design intent):
+//   alignment: left (unchanged) or center.
+//   accent: "none" (unchanged default) or a single very quiet corner dot
+//     patch — real variety without breaking the calm read.
+//   connector: none (weighted) / tape-strip peeking off the top edge (a
+//     card "taped to the window" — an apt motif for an hours card) /
+//     scribble-underline under the title.
 
-import { autofitText } from "../autofit"
-import { iconChip, ruleLine } from "../decorations"
+import { autofitText, measureTextWidth } from "../autofit"
+import { dotGrid, iconChip, positioned, ruleLine, scribbleUnderline, tapeStrip, type ConnectorKey } from "../decorations"
 import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
-import { pickVariant } from "../variants"
+import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
 const SAFE_MARGIN_RATIO = 0.075
@@ -52,15 +57,28 @@ function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
 }
 
-const VARIANTS = [{ useUnderRole: false }, { useUnderRole: true }]
+const ALIGNMENTS = ["left", "center"] as const
+type Alignment = (typeof ALIGNMENTS)[number]
+const PALETTE_ROLES = ["accent", "primary"] as const
+const ACCENTS = ["none", "dots"] as const
+
+function connectorPool(): Array<ConnectorKey | "none"> {
+  return ["none", "none", "none", "tape-strip", "scribble-underline"]
+}
 
 function buildHours(ctx: TemplateBuildContext) {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
 
-  const variant = VARIANTS[pickVariant(seed, VARIANTS.length)]
-  const accentColor = variant.useUnderRole ? roles.primary : roles.accent
+  const alignment: Alignment = pickAxis(seed, "alignment", ALIGNMENTS)
+  const paletteRole = pickAxis(seed, "paletteRole", PALETTE_ROLES)
+  const accentOption = pickAxis(seed, "accent", ACCENTS)
+  const accentColor = paletteRole === "primary" ? roles.primary : roles.accent
+  const isCentered = alignment === "center"
+
+  const connectorChoice = ctx.theme ? "none" : pickAxis(seed, "connector", connectorPool())
+  const useConnector = connectorChoice !== "none"
 
   const titleFit = autofitText({
     text: fields.title,
@@ -88,19 +106,38 @@ function buildHours(ctx: TemplateBuildContext) {
       ? { backgroundImage: `linear-gradient(160deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  // Only offered in left alignment — the underline's offset math assumes a
+  // left-anchored title row (icon + text), which centered mode doesn't have
+  // a stable anchor for without extra measurement this template doesn't do.
+  const titleUnderline =
+    useConnector && connectorChoice === "scribble-underline" && !isCentered
+      ? scribbleUnderline(measureTextWidth(titleFit.lines[0] ?? fields.title, titleFit.fontSize), accentColor, seed, 7)
+      : null
+
+  const tapeStripEl =
+    useConnector && connectorChoice === "tape-strip"
+      ? positioned(tapeStrip(110, 40, accentColor, seed, 0.7), { top: -18, left: Math.round(size.width * 0.5 - 55) })
+      : null
+
+  const cornerDots = accentOption === "dots" ? positioned(dotGrid(4, 4, 8, 13, accentColor, 0.22), { bottom: m, right: -Math.round(m * 0.3) }) : null
+
   return el("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
+      position: "relative",
       width: size.width,
       height: size.height,
       padding: m,
       fontFamily,
+      overflow: "hidden",
       ...rootBackgroundStyle,
     },
     children: [
-      box({ flexDirection: "row", alignItems: "center" }, [
+      tapeStripEl,
+      cornerDots,
+      box({ flexDirection: "row", alignItems: "center", justifyContent: isCentered ? "center" : "flex-start" }, [
         iconChip("clock", accentColor, 30),
         box({ width: 12, height: 1 }),
         box(
@@ -108,18 +145,30 @@ function buildHours(ctx: TemplateBuildContext) {
           titleFit.lines[0] ?? fields.title
         ),
       ]),
+      titleUnderline ? box({ marginTop: -2, marginLeft: 42 }, [titleUnderline]) : null,
       box(
-        { flexDirection: "row", marginTop: 20, fontFamily, fontWeight: 400, fontSize: 28, lineHeight: 1.35, color: roles.textOnDark, opacity: 0.82 },
+        {
+          flexDirection: "row",
+          justifyContent: isCentered ? "center" : "flex-start",
+          textAlign: isCentered ? "center" : "left",
+          marginTop: 20,
+          fontFamily,
+          fontWeight: 400,
+          fontSize: 28,
+          lineHeight: 1.35,
+          color: roles.textOnDark,
+          opacity: 0.82,
+        },
         fields.summary
       ),
       hasRows
-        ? box({ flexDirection: "column", marginTop: 36 }, [
+        ? box({ flexDirection: "column", marginTop: 36, width: contentWidth }, [
             box({ opacity: 0.4 }, [ruleLine(contentWidth, accentColor, 1)]),
             box({ flexDirection: "column" }, rowEls),
           ])
         : null,
       logoDataUri
-        ? box({ flexDirection: "row", justifyContent: "flex-end", marginTop: hasRows ? 28 : 44 }, [
+        ? box({ flexDirection: "row", justifyContent: isCentered ? "center" : "flex-end", width: contentWidth, marginTop: hasRows ? 28 : 44 }, [
             img(logoDataUri, { width: 56, height: 56, objectFit: "contain", borderRadius: 10 }),
           ])
         : null,

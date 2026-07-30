@@ -51,8 +51,8 @@ export interface ThemeDef {
 
 // Palette hints: deep/moody background + one confident accent per occasion,
 // chosen to read correctly across the vendored sticker art for that theme
-// (e.g. Halloween's near-black background so a jack-o-lantern's orange
-// actually pops) and to stay legible once contrast-checked in
+// (e.g. Halloween's near-black background so a tinted pumpkin sticker's
+// accent color actually pops) and to stay legible once contrast-checked in
 // applyThemeToRoles below (pickTextColor re-derives every text-on-* role
 // against the FINAL blended colors, not these raw hints).
 export const THEMES: Record<ThemeKey, ThemeDef> = {
@@ -188,7 +188,7 @@ const MAX_THEME_ASSETS = 4
  */
 export function resolveThemeAssets(themeKey: string, seed: string, count = 3): ResolvedThemeAsset[] {
   if (!isThemeKey(themeKey)) return []
-  const pool = THEME_ASSET_MANIFEST.filter((entry) => entry.occasions.includes(themeKey))
+  const pool = THEME_ASSET_MANIFEST.filter((entry) => entry.occasions?.includes(themeKey))
   if (pool.length === 0) return []
 
   const wanted = Math.max(MIN_THEME_ASSETS, Math.min(count, MAX_THEME_ASSETS, pool.length))
@@ -207,7 +207,7 @@ export function resolveThemeAssets(themeKey: string, seed: string, count = 3): R
 /**
  * Tier 3 of the license-approved asset architecture: long-tail themes
  * beyond the curated Tier-1 vendored set above (occasions with no good
- * Noto/IconPark match) would be generated ONCE via Recraft (fal.ai,
+ * IconPark/MingCute match) would be generated ONCE via Recraft (fal.ai,
  * vector-style output suits sticker use) and cached in Supabase Storage —
  * mirroring src/lib/media/slideshow.ts's "generate once, reuse forever"
  * asset-caching discipline rather than paying a generation cost on every

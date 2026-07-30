@@ -27,3 +27,20 @@ export function pickVariant(seedString: string, count: number): number {
 
 /** Default seed used when a caller (render.ts) doesn't pass one — keeps every existing call site (and every test) deterministic rather than suddenly "random". */
 export const DEFAULT_SEED = "lumina"
+
+/**
+ * Wave 4 anti-repetition machine: picks ONE option from `options`, namespaced
+ * under `axisName` so this axis's pick is independent of every other axis
+ * derived from the same render `seed` (e.g. a template's `headlineAlignment`
+ * axis and its `bigAccent` axis never accidentally move in lockstep just
+ * because they share a seed). Equivalent to
+ * `options[pickVariant(`${seed}:${axisName}`, options.length)]` — this
+ * wrapper just returns the option itself instead of the index, since every
+ * call site immediately wants the value.
+ */
+export function pickAxis<T>(seed: string, axisName: string, options: readonly T[]): T {
+  if (options.length === 0) {
+    throw new Error(`pickAxis: options for axis "${axisName}" must be non-empty.`)
+  }
+  return options[pickVariant(`${seed}:${axisName}`, options.length)]
+}

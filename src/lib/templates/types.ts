@@ -22,6 +22,19 @@ export const TEMPLATE_SIZES = {
 } as const satisfies Record<string, TemplateSize>
 
 /**
+ * Wave 4 format-density coupling + tall-format mid-band guarantee: a size
+ * is "tall" (height:width > 1.15 — square is 1.0, portrait is 1.25, story
+ * is ~1.78) when it has meaningfully more vertical real estate than a
+ * template's hero+footer content alone can be trusted to fill. Used by
+ * render.ts (gates which sizes the seeded "format" axis may pick for
+ * sparse content) and by the 4 full-axis template defs (gates whether a
+ * mid-band filler is required regardless of density mode).
+ */
+export function isTallFormat(size: TemplateSize): boolean {
+  return size.height / size.width > 1.15
+}
+
+/**
  * Resolved, contrast-safe color roles for one render — derived from the
  * org's Business Brain brand kit + the chosen colorway by
  * catalog.ts#resolveColorRoles (uses src/lib/templates/contrast.ts for the
@@ -88,7 +101,19 @@ export interface TemplateBuildContext {
    * background (never sticker over a photo — see the Wave 3 brief's
    * restraint rules), simply ignore this field.
    */
-  theme?: { key: string; assets: Array<{ path: string; name: string; source: "noto" | "icon-park" }> }
+  theme?: { key: string; assets: Array<{ path: string; name: string; source: "icon-park" | "mingcute" }> }
+  /**
+   * Wave 4 — semantic elements the design LLM chose for this specific
+   * request (src/lib/templates/elements.ts#parseElementKeys already
+   * validated + capped this to <=4 known catalog keys). `[]` is the common
+   * case (most requests don't need explicit iconography beyond a template's
+   * own built-in decorations). Templates that declare element slots resolve
+   * each key via elements.ts#resolveElement and place it via
+   * decorations.ts#iconChip (Tier A) / stickerElement (Tier B) /
+   * confettiScatter ("confetti") — always counted against the same "<=4
+   * total decorative elements" hard cap as every other accent.
+   */
+  elements: string[]
 }
 
 /** A Satori-compatible element — satori accepts plain {type, props} object trees (no JSX/React runtime required). See https://github.com/vercel/satori#jsx. */
@@ -133,6 +158,27 @@ export interface TemplateDef {
   /** Shown to the design LLM (design-post.ts) so it can pick the right template for a request. */
   description: string
   defaultSize: TemplateSize
+  /**
+   * Wave 4 "format" variety axis — every canvas size this template renders
+   * cleanly at. When the caller (render.ts#renderTemplate's
+   * `RenderTemplateInput.size`) doesn't pin a size, render.ts picks one from
+   * this list via variants.ts#pickAxis (seeded, so a given seed always picks
+   * the same format). Omit (or a single-element list) for a template that
+   * only ever renders at `defaultSize` — every pre-Wave-4 template does this
+   * implicitly by omitting the field.
+   */
+  supportedSizes?: TemplateSize[]
+  /**
+   * Wave 4 format-density coupling: given this render's (already
+   * schema-clamped) field values, returns the SAME optional-field list this
+   * template's own build() passes to density.ts#computeDensityMode —
+   * exposed here so render.ts can gate tall-format eligibility on it
+   * BEFORE build() ever runs (the format decides the canvas size build()
+   * receives, so this has to happen first). Templates that don't declare
+   * this (every template without a real densityMode concept) are treated
+   * as always tall-eligible.
+   */
+  densityFields?: (fields: Record<string, string>) => Array<string | undefined | null>
   allowedBackgrounds: BackgroundKind[]
   fields: TemplateFieldSchema[]
   /**

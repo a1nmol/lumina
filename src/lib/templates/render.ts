@@ -26,9 +26,11 @@ import sharp, { type OverlayOptions } from "sharp"
 import type { BrandKit } from "@/lib/types"
 
 import { clampFieldsToSchema, getTemplate, resolveColorRoles } from "./catalog"
+import { computeDensityMode } from "./density"
+import { parseElementKeys } from "./elements"
 import { applyThemeToRoles, resolveThemeAssets } from "./themes"
-import type { BackgroundKind, Colorway, PhotoLayerSpec, SatoriElement, TemplateSize } from "./types"
-import { DEFAULT_SEED } from "./variants"
+import { isTallFormat, type BackgroundKind, type Colorway, type PhotoLayerSpec, type SatoriElement, type TemplateDef, type TemplateSize } from "./types"
+import { DEFAULT_SEED, pickAxis } from "./variants"
 
 // ===========================================================================
 // Errors
@@ -304,6 +306,53 @@ async function compositePhotoBackground(input: {
 }
 
 // ===========================================================================
+// Wave 4 format-density coupling (design-review fix)
+// ===========================================================================
+
+/**
+ * A render's total non-empty field character count below this reads as
+ * "thin content" even when a template's own optional-field count doesn't
+ * cross into density.ts's "rich" tier (e.g. a template with 3+ optional
+ * fields that are all still just a word or two) — a second, template-
+ * agnostic signal alongside densityMode. Calibrated against this catalog's
+ * real sample copy: a fully-filled event-poster hackathon sample runs
+ * ~185 chars; a bare-minimum one (required fields only, short copy) runs
+ * ~60-90 chars. 90 sits just above that floor.
+ */
+const CONTENT_VOLUME_CHAR_THRESHOLD = 90
+
+/**
+ * Resolves the "format" variety axis with content-volume awareness: a tall
+ * format (portrait/story — types.ts#isTallFormat) is only ELIGIBLE for the
+ * seeded auto-pick when this render's content can plausibly own the extra
+ * height — densityMode isn't "rich" (per `def.densityFields`, when the
+ * template declares it) AND the total non-empty field character count
+ * clears CONTENT_VOLUME_CHAR_THRESHOLD. Sparse content restricts the pick
+ * to non-tall sizes only (currently always square, the only non-tall entry
+ * in every template's supportedSizes).
+ *
+ * This governs the AUTOMATIC pick only — an explicit `input.size` always
+ * wins (see renderTemplate below), and the 4 full-axis templates still
+ * guarantee a mid-band filler (decorations.ts#midBandFiller) whenever a
+ * tall format DOES end up rendering, however it was chosen, so an explicit
+ * portrait/story pin on sparse content still reads full.
+ */
+function resolveFormat(def: TemplateDef, fields: Record<string, string>, seed: string): TemplateSize {
+  const supported = def.supportedSizes && def.supportedSizes.length > 0 ? def.supportedSizes : [def.defaultSize]
+  if (supported.length === 1) return supported[0]
+
+  const densityMode = def.densityFields ? computeDensityMode(def.densityFields(fields)) : null
+  const totalChars = Object.values(fields).reduce((sum, value) => sum + value.trim().length, 0)
+  const contentIsSparse = densityMode === "rich" || totalChars < CONTENT_VOLUME_CHAR_THRESHOLD
+
+  const eligible = contentIsSparse ? supported.filter((candidate) => !isTallFormat(candidate)) : supported
+  // Never leave a template with zero eligible sizes (e.g. every declared
+  // size happens to be tall) — fall back to the full pool rather than throw.
+  const pool = eligible.length > 0 ? eligible : supported
+  return pickAxis(seed, "format", pool)
+}
+
+// ===========================================================================
 // Public entry point
 // ===========================================================================
 
@@ -331,6 +380,14 @@ export interface RenderTemplateInput {
    * stickers" — never a render failure.
    */
   theme?: { key: string }
+  /**
+   * Wave 4 — semantic elements the design LLM chose for this request (raw,
+   * untrusted model output — see src/lib/templates/elements.ts#parseElementKeys,
+   * which this always runs through before templates ever see it). Unknown
+   * keys, non-string entries, dupes, and anything past the first 4 are
+   * dropped silently, same "defensive, degrade cleanly" contract as `theme`.
+   */
+  elements?: string[]
 }
 
 /**
@@ -352,12 +409,20 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
     ? requestedBackground
     : "solid" // e.g. a photo_ai request against quote-v1 (which never allows photos) demotes cleanly rather than failing the render.
 
-  const size = input.size ?? def.defaultSize
+  const seed = input.seed?.trim() || DEFAULT_SEED
+  // Clamped before format resolution now (Wave 4 design-review fix) — the
+  // format-density coupling below needs the final field values (character
+  // count, densityMode) to decide which sizes are even eligible.
+  const fields = clampFieldsToSchema(def, input.fields)
+  // Wave 4 "format" variety axis: an unpinned request picks one of the
+  // template's own supported sizes, seeded and content-volume-aware — see
+  // resolveFormat above. A template that doesn't declare supportedSizes
+  // (every pre-Wave-4 template) always resolves to its single defaultSize,
+  // unchanged behavior. An explicit `input.size` always wins outright.
+  const size = input.size ?? resolveFormat(def, fields, seed)
   const colorway = input.colorway ?? "brand"
   const baseRoles = resolveColorRoles(input.brandKit ?? null, colorway, backgroundKind)
   const roles = input.theme?.key ? applyThemeToRoles(baseRoles, input.theme.key) : baseRoles
-  const fields = clampFieldsToSchema(def, input.fields)
-  const seed = input.seed?.trim() || DEFAULT_SEED
 
   const [fonts, logoDataUri] = await Promise.all([loadTemplateFonts(), loadLogoDataUri(input.brandKit?.logo_url)])
 
@@ -370,6 +435,7 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
   // build-context `theme` field template defs read for stickers.)
   const themeAssets = input.theme?.key ? resolveThemeAssets(input.theme.key, seed) : []
   const theme = input.theme?.key && themeAssets.length > 0 ? { key: input.theme.key, assets: themeAssets } : undefined
+  const elements = parseElementKeys(input.elements)
 
   const tree = await def.build({
     size,
@@ -380,6 +446,7 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
     fontFamily: FONT_FAMILY,
     seed,
     theme,
+    elements,
   })
 
   try {

@@ -12,18 +12,18 @@ interface CreditEntry {
 
 const CREDITS: CreditEntry[] = [
   {
-    name: "Noto Emoji",
-    holder: "Google",
-    license: "Apache License 2.0",
-    licenseUrl: "https://github.com/googlefonts/noto-emoji/blob/main/LICENSE",
-    note: "Themed decorative illustrations (festival/celebration stickers) used across seasonal poster templates.",
-  },
-  {
     name: "IconPark",
     holder: "ByteDance",
     license: "Apache License 2.0",
     licenseUrl: "https://github.com/bytedance/IconPark/blob/master/LICENSE",
-    note: "A small set of decorative glyphs (e.g. sale/discount tags) used alongside the illustrations above.",
+    note: "Drawn-style decorative icons used across seasonal poster themes and the semantic business-vertical icon vocabulary (Content Studio's AI-picked poster elements).",
+  },
+  {
+    name: "MingCute Icon",
+    holder: "MingCute Design",
+    license: "Apache License 2.0",
+    licenseUrl: "https://github.com/Richard9394/MingCute/blob/main/LICENSE",
+    note: "Drawn-style decorative icons used across seasonal poster themes and the semantic business-vertical icon vocabulary (Content Studio's AI-picked poster elements).",
   },
   {
     name: "Inter",
