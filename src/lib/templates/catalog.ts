@@ -5,15 +5,25 @@
 import type { BrandKit } from "@/lib/types"
 
 import { darkenHex, lightenHex, pickTextColor } from "./contrast"
+import { ANNOUNCEMENT_V1 } from "./defs/announcement-v1"
 import { EVENT_POSTER_V1 } from "./defs/event-poster-v1"
+import { HIRING_V1 } from "./defs/hiring-v1"
+import { HOURS_V1 } from "./defs/hours-v1"
+import { PHOTO_CAPTION_V1 } from "./defs/photo-caption-v1"
 import { PROMO_V1 } from "./defs/promo-v1"
 import { QUOTE_V1 } from "./defs/quote-v1"
+import { TESTIMONIAL_V1 } from "./defs/testimonial-v1"
 import type { BackgroundKind, ColorRoles, Colorway, TemplateDef } from "./types"
 
 export const TEMPLATES: Record<string, TemplateDef> = {
   [EVENT_POSTER_V1.id]: EVENT_POSTER_V1,
   [PROMO_V1.id]: PROMO_V1,
   [QUOTE_V1.id]: QUOTE_V1,
+  [ANNOUNCEMENT_V1.id]: ANNOUNCEMENT_V1,
+  [HOURS_V1.id]: HOURS_V1,
+  [HIRING_V1.id]: HIRING_V1,
+  [TESTIMONIAL_V1.id]: TESTIMONIAL_V1,
+  [PHOTO_CAPTION_V1.id]: PHOTO_CAPTION_V1,
 }
 
 export type TemplateId = keyof typeof TEMPLATES

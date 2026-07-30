@@ -21,6 +21,7 @@
 // action-row buttons once a draft has been generated; all are demo-safe
 // no-ops (returning { ok: true }) when Supabase isn't configured.
 
+import { randomUUID } from "node:crypto"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { designPost } from "@/lib/ai/design-post"
 import { generateContentDraft, type GeneratedContentDraft } from "@/lib/ai/generate-content"
@@ -124,6 +125,10 @@ async function tryTemplateRenderedPoster(params: {
     colorway: designed.colorway,
     background,
     brandKit: params.businessBrain?.brand_kit ?? null,
+    // Fresh seed per render: accent-arrangement variety across
+    // generations (and honest variety on Regenerate). Tests use fixed
+    // seeds for determinism; production wants difference.
+    seed: randomUUID(),
   })
 
   const publicUrl = await saveRenderedPosterAsset(params.orgId, { bytes: png, templateId: designed.templateId })

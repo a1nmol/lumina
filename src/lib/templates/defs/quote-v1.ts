@@ -4,13 +4,24 @@
 // font size) plus an ellipsis-truncation safety net for pathological input.
 // Background is muted solid or a subtle two-tone gradient ONLY — never a
 // photo (a busy photo behind long-form quote text is never legible).
+//
+// Decoration system (Wave 2): the header glyph is now a bold, solid-filled
+// vendored quote mark (decorations.ts#quoteMark) instead of a thin
+// font-rendered `“` character (the flagged Wave 1 bug — a font glyph at
+// this size reads spindly, not designed). One of two per-render variants
+// (picked from ctx.seed) adds a single restrained accent: either an
+// oversized, very-low-opacity quote-mark watermark sitting behind the whole
+// card, or a quiet rule-star-rule row under the attribution line.
 
 import { autofitText } from "../autofit"
+import { iconChip, quoteMark, ruleLine } from "../decorations"
 import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
 const SAFE_MARGIN_RATIO = 0.055
 const GLYPH_ZONE_HEIGHT = 170
+const GLYPH_SIZE = 100
 const LOGO_SIZE = 72
 
 const FIELDS: TemplateFieldSchema[] = [
@@ -18,14 +29,19 @@ const FIELDS: TemplateFieldSchema[] = [
   { key: "attribution", label: "Attribution", required: false, maxChars: 40, helpText: "e.g. — Maria, owner" },
 ]
 
+type Variant = "watermark" | "rule-star"
+const VARIANTS: Variant[] = ["watermark", "rule-star"]
+
 function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
 }
 
 function buildQuote(ctx: TemplateBuildContext) {
-  const { size, roles, fields, logoDataUri, backgroundKind, fontFamily } = ctx
+  const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
+
+  const variant = VARIANTS[pickVariant(seed, VARIANTS.length)]
 
   const attributionZoneHeight = fields.attribution ? 64 : 0
   const logoZoneHeight = logoDataUri ? LOGO_SIZE + 28 : 0
@@ -63,20 +79,38 @@ function buildQuote(ctx: TemplateBuildContext) {
       ? { backgroundImage: `linear-gradient(135deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  const ruleStarRow =
+    variant === "rule-star"
+      ? box({ flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: fields.attribution ? 18 : 30 }, [
+          ruleLine(56, roles.accent),
+          box({ width: 14, height: 1 }),
+          iconChip("star", roles.accent, 20),
+          box({ width: 14, height: 1 }),
+          ruleLine(56, roles.accent),
+        ])
+      : null
+
+  // Positioned + sized in one box (not a separate opacity wrapper around a
+  // positioned() child) so the absolute offsets resolve against the root
+  // directly — the root's own centering (justifyContent/alignItems) only
+  // applies to in-flow children, so this must be a direct root child.
+  const watermark =
+    variant === "watermark"
+      ? box(
+          {
+            position: "absolute",
+            top: Math.round(size.height * 0.09),
+            left: Math.round(size.width * 0.09),
+            opacity: 0.055,
+          },
+          [quoteMark(roles.accent, Math.round(size.width * 0.82))]
+        )
+      : null
+
   const children = [
     box(
-      {
-        flexDirection: "row",
-        justifyContent: "center",
-        height: GLYPH_ZONE_HEIGHT,
-        fontFamily,
-        fontWeight: 900,
-        fontSize: 168,
-        lineHeight: 1,
-        color: roles.accent,
-        opacity: 0.42,
-      },
-      "“"
+      { flexDirection: "row", justifyContent: "center", alignItems: "center", height: GLYPH_ZONE_HEIGHT },
+      [quoteMark(roles.accent, GLYPH_SIZE)]
     ),
     box({ flexDirection: "column", alignItems: "center", overflow: "hidden" }, quoteLines),
     fields.attribution
@@ -94,6 +128,7 @@ function buildQuote(ctx: TemplateBuildContext) {
           fields.attribution
         )
       : null,
+    ruleStarRow,
     logoDataUri
       ? box({ flexDirection: "row", justifyContent: "center", marginTop: 24 }, [
           img(logoDataUri, { width: LOGO_SIZE, height: LOGO_SIZE, objectFit: "contain", borderRadius: 8 }),
@@ -107,13 +142,14 @@ function buildQuote(ctx: TemplateBuildContext) {
       flexDirection: "column",
       justifyContent: "center",
       alignItems: "center",
+      position: "relative",
       width: size.width,
       height: size.height,
       padding: m,
       fontFamily,
       ...rootBackgroundStyle,
     },
-    children,
+    children: [watermark, ...children].filter(Boolean),
   })
 }
 

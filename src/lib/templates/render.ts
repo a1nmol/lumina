@@ -27,6 +27,7 @@ import type { BrandKit } from "@/lib/types"
 
 import { clampFieldsToSchema, getTemplate, resolveColorRoles } from "./catalog"
 import type { BackgroundKind, Colorway, PhotoLayerSpec, SatoriElement, TemplateSize } from "./types"
+import { DEFAULT_SEED } from "./variants"
 
 // ===========================================================================
 // Errors
@@ -317,6 +318,8 @@ export interface RenderTemplateInput {
   background?: RenderBackgroundInput
   brandKit?: BrandKit | null
   size?: TemplateSize
+  /** Deterministic seed for decorative variant selection (variants.ts#pickVariant) — pass the content item id or prompt so consecutive generations vary; defaults to variants.ts#DEFAULT_SEED (always the same variant) when omitted. */
+  seed?: string
 }
 
 /**
@@ -352,6 +355,7 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
     logoDataUri,
     backgroundKind,
     fontFamily: FONT_FAMILY,
+    seed: input.seed?.trim() || DEFAULT_SEED,
   })
 
   try {

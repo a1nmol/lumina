@@ -3,9 +3,21 @@
 // highlight badge -> optional subhead -> footer bar (date + location) -> CTA
 // line -> logo. Background: brand-derived dark solid/gradient, or an
 // optional AI photo behind a bottom scrim so the footer/CTA stay legible.
+//
+// Decoration system (Wave 2): small iconChips ground the date/location/prize
+// lines, an accentBar underlines the headline, and — ONLY when there's no
+// photo (the "empty middle" problem) — exactly one large accent (a ring
+// bleeding off the top-right corner, a diagonal band behind the lower third,
+// or a dot-grid texture patch) plus a faint centered rule fill the void
+// between the header block and the footer. The variant (which large accent,
+// and which palette role colors it) is picked deterministically from
+// ctx.seed via variants.ts#pickVariant — never more than that one large
+// accent alongside the small grounded ones, per the restraint rule.
 
 import { autofitText } from "../autofit"
+import { accentBar, dotGrid, diagonalBand, iconChip, positioned, ringAccent } from "../decorations"
 import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1350 }
 const SAFE_MARGIN_RATIO = 0.055
@@ -24,10 +36,41 @@ function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
 }
 
+type BigAccentKind = "ring" | "band" | "dots"
+
+interface Variant {
+  bigAccent: BigAccentKind
+  /** Which resolved role colors the big accent — true rotates to primary instead of accent, per the "swap which role colors the ring vs the band" micro-rotation guidance. */
+  useUnderRole: boolean
+}
+
+const VARIANTS: Variant[] = [
+  { bigAccent: "ring", useUnderRole: false },
+  { bigAccent: "band", useUnderRole: true },
+  { bigAccent: "dots", useUnderRole: false },
+]
+
+function buildBigAccent(kind: BigAccentKind, colorHex: string, size: { width: number; height: number }, m: number) {
+  if (kind === "ring") {
+    return positioned(ringAccent(560, 3, colorHex, 0.26), { top: -170, right: -170 })
+  }
+  if (kind === "band") {
+    return positioned(diagonalBand(colorHex, 0.1, Math.round(size.width * 1.5), 240), {
+      top: Math.round(size.height * 0.6),
+      left: -Math.round(size.width * 0.22),
+    })
+  }
+  return positioned(dotGrid(5, 5, 10, 16, colorHex, 0.36), { top: Math.round(size.height * 0.47), right: m })
+}
+
 function buildEventPoster(ctx: TemplateBuildContext) {
-  const { size, roles, fields, logoDataUri, backgroundKind, fontFamily } = ctx
+  const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
+  const hasPhoto = backgroundKind === "photo_ai"
+
+  const variant = VARIANTS[pickVariant(seed, VARIANTS.length)]
+  const accentColor = variant.useUnderRole ? roles.primary : roles.accent
 
   const headlineFit = autofitText({
     text: fields.headline,
@@ -72,22 +115,24 @@ function buildEventPoster(ctx: TemplateBuildContext) {
         )
       : null,
     box({ flexDirection: "column" }, headlineLines),
+    accentBar(96, 6, roles.accent, 4),
     fields.highlight
       ? box(
           {
             flexDirection: "row",
+            alignItems: "center",
             alignSelf: "flex-start",
             marginTop: 26,
             padding: "16px 30px",
             borderRadius: 999,
             backgroundColor: roles.accent,
             color: roles.textOnAccent,
-            fontFamily,
-            fontWeight: 700,
-            fontSize: 28,
-            letterSpacing: "0.02em",
           },
-          fields.highlight
+          [
+            iconChip("trophy", roles.textOnAccent, 26),
+            box({ width: 12, height: 1 }),
+            box({ flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 28, letterSpacing: "0.02em" }, fields.highlight),
+          ]
         )
       : null,
     fields.subhead
@@ -109,23 +154,23 @@ function buildEventPoster(ctx: TemplateBuildContext) {
   const bottomChildren = [
     box({ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }, [
       box({ flexDirection: "column" }, [
-        box(
-          { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 32, color: roles.textOnDark },
-          fields.dateLine
-        ),
+        box({ flexDirection: "row", alignItems: "center" }, [
+          iconChip("calendar", accentColor, 28),
+          box({ width: 10, height: 1 }),
+          box(
+            { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 32, color: roles.textOnDark },
+            fields.dateLine
+          ),
+        ]),
         fields.locationLine
-          ? box(
-              {
-                flexDirection: "row",
-                marginTop: 6,
-                fontFamily,
-                fontWeight: 400,
-                fontSize: 26,
-                color: roles.textOnDark,
-                opacity: 0.72,
-              },
-              fields.locationLine
-            )
+          ? box({ flexDirection: "row", alignItems: "center", marginTop: 8, opacity: 0.72 }, [
+              iconChip("map-pin", roles.textOnDark, 22),
+              box({ width: 8, height: 1 }),
+              box(
+                { flexDirection: "row", fontFamily, fontWeight: 400, fontSize: 26, color: roles.textOnDark },
+                fields.locationLine
+              ),
+            ])
           : null,
       ]),
     ]),
@@ -159,6 +204,19 @@ function buildEventPoster(ctx: TemplateBuildContext) {
         ? { backgroundImage: `linear-gradient(180deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
         : {} // photo_ai: leave transparent — render.ts composites the photo + scrim underneath, this layer is type/logo only.
 
+  // The big decorative accent + the void-filling rule only apply when there's
+  // no photo — a real photo already fills the frame, and this is specifically
+  // the "empty middle" fix for the flat solid/gradient case.
+  const decorationChildren = hasPhoto ? [] : [buildBigAccent(variant.bigAccent, accentColor, size, m)]
+
+  const midRule = hasPhoto
+    ? null
+    : box({ flexDirection: "row", justifyContent: "center", opacity: 0.3 }, [
+        el("div", {
+          style: { display: "flex", width: Math.round(contentWidth * 0.42), height: 1, backgroundColor: roles.textOnDark },
+        }),
+      ])
+
   return el("div", {
     style: {
       display: "flex",
@@ -170,7 +228,12 @@ function buildEventPoster(ctx: TemplateBuildContext) {
       fontFamily,
       ...rootBackgroundStyle,
     },
-    children: [box({ flexDirection: "column" }, topChildren), box({ flexDirection: "column" }, bottomChildren)],
+    children: [
+      ...decorationChildren,
+      box({ flexDirection: "column" }, topChildren),
+      midRule,
+      box({ flexDirection: "column" }, bottomChildren),
+    ].filter(Boolean),
   })
 }
 

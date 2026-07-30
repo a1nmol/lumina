@@ -76,6 +76,8 @@ export interface TemplateBuildContext {
   backgroundKind: BackgroundKind
   /** The single registered Satori font family name for all weights (400/700/900) — see render.ts#loadTemplateFonts. */
   fontFamily: string
+  /** Deterministic seed for this render's decorative variant pick (src/lib/templates/variants.ts#pickVariant) — always resolved by render.ts (defaults to variants.ts#DEFAULT_SEED when the caller doesn't pass one), never empty. Callers typically pass the content item id or prompt so consecutive generations vary without ever being random-ugly. */
+  seed: string
 }
 
 /** A Satori-compatible element — satori accepts plain {type, props} object trees (no JSX/React runtime required). See https://github.com/vercel/satori#jsx. */
