@@ -15,6 +15,7 @@ import "server-only"
 
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { clampFieldsToSchema, getTemplate, listTemplates } from "@/lib/templates/catalog"
+import { isThemeKey, THEMES } from "@/lib/templates/themes"
 import type { Colorway } from "@/lib/templates/types"
 import type { BusinessBrain } from "@/lib/types"
 
@@ -36,11 +37,15 @@ export interface DesignedBackground {
   prompt: string | null
 }
 
+/** A picked occasion/festival theme (Wave 3 — src/lib/templates/themes.ts). `null` means "no theme" — the overwhelming majority of requests. Callers pass `theme` straight into src/lib/templates/render.ts#renderTemplate's `RenderTemplateInput.theme`. */
+export type DesignedTheme = { key: string } | null
+
 export interface DesignedPost {
   templateId: string
   fields: Record<string, string>
   colorway: Colorway
   background: DesignedBackground
+  theme: DesignedTheme
   model: string
   costUsd: number
 }
@@ -54,6 +59,16 @@ const VALID_BACKGROUND_TYPES: readonly DesignBackgroundType[] = ["solid", "gradi
 /** Appended to every photo_ai background prompt so the background stays a clean, text-free plate the composited typography sits on top of. */
 const PHOTO_AI_PROMPT_SUFFIX =
   ", no text, no words, no logos, muted professional tones, editorial minimal, negative space"
+
+/** One line per theme for the system prompt's catalog — the eid line gets an extra, explicit warning since it's opt-in-only (see themes.ts#ThemeDef.optInOnly). */
+function themeCatalogLines(): string[] {
+  return Object.values(THEMES).map((theme) => {
+    const optInNote = theme.optInOnly
+      ? " This is a religious/cultural theme — ONLY pick it when the request explicitly names the occasion by name (e.g. contains the word \"Eid\"); never infer or suggest it."
+      : ""
+    return `- "${theme.key}": ${theme.label} (${theme.paletteHint.description}).${optInNote}`
+  })
+}
 
 function buildSystemPrompt(brain: BusinessBrain | null): string {
   const catalogLines = listTemplates().map((def) => {
@@ -75,6 +90,9 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
     "Every field value MUST fit within its stated max character count — write to length, don't rely on truncation.",
     'Pick "colorway": "brand" (default, uses the business\'s own brand color), "dark", or "light".',
     'Pick "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}. Only set type "photo_ai" (with a vivid, text-free scene description in prompt) when a real photo would clearly elevate this specific post and the template allows it — otherwise use "solid" or "gradient" with prompt null.',
+    'Pick "theme": {"key": string} or null. Available theme keys:',
+    ...themeCatalogLines(),
+    'Only set a theme when the request CLEARLY references a specific occasion, festival, or celebration by name or unmistakable implication (e.g. "Christmas sale", "Halloween special", "our anniversary party" -> "celebration-generic"). Default to null — most requests are NOT themed. Never guess a theme from a generic promo/announcement with no occasion mentioned.',
   ].join("\n")
 }
 
@@ -83,7 +101,7 @@ function buildUserPrompt(prompt: string): string {
     `Design request: ${prompt}`,
     "",
     "Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape:",
-    '{"template_id": string, "fields": { [fieldKey: string]: string }, "colorway": "brand"|"dark"|"light", "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}}',
+    '{"template_id": string, "fields": { [fieldKey: string]: string }, "colorway": "brand"|"dark"|"light", "background": {"type": "solid"|"gradient"|"photo_ai", "prompt": string|null}, "theme": {"key": string}|null}',
   ].join("\n")
 }
 
@@ -92,6 +110,7 @@ interface ParsedDesignJson {
   fields: Record<string, string>
   colorway: Colorway
   background: DesignedBackground
+  theme: DesignedTheme
 }
 
 /** Defensively extracts + validates the model's JSON reply. Returns null on any shape/length/unknown-template problem, which callers treat as "retry, then give up." */
@@ -132,8 +151,18 @@ function parseDesignJson(raw: string): ParsedDesignJson | null {
     : "brand"
 
   const background = parseBackground(def.allowedBackgrounds, obj.background)
+  const theme = parseTheme(obj.theme)
 
-  return { templateId, fields, colorway, background }
+  return { templateId, fields, colorway, background, theme }
+}
+
+/** Defensively parses the model's `"theme"` field — an unrecognized key (typo, invented key, or a stale key from a future/removed theme) demotes to null rather than failing the whole parse, since a theme is always optional decoration, never required content. */
+function parseTheme(raw: unknown): DesignedTheme {
+  if (!raw || typeof raw !== "object") return null
+  const obj = raw as Record<string, unknown>
+  const key = typeof obj.key === "string" ? obj.key.trim() : ""
+  if (!key || !isThemeKey(key)) return null
+  return { key }
 }
 
 function parseBackground(allowed: string[], raw: unknown): DesignedBackground {

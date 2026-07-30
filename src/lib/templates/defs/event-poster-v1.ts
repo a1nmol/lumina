@@ -13,10 +13,17 @@
 // and which palette role colors it) is picked deterministically from
 // ctx.seed via variants.ts#pickVariant — never more than that one large
 // accent alongside the small grounded ones, per the restraint rule.
+//
+// Themed stickers (Wave 3, opt-in via ctx.theme — see themes.ts): up to 3
+// vendored decorative assets placed in this template's void zones — a
+// corner cluster bleeding off the top-right, one sitting in the same empty
+// mid-gap the midRule divider already proves is text-free, and one bleeding
+// off the bottom-left corner. Skipped entirely when a photo background is
+// active (a real photo already fills the frame) or no theme was requested.
 
 import { autofitText } from "../autofit"
-import { accentBar, dotGrid, diagonalBand, iconChip, positioned, ringAccent } from "../decorations"
-import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { accentBar, dotGrid, diagonalBand, iconChip, positioned, ringAccent, stickerElement, stickerRotationJitter } from "../decorations"
+import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1350 }
@@ -50,6 +57,56 @@ const VARIANTS: Variant[] = [
   { bigAccent: "dots", useUnderRole: false },
 ]
 
+/**
+ * This template's 3 declared sticker safe zones (Wave 3 — see module
+ * header): a top-right corner cluster and a bottom-left corner peek (both
+ * `positioned()` bleeds into the guaranteed-empty padding gutter, same
+ * proven-safe trick the big geometric accents already use — see
+ * buildBigAccent above), plus a third sticker placed IN-FLOW next to the
+ * midRule divider rather than absolutely positioned. The corner two are
+ * genuinely position-independent of content length; the middle one is NOT
+ * (the gap between the header and footer blocks shrinks/grows with
+ * headline/subhead length under this root's `justify-content: space-between`
+ * layout), so it must ride along as a real flex sibling of midRule — a fixed
+ * pixel/percentage offset there was tried and produced a real overlap with a
+ * long subhead in review, which is why this is a flow element, not a
+ * `positioned()` one.
+ */
+const CORNER_STICKER_SLOTS: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number }> = [
+  { offsets: { top: -34, right: -18 }, sizePx: 116 },
+  { offsets: { bottom: -28, left: -22 }, sizePx: 96 },
+]
+
+/** Resolves ctx.theme's assets (if any) into up to 2 positioned corner sticker elements. Returns `[]` when there's no theme, no resolved assets, or a photo background is active (never stickers over a photo — restraint rule). */
+async function buildCornerStickers(ctx: TemplateBuildContext, hasPhoto: boolean): Promise<SatoriElement[]> {
+  if (hasPhoto || !ctx.theme) return []
+  const picks = ctx.theme.assets.slice(0, CORNER_STICKER_SLOTS.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = CORNER_STICKER_SLOTS[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:event-poster-corner-sticker:${index}:${asset.name}`)
+      // IconPark assets are mono/two-tone and ship IconPark's own default
+      // blue — recolor to the resolved accent so they read as part of THIS
+      // poster's palette. Noto's multicolor illustrations keep their own
+      // baked-in colors (see decorations.ts#stickerElement's contract).
+      const tintHex = asset.source === "icon-park" ? ctx.roles.accent : undefined
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.96, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+/** The 3rd theme asset (if any), rendered as a small IN-FLOW sticker to sit beside the midRule divider — see the safety note on CORNER_STICKER_SLOTS above for why this one can't be `positioned()`. */
+async function buildMidGapSticker(ctx: TemplateBuildContext, hasPhoto: boolean): Promise<SatoriElement | null> {
+  if (hasPhoto || !ctx.theme) return null
+  const asset = ctx.theme.assets[2]
+  if (!asset) return null
+  const rotation = stickerRotationJitter(`${ctx.seed}:event-poster-midgap-sticker:${asset.name}`)
+  const tintHex = asset.source === "icon-park" ? ctx.roles.accent : undefined
+  return stickerElement(asset.path, 56, rotation, 0.9, tintHex)
+}
+
 function buildBigAccent(kind: BigAccentKind, colorHex: string, size: { width: number; height: number }, m: number) {
   if (kind === "ring") {
     return positioned(ringAccent(560, 3, colorHex, 0.26), { top: -170, right: -170 })
@@ -63,7 +120,7 @@ function buildBigAccent(kind: BigAccentKind, colorHex: string, size: { width: nu
   return positioned(dotGrid(5, 5, 10, 16, colorHex, 0.36), { top: Math.round(size.height * 0.47), right: m })
 }
 
-function buildEventPoster(ctx: TemplateBuildContext) {
+async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -209,13 +266,24 @@ function buildEventPoster(ctx: TemplateBuildContext) {
   // the "empty middle" fix for the flat solid/gradient case.
   const decorationChildren = hasPhoto ? [] : [buildBigAccent(variant.bigAccent, accentColor, size, m)]
 
+  const midGapSticker = await buildMidGapSticker(ctx, hasPhoto)
+
   const midRule = hasPhoto
     ? null
-    : box({ flexDirection: "row", justifyContent: "center", opacity: 0.3 }, [
+    : box({ flexDirection: "row", justifyContent: "center", alignItems: "center" }, [
         el("div", {
-          style: { display: "flex", width: Math.round(contentWidth * 0.42), height: 1, backgroundColor: roles.textOnDark },
+          style: {
+            display: "flex",
+            width: Math.round(contentWidth * (midGapSticker ? 0.34 : 0.42)),
+            height: 1,
+            backgroundColor: roles.textOnDark,
+            opacity: 0.3,
+          },
         }),
-      ])
+        midGapSticker ? box({ marginLeft: 18 }, [midGapSticker]) : null,
+      ].filter(Boolean))
+
+  const cornerStickers = await buildCornerStickers(ctx, hasPhoto)
 
   return el("div", {
     style: {
@@ -230,6 +298,7 @@ function buildEventPoster(ctx: TemplateBuildContext) {
     },
     children: [
       ...decorationChildren,
+      ...cornerStickers,
       box({ flexDirection: "column" }, topChildren),
       midRule,
       box({ flexDirection: "column" }, bottomChildren),

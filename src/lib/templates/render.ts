@@ -26,6 +26,7 @@ import sharp, { type OverlayOptions } from "sharp"
 import type { BrandKit } from "@/lib/types"
 
 import { clampFieldsToSchema, getTemplate, resolveColorRoles } from "./catalog"
+import { applyThemeToRoles, resolveThemeAssets } from "./themes"
 import type { BackgroundKind, Colorway, PhotoLayerSpec, SatoriElement, TemplateSize } from "./types"
 import { DEFAULT_SEED } from "./variants"
 
@@ -320,6 +321,16 @@ export interface RenderTemplateInput {
   size?: TemplateSize
   /** Deterministic seed for decorative variant selection (variants.ts#pickVariant) — pass the content item id or prompt so consecutive generations vary; defaults to variants.ts#DEFAULT_SEED (always the same variant) when omitted. */
   seed?: string
+  /**
+   * Optional themed decoration pass (Wave 3 — src/lib/templates/themes.ts).
+   * When present with a recognized `key`, this resolves 2-4 vendored
+   * stickers (deterministic from `seed`) and nudges the resolved color
+   * roles' accent/background toward the theme's palette hint (brand primary
+   * is never overridden) before the template builds its tree. An unknown
+   * key, or a template with no sticker slots, degrades cleanly to "no
+   * stickers" — never a render failure.
+   */
+  theme?: { key: string }
 }
 
 /**
@@ -343,19 +354,32 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
 
   const size = input.size ?? def.defaultSize
   const colorway = input.colorway ?? "brand"
-  const roles = resolveColorRoles(input.brandKit ?? null, colorway, backgroundKind)
+  const baseRoles = resolveColorRoles(input.brandKit ?? null, colorway, backgroundKind)
+  const roles = input.theme?.key ? applyThemeToRoles(baseRoles, input.theme.key) : baseRoles
   const fields = clampFieldsToSchema(def, input.fields)
+  const seed = input.seed?.trim() || DEFAULT_SEED
 
   const [fonts, logoDataUri] = await Promise.all([loadTemplateFonts(), loadLogoDataUri(input.brandKit?.logo_url)])
 
-  const tree = def.build({
+  // A theme is only meaningful when it actually resolves to at least one
+  // vendored asset — an unknown/typo'd key degrades to "no theme" here
+  // rather than merely "no stickers," so a bad key doesn't even nudge the
+  // palette above without anything decorative to show for it. (applyThemeToRoles
+  // was already called with the raw key, which is fine — getTheme() there
+  // independently no-ops on an unknown key too; this just governs the
+  // build-context `theme` field template defs read for stickers.)
+  const themeAssets = input.theme?.key ? resolveThemeAssets(input.theme.key, seed) : []
+  const theme = input.theme?.key && themeAssets.length > 0 ? { key: input.theme.key, assets: themeAssets } : undefined
+
+  const tree = await def.build({
     size,
     roles,
     fields,
     logoDataUri,
     backgroundKind,
     fontFamily: FONT_FAMILY,
-    seed: input.seed?.trim() || DEFAULT_SEED,
+    seed,
+    theme,
   })
 
   try {

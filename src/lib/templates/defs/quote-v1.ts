@@ -12,10 +12,22 @@
 // (picked from ctx.seed) adds a single restrained accent: either an
 // oversized, very-low-opacity quote-mark watermark sitting behind the whole
 // card, or a quiet rule-star-rule row under the attribution line.
+//
+// Themed stickers (Wave 3, opt-in via ctx.theme — see themes.ts): quote-v1's
+// content is centered both ways and can grow tall (a long quote at a small
+// autofit size can occupy nearly the full card height), so the only zone
+// that's SAFE regardless of quote length is the corner padding gutter itself
+// — this template gets 2 small corner peeks (top-left + bottom-right,
+// mirroring the existing "bleed into the margin band" trick every geometric
+// accent in this pipeline already relies on), not a large mid-canvas
+// "watermark" sticker (that was tried and risked overlapping a long quote —
+// see event-poster-v1's module header for the same lesson learned there).
+// quote-v1 never allows a photo background, so there's no "skip when photo"
+// branch needed here.
 
 import { autofitText } from "../autofit"
-import { iconChip, quoteMark, ruleLine } from "../decorations"
-import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { iconChip, positioned, quoteMark, ruleLine, stickerElement, stickerRotationJitter } from "../decorations"
+import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
@@ -36,7 +48,27 @@ function margin(width: number): number {
   return Math.round(width * SAFE_MARGIN_RATIO)
 }
 
-function buildQuote(ctx: TemplateBuildContext) {
+/** This template's 2 declared sticker safe zones (Wave 3 — see module header): a small corner peek top-left, and a mirrored one bottom-right. Returns `[]` with no theme or no resolved assets. */
+async function buildThemeStickers(ctx: TemplateBuildContext): Promise<SatoriElement[]> {
+  if (!ctx.theme) return []
+  const slots: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number; opacity: number }> = [
+    { offsets: { top: -18, left: -18 }, sizePx: 88, opacity: 0.95 },
+    { offsets: { bottom: -18, right: -18 }, sizePx: 88, opacity: 0.95 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:quote-sticker:${index}:${asset.name}`)
+      const tintHex = asset.source === "icon-park" ? ctx.roles.accent : undefined
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, slot.opacity, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildQuote(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -136,6 +168,8 @@ function buildQuote(ctx: TemplateBuildContext) {
       : null,
   ]
 
+  const themeStickers = await buildThemeStickers(ctx)
+
   return el("div", {
     style: {
       display: "flex",
@@ -149,7 +183,7 @@ function buildQuote(ctx: TemplateBuildContext) {
       fontFamily,
       ...rootBackgroundStyle,
     },
-    children: [watermark, ...children].filter(Boolean),
+    children: [watermark, ...themeStickers, ...children].filter(Boolean),
   })
 }
 

@@ -10,10 +10,21 @@
 // Decoration: exactly one large ring accent (per the brief), bleeding off
 // a corner; the seed only rotates which corner + which resolved role colors
 // it, keeping the card genuinely calm across every variant.
+//
+// Themed stickers (Wave 3, opt-in via ctx.theme — see themes.ts): headline
+// text here is LEFT-aligned but can grow to the FULL content width (no
+// centering to lean on), so — unlike a fixed mid-canvas "watermark" placement
+// (tried, risked overlapping a long headline; see event-poster-v1's module
+// header for the same lesson) — this template's 2 declared zones are both
+// small corner peeks: one opposite the ring accent, and one on whichever of
+// the two remaining corners isn't reserved for the logo. Both bleed into the
+// guaranteed-empty padding gutter, same trick every geometric accent here
+// already relies on. No photo background is ever allowed here, so there's
+// no "skip when photo" branch.
 
 import { autofitText } from "../autofit"
-import { iconChip, positioned, ringAccent } from "../decorations"
-import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { iconChip, positioned, ringAccent, stickerElement, stickerRotationJitter } from "../decorations"
+import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
@@ -48,7 +59,53 @@ function ringOffsets(corner: Variant["corner"], diameter: number) {
   return { bottom: bleed, left: bleed }
 }
 
-function buildAnnouncement(ctx: TemplateBuildContext) {
+type Corner = "top-left" | "top-right" | "bottom-right" | "bottom-left"
+const ALL_CORNERS: Corner[] = ["top-left", "top-right", "bottom-right", "bottom-left"]
+
+function cornerOffsets(corner: Corner, bleed = -16): { top?: number; left?: number; right?: number; bottom?: number } {
+  if (corner === "top-left") return { top: bleed, left: bleed }
+  if (corner === "top-right") return { top: bleed, right: bleed }
+  if (corner === "bottom-right") return { bottom: bleed, right: bleed }
+  return { bottom: bleed, left: bleed }
+}
+
+/** The ring accent's corner is always one of top-right/bottom-right/bottom-left, and this template's ring choice happens to already be that corner's true diagonal opposite — reused here as-is. */
+function cornerOppositeRing(ringCorner: Variant["corner"]): Corner {
+  if (ringCorner === "top-right") return "bottom-left"
+  if (ringCorner === "bottom-right") return "top-left"
+  return "top-right"
+}
+
+/** The corner for the 2nd sticker: whichever of the 2 remaining corners (after excluding the ring's corner + the 1st sticker's corner) isn't reserved for the logo, when a logo is present. Deterministic — there are always >=2 corners left after both exclusions, and at most 1 more is removed for the logo. */
+function secondStickerCorner(ringCorner: Variant["corner"], firstCorner: Corner, hasLogo: boolean): Corner {
+  const excluded = new Set<Corner>([ringCorner as Corner, firstCorner])
+  if (hasLogo) excluded.add("bottom-right")
+  return ALL_CORNERS.find((corner) => !excluded.has(corner)) ?? firstCorner
+}
+
+/** This template's 2 declared sticker safe zones (Wave 3 — see module header): 2 small corner peeks, chosen to never land on the ring accent's own corner or (when present) the logo's corner. Returns `[]` with no theme or no resolved assets. */
+async function buildThemeStickers(ctx: TemplateBuildContext, ringCorner: Variant["corner"], hasLogo: boolean): Promise<SatoriElement[]> {
+  if (!ctx.theme) return []
+  const firstCorner = cornerOppositeRing(ringCorner)
+  const secondCorner = secondStickerCorner(ringCorner, firstCorner, hasLogo)
+  const slots: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number; opacity: number }> = [
+    { offsets: cornerOffsets(firstCorner), sizePx: 84, opacity: 0.95 },
+    { offsets: cornerOffsets(secondCorner), sizePx: 84, opacity: 0.95 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:announcement-sticker:${index}:${asset.name}`)
+      const tintHex = asset.source === "icon-park" ? ctx.roles.accent : undefined
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, slot.opacity, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -127,6 +184,8 @@ function buildAnnouncement(ctx: TemplateBuildContext) {
       ? { backgroundImage: `linear-gradient(160deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  const themeStickers = await buildThemeStickers(ctx, variant.corner, Boolean(logoDataUri))
+
   return el("div", {
     style: {
       display: "flex",
@@ -141,6 +200,7 @@ function buildAnnouncement(ctx: TemplateBuildContext) {
     },
     children: [
       positioned(ringAccent(ringDiameter, 3, accentColor, 0.2), ringOffsets(variant.corner, ringDiameter)),
+      ...themeStickers,
       content,
       logoDataUri
         ? box({ position: "absolute", bottom: m, right: m }, [

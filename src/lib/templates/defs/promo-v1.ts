@@ -13,10 +13,17 @@
 // (a bleeding ring, a 4-corner tick frame, or a small dot-grid patch) is
 // picked per-render from ctx.seed, scaled to the block's own width so it
 // still reads right in the narrower photo-split layout.
+//
+// Themed stickers (Wave 3, opt-in via ctx.theme — see themes.ts): up to 2
+// vendored decorative assets peeking off the block's top-right and
+// bottom-right corners — the offer numeral/line/fine-print are all
+// left-aligned, so the right-side corner gutters stay text-free regardless
+// of copy length. Skipped when a photo background is active (per the
+// restraint rule — the split-block layout's right side is the photo itself).
 
 import { autofitText, measureTextWidth } from "../autofit"
-import { cornerTicks, dotGrid, highlightSweep, positioned, ringAccent } from "../decorations"
-import { box, el, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { cornerTicks, dotGrid, highlightSweep, positioned, ringAccent, stickerElement, stickerRotationJitter } from "../decorations"
+import { box, el, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickVariant } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
@@ -70,7 +77,30 @@ function buildBigAccent(kind: BigAccentKind, colorHex: string, blockWidth: numbe
   return [positioned(dotGrid(4, 4, 8, 14, colorHex, 0.3), { bottom: m, right: m })]
 }
 
-function buildPromo(ctx: TemplateBuildContext) {
+/** This template's 2 declared sticker safe zones (Wave 3 — see module header): the block's top-right and bottom-right corners, opposite the left-aligned text column. Returns `[]` with no theme, no resolved assets, or an active photo background. */
+async function buildThemeStickers(ctx: TemplateBuildContext, hasPhoto: boolean): Promise<SatoriElement[]> {
+  if (hasPhoto || !ctx.theme) return []
+  const slots: Array<{ offsets: { top?: number; right?: number; bottom?: number }; sizePx: number }> = [
+    { offsets: { top: -20, right: -16 }, sizePx: 100 },
+    { offsets: { bottom: -18, right: -14 }, sizePx: 84 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:promo-sticker:${index}:${asset.name}`)
+      // The block's own background IS roles.accent, so an IconPark glyph
+      // must tint to roles.textOnAccent (not roles.accent, which would make
+      // it invisible against its own background) to actually show up.
+      const tintHex = asset.source === "icon-park" ? ctx.roles.textOnAccent : undefined
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.96, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildPromo(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, backgroundKind, fontFamily, seed } = ctx
   const hasPhoto = backgroundKind === "photo_ai"
   const blockWidth = hasPhoto ? Math.round(size.width * SPLIT_BLOCK_FRACTION) : size.width
@@ -142,6 +172,8 @@ function buildPromo(ctx: TemplateBuildContext) {
     ),
   ])
 
+  const themeStickers = await buildThemeStickers(ctx, hasPhoto)
+
   const block = box(
     {
       flexDirection: "column",
@@ -156,6 +188,7 @@ function buildPromo(ctx: TemplateBuildContext) {
     },
     [
       ...decorationChildren,
+      ...themeStickers,
       offerNumberBlock,
       box({ flexDirection: "column", marginTop: 22 }, offerLineRows),
       fields.finePrint

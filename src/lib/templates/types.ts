@@ -78,6 +78,17 @@ export interface TemplateBuildContext {
   fontFamily: string
   /** Deterministic seed for this render's decorative variant pick (src/lib/templates/variants.ts#pickVariant) — always resolved by render.ts (defaults to variants.ts#DEFAULT_SEED when the caller doesn't pass one), never empty. Callers typically pass the content item id or prompt so consecutive generations vary without ever being random-ugly. */
   seed: string
+  /**
+   * Resolved themed decorative assets (Wave 3 — src/lib/templates/themes.ts),
+   * present only when the caller requested a theme AND it resolved to at
+   * least one vendored asset. `assets` is already the deterministic-from-seed
+   * pick (themes.ts#resolveThemeAssets) — templates place up to 3 of these
+   * in their own declared "safe zones" via decorations.ts#stickerElement.
+   * Templates that don't support stickers, or that have an active photo
+   * background (never sticker over a photo — see the Wave 3 brief's
+   * restraint rules), simply ignore this field.
+   */
+  theme?: { key: string; assets: Array<{ path: string; name: string; source: "noto" | "icon-park" }> }
 }
 
 /** A Satori-compatible element — satori accepts plain {type, props} object trees (no JSX/React runtime required). See https://github.com/vercel/satori#jsx. */
@@ -124,7 +135,14 @@ export interface TemplateDef {
   defaultSize: TemplateSize
   allowedBackgrounds: BackgroundKind[]
   fields: TemplateFieldSchema[]
-  build: (ctx: TemplateBuildContext) => SatoriElement
+  /**
+   * Builds this template's Satori element tree for one render. May return a
+   * Promise (Wave 3 — a template that places themed stickers needs to
+   * `await decorations.ts#stickerElement`'s async SVG-file read before it
+   * can finish building its tree); render.ts always `await`s this, so a
+   * plain synchronous return (every pre-Wave-3 template) works unchanged.
+   */
+  build: (ctx: TemplateBuildContext) => SatoriElement | Promise<SatoriElement>
   /** Required (and only meaningful) when 'photo_ai' is in allowedBackgrounds — describes where the composited photo goes. */
   photoLayer?: (size: TemplateSize) => PhotoLayerSpec
 }

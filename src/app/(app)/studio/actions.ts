@@ -124,6 +124,7 @@ async function tryTemplateRenderedPoster(params: {
     fields: designed.fields,
     colorway: designed.colorway,
     background,
+    theme: designed.theme ?? undefined,
     brandKit: params.businessBrain?.brand_kit ?? null,
     // Fresh seed per render: accent-arrangement variety across
     // generations (and honest variety on Regenerate). Tests use fixed

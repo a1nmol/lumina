@@ -190,6 +190,50 @@ describe("render-sample-templates (script)", () => {
       })
     )
 
+    // Wave 3 — themed decorative stickers (src/lib/templates/themes.ts +
+    // decorations.ts#stickerElement). Proves the vendored Noto/IconPark SVGs
+    // actually composite through Satori+resvg (a broken SVG here would
+    // either throw or silently shrink the PNG well under
+    // MIN_NONTRIVIAL_PNG_BYTES) and that the palette hint blends into the
+    // resolved colors without breaking the render.
+    await record(
+      "event-poster-v1-christmas-theme",
+      await renderTemplate({
+        templateId: "event-poster-v1",
+        colorway: "brand",
+        background: { type: "gradient" },
+        brandKit: SAMPLE_BRAND_KIT,
+        seed: "christmas-sale-2026",
+        theme: { key: "christmas" },
+        fields: {
+          eyebrow: "This weekend only",
+          headline: "Our Christmas Open House",
+          highlight: "FREE GIFT WRAP",
+          subhead: "Warm drinks, live carols, and our whole holiday menu.",
+          dateLine: "December 20, 5pm–9pm",
+          locationLine: "Downtown location",
+          ctaLine: "Save your spot — link in bio",
+        },
+      })
+    )
+
+    await record(
+      "promo-v1-halloween-theme",
+      await renderTemplate({
+        templateId: "promo-v1",
+        colorway: "brand",
+        background: { type: "solid" },
+        brandKit: SAMPLE_BRAND_KIT,
+        seed: "halloween-promo-2026",
+        theme: { key: "halloween" },
+        fields: {
+          offer: "13% OFF",
+          offerLine: "Spooky season special, all week long",
+          finePrint: "Costumes encouraged, not required.",
+        },
+      })
+    )
+
     await record(
       "photo-caption-v1-no-photo-fallback",
       await renderTemplate({
