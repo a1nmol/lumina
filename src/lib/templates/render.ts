@@ -405,7 +405,7 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
   if (!def) throw new TemplateNotFoundError(input.templateId)
 
   const requestedBackground: BackgroundKind = input.background?.type ?? "solid"
-  const backgroundKind: BackgroundKind = def.allowedBackgrounds.includes(requestedBackground)
+  const initialBackgroundKind: BackgroundKind = def.allowedBackgrounds.includes(requestedBackground)
     ? requestedBackground
     : "solid" // e.g. a photo_ai request against quote-v1 (which never allows photos) demotes cleanly rather than failing the render.
 
@@ -421,8 +421,6 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
   // unchanged behavior. An explicit `input.size` always wins outright.
   const size = input.size ?? resolveFormat(def, fields, seed)
   const colorway = input.colorway ?? "brand"
-  const baseRoles = resolveColorRoles(input.brandKit ?? null, colorway, backgroundKind)
-  const roles = input.theme?.key ? applyThemeToRoles(baseRoles, input.theme.key) : baseRoles
 
   const [fonts, logoDataUri] = await Promise.all([loadTemplateFonts(), loadLogoDataUri(input.brandKit?.logo_url)])
 
@@ -436,6 +434,22 @@ export async function renderTemplate(input: RenderTemplateInput): Promise<Buffer
   const themeAssets = input.theme?.key ? resolveThemeAssets(input.theme.key, seed) : []
   const theme = input.theme?.key && themeAssets.length > 0 ? { key: input.theme.key, assets: themeAssets } : undefined
   const elements = parseElementKeys(input.elements)
+
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): a themed render
+  // must never be a flat single-color card — the sticker/big-accent
+  // decoration budget assumes SOME background variation exists. Upgrade a
+  // requested "solid" background to "gradient" whenever a theme actually
+  // resolved (stickers will show) and the template supports gradients.
+  // Gradient painting is pure in-code math off roles.backgroundStart/End (no
+  // extra LLM/media cost), so this is a strict visual upgrade, never a
+  // regression — never touches an explicit "gradient"/"photo_ai" request.
+  const backgroundKind: BackgroundKind =
+    theme && initialBackgroundKind === "solid" && def.allowedBackgrounds.includes("gradient")
+      ? "gradient"
+      : initialBackgroundKind
+
+  const baseRoles = resolveColorRoles(input.brandKit ?? null, colorway, backgroundKind)
+  const roles = input.theme?.key ? applyThemeToRoles(baseRoles, input.theme.key) : baseRoles
 
   const tree = await def.build({
     size,

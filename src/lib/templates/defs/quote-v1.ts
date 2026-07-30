@@ -22,8 +22,8 @@
 // quote-v1 never allows a photo background, so there's no "skip when photo"
 // branch needed anywhere in this file.
 
-import { autofitText, measureTextWidth } from "../autofit"
-import { calloutBubbleOutline, iconChip, positioned, quoteMark, ruleLine, scribbleUnderline, stickerElement, stickerRotationJitter, type ConnectorKey } from "../decorations"
+import { autofitText, fitSingleLine, measureTextWidth } from "../autofit"
+import { calloutBubbleOutline, iconChip, positioned, quoteMark, ruleLine, scribbleUnderline, stickerElement, stickerRotationJitter, textLine, type ConnectorKey } from "../decorations"
 import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickAxis } from "../variants"
 
@@ -140,9 +140,19 @@ async function buildQuote(ctx: TemplateBuildContext): Promise<SatoriElement> {
         )
       : null
 
+  // Reuses the exact same fit math the attribution textLine below will
+  // apply, so the underline width matches whatever actually renders even in
+  // the rare case the attribution text had to shrink.
+  const attributionFit = fitSingleLine({
+    text: fields.attribution,
+    maxWidthPx: contentWidth,
+    maxFontSize: 26,
+    minFontSize: 13,
+    letterSpacingEm: 0.02,
+  })
   const attributionUnderline =
     useConnector && connectorChoice === "scribble-underline" && fields.attribution
-      ? scribbleUnderline(measureTextWidth(fields.attribution, 26), roles.accent, seed, 7)
+      ? scribbleUnderline(measureTextWidth(attributionFit.text, attributionFit.fontSize), roles.accent, seed, 7)
       : null
 
   // callout-bubble-outline wraps the whole quote block — a speech-bubble
@@ -175,10 +185,15 @@ async function buildQuote(ctx: TemplateBuildContext): Promise<SatoriElement> {
     ]),
     fields.attribution
       ? box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", marginTop: 28 }, [
-          box(
-            { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 26, letterSpacing: "0.02em", color: roles.accent },
-            fields.attribution
-          ),
+          textLine({
+            text: fields.attribution,
+            maxWidthPx: contentWidth,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 26,
+            colorHex: roles.accent,
+            letterSpacing: "0.02em",
+          }),
           attributionUnderline ? box({ marginTop: -4 }, [attributionUnderline]) : null,
         ])
       : null,

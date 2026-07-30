@@ -42,7 +42,7 @@
 // space-between`, never a fixed offset. densityFields also lets render.ts's
 // format-density coupling keep sparse content off the seeded portrait pick.
 
-import { autofitText, measureTextWidth } from "../autofit"
+import { autofitText, fitSingleLine, measureTextWidth } from "../autofit"
 import { hexToRgb } from "../contrast"
 import {
   assertConnectorFitsReservedZone,
@@ -60,6 +60,8 @@ import {
   ringAccent,
   scribbleUnderline,
   stickerElement,
+  stickerRotationJitter,
+  textLine,
   type ConnectorKey,
 } from "../decorations"
 import { computeDensityMode, echoText, pickFillStrategy } from "../density"
@@ -160,6 +162,26 @@ function resolveWatermarkIconKey(ctx: TemplateBuildContext, fallback: Parameters
   return resolved && resolved.kind === "icon" ? resolved.key : fallback
 }
 
+/** This template's 2 declared sticker safe zones (design-review fix — Bug 2: hiring-v1 previously had NO theme support at all) — small corner peeks at the two BOTTOM corners, clear of the top eyebrow/role-title block and of the bigAccent's own bleed (which is vertically centered on the canvas, spanning the LEFT/RIGHT edge, not the bottom corners). Returns `[]` with no theme or no resolved assets. */
+async function buildThemeStickers(ctx: TemplateBuildContext): Promise<SatoriElement[]> {
+  if (!ctx.theme) return []
+  const slots: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number }> = [
+    { offsets: { bottom: -20, left: -18 }, sizePx: 84 },
+    { offsets: { bottom: -20, right: -18 }, sizePx: 76 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:hiring-sticker:${index}:${asset.name}`)
+      const tintHex = ctx.roles.accent
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.95, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
 async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
@@ -244,11 +266,22 @@ async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
 
   const confettiFlourish = hasCelebrationElement ? confettiScatter(40, 34, [roles.accent, roles.primary], seed, 7) : null
 
+  // Budget derived from real layout math: contentWidth minus the check icon
+  // (26) minus the icon-text gap (14) — never a guessed constant.
+  const benefitRowBudget = contentWidth - 26 - 14
   const benefitRows = benefits.map((benefit, index) =>
     box({ flexDirection: "row", alignItems: "center", marginTop: index === 0 ? 0 : 20 }, [
       iconChip("check", accentColor, 26),
       box({ width: 14, height: 1 }),
-      box({ flexDirection: "row", fontFamily, fontWeight: 400, fontSize: 28, color: roles.textOnDark, opacity: 0.86 }, benefit),
+      textLine({
+        text: benefit,
+        maxWidthPx: benefitRowBudget,
+        fontFamily,
+        fontWeight: 400,
+        fontSize: 28,
+        colorHex: roles.textOnDark,
+        opacity: 0.86,
+      }),
     ])
   )
 
@@ -257,9 +290,19 @@ async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
       ? { backgroundImage: `linear-gradient(180deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  // Reuses the exact same fit math the CTA textLine below will apply, so the
+  // underline width matches whatever actually renders even in the rare case
+  // the CTA text had to shrink.
+  const ctaFit = fitSingleLine({
+    text: fields.ctaLine.toUpperCase(),
+    maxWidthPx: contentWidth,
+    maxFontSize: 26,
+    minFontSize: 13,
+    letterSpacingEm: 0.04,
+  })
   const ctaUnderline =
     useConnector && connectorChoice === "scribble-underline"
-      ? scribbleUnderline(measureTextWidth(fields.ctaLine, 26), roles.textOnAccent, seed, 7)
+      ? scribbleUnderline(measureTextWidth(ctaFit.text, ctaFit.fontSize), roles.textOnAccent, seed, 7)
       : null
 
   // Design-review fix: sized to fit entirely inside the margin gutter (`m`)
@@ -328,6 +371,8 @@ async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
           el("div", { style: { display: "flex", width: Math.round(contentWidth * 0.32), height: 1, backgroundColor: roles.textOnDark } }),
         ])
 
+  const themeStickers = await buildThemeStickers(ctx)
+
   return el("div", {
     style: {
       display: "flex",
@@ -345,6 +390,7 @@ async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
       bigAccentEl,
       fillElement,
       curvedArrowEl,
+      ...themeStickers,
       box({ flexDirection: "column" }, [
         box(
           {
@@ -369,22 +415,22 @@ async function buildHiring(ctx: TemplateBuildContext): Promise<SatoriElement> {
       midGap,
       box({ flexDirection: "column" }, [
         box({ flexDirection: "column" }, [
-          box(
-            {
-              flexDirection: "row",
+          textLine({
+            text: fields.ctaLine,
+            maxWidthPx: contentWidth,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 26,
+            colorHex: roles.textOnAccent,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            style: {
               justifyContent: "center",
-              fontFamily,
-              fontWeight: 700,
-              fontSize: 26,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: roles.textOnAccent,
               backgroundColor: roles.accent,
               padding: "20px 0",
               borderRadius: 14,
             },
-            fields.ctaLine
-          ),
+          }),
           ctaUnderline ? box({ flexDirection: "row", justifyContent: "center", marginTop: -4 }, [ctaUnderline]) : null,
         ]),
         // Design-review fix: the element cluster (when present) flanks the

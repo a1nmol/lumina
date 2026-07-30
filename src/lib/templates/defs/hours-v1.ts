@@ -16,8 +16,19 @@
 //     scribble-underline under the title.
 
 import { autofitText, measureTextWidth } from "../autofit"
-import { dotGrid, iconChip, positioned, ruleLine, scribbleUnderline, tapeStrip, type ConnectorKey } from "../decorations"
-import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import {
+  dotGrid,
+  iconChip,
+  positioned,
+  ruleLine,
+  scribbleUnderline,
+  stickerElement,
+  stickerRotationJitter,
+  tapeStrip,
+  textLine,
+  type ConnectorKey,
+} from "../decorations"
+import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
@@ -66,7 +77,27 @@ function connectorPool(): Array<ConnectorKey | "none"> {
   return ["none", "none", "none", "tape-strip", "scribble-underline"]
 }
 
-function buildHours(ctx: TemplateBuildContext) {
+/** This template's 2 declared sticker safe zones (design-review fix — Bug 2: hours-v1 previously had NO theme support at all, so a themed render here showed zero decorative acknowledgment of the theme) — a small corner peek top-right, mirrored bottom-left, well clear of the centered content column. Returns `[]` with no theme or no resolved assets. */
+async function buildThemeStickers(ctx: TemplateBuildContext): Promise<SatoriElement[]> {
+  if (!ctx.theme) return []
+  const slots: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number }> = [
+    { offsets: { top: -20, right: -18 }, sizePx: 84 },
+    { offsets: { bottom: -20, left: -18 }, sizePx: 76 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:hours-sticker:${index}:${asset.name}`)
+      const tintHex = ctx.roles.accent
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.95, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildHours(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -90,13 +121,38 @@ function buildHours(ctx: TemplateBuildContext) {
     maxLines: 1,
   })
 
+  // Multi-line audit fix: summary (up to 90 chars) now routes through
+  // autofitText — same defensive discipline as every other paragraph field
+  // in this pipeline, capping both wrap width AND line count.
+  const summaryFit = autofitText({
+    text: fields.summary,
+    maxWidth: contentWidth,
+    maxHeight: 130,
+    minFontSize: 22,
+    maxFontSize: 28,
+    lineHeight: 1.35,
+    maxLines: 3,
+  })
+
   const dayRows = DAY_FIELDS.filter((day) => fields[day.key])
   const hasRows = dayRows.length > 0
 
+  // Value-cell budget derived from real layout math: contentWidth minus
+  // THIS row's own label width (measured, not guessed) minus a minimum gap
+  // — the row is a space-between flex row, so label and value share it.
+  const DAY_ROW_MIN_GAP = 24
   const rowEls = dayRows.flatMap((day, index) => [
     box({ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 16, paddingBottom: 16 }, [
       box({ flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 26, color: roles.textOnDark }, day.label),
-      box({ flexDirection: "row", fontFamily, fontWeight: 400, fontSize: 26, color: roles.textOnDark, opacity: 0.78 }, fields[day.key]),
+      textLine({
+        text: fields[day.key],
+        maxWidthPx: Math.max(100, contentWidth - measureTextWidth(day.label, 26) - DAY_ROW_MIN_GAP),
+        fontFamily,
+        fontWeight: 400,
+        fontSize: 26,
+        colorHex: roles.textOnDark,
+        opacity: 0.78,
+      }),
     ]),
     index < dayRows.length - 1 ? box({ opacity: 0.28 }, [ruleLine(contentWidth, accentColor, 1)]) : null,
   ])
@@ -120,6 +176,7 @@ function buildHours(ctx: TemplateBuildContext) {
       : null
 
   const cornerDots = accentOption === "dots" ? positioned(dotGrid(4, 4, 8, 13, accentColor, 0.22), { bottom: m, right: -Math.round(m * 0.3) }) : null
+  const themeStickers = await buildThemeStickers(ctx)
 
   return el("div", {
     style: {
@@ -137,6 +194,7 @@ function buildHours(ctx: TemplateBuildContext) {
     children: [
       tapeStripEl,
       cornerDots,
+      ...themeStickers,
       box({ flexDirection: "row", alignItems: "center", justifyContent: isCentered ? "center" : "flex-start" }, [
         iconChip("clock", accentColor, 30),
         box({ width: 12, height: 1 }),
@@ -147,19 +205,24 @@ function buildHours(ctx: TemplateBuildContext) {
       ]),
       titleUnderline ? box({ marginTop: -2, marginLeft: 42 }, [titleUnderline]) : null,
       box(
-        {
-          flexDirection: "row",
-          justifyContent: isCentered ? "center" : "flex-start",
-          textAlign: isCentered ? "center" : "left",
-          marginTop: 20,
-          fontFamily,
-          fontWeight: 400,
-          fontSize: 28,
-          lineHeight: 1.35,
-          color: roles.textOnDark,
-          opacity: 0.82,
-        },
-        fields.summary
+        { flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", marginTop: 20 },
+        summaryFit.lines.map((line, index) =>
+          box(
+            {
+              flexDirection: "row",
+              justifyContent: isCentered ? "center" : "flex-start",
+              textAlign: isCentered ? "center" : "left",
+              fontFamily,
+              fontWeight: 400,
+              fontSize: summaryFit.fontSize,
+              lineHeight: 1.35,
+              color: roles.textOnDark,
+              opacity: 0.82,
+              marginTop: index === 0 ? 0 : 2,
+            },
+            line
+          )
+        )
       ),
       hasRows
         ? box({ flexDirection: "column", marginTop: 36, width: contentWidth }, [

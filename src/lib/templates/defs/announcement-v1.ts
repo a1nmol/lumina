@@ -45,7 +45,7 @@
 // hero wrapper is — sits between the hero wrapper and the footer bar. Both
 // regions split the leftover space evenly; nothing is a fixed offset.
 
-import { autofitText, measureTextWidth } from "../autofit"
+import { autofitText, fitSingleLine, measureTextWidth } from "../autofit"
 import { hexToRgb } from "../contrast"
 import {
   accentBar,
@@ -66,6 +66,7 @@ import {
   starburst,
   stickerElement,
   stickerRotationJitter,
+  textLine,
   type ConnectorKey,
 } from "../decorations"
 import { computeDensityMode, echoText, pickFillStrategy } from "../density"
@@ -233,7 +234,10 @@ async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriEleme
 
   const densityMode = computeDensityMode(optionalDensityFields(fields))
   const fillStrategy = densityMode === "rich" ? pickFillStrategy(seed) : null
-  const applyFill = fillStrategy !== null && !hasTheme && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): fill now fires
+  // for sparse content regardless of theme — see event-poster-v1's matching
+  // comment for the full reasoning.
+  const applyFill = fillStrategy !== null && !useConnector
 
   const wordCount = fields.headline.trim().split(/\s+/).filter(Boolean).length
   const headlineCeiling = (scalePlay === "oversized" && wordCount <= 4) || (applyFill && fillStrategy === "oversized-hero") ? 112 : 92
@@ -290,23 +294,26 @@ async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriEleme
   const { icons: elementIcons, hasCelebrationElement } = await buildElementIcons(ctx, roles.textOnAccent, hasTheme)
   const elementCluster = elementIcons.length > 0 ? elementChipRow(elementIcons, roles.accent, ELEMENT_CHIP_DIAMETER, 14) : null
 
+  // Budget derived from real layout math: contentWidth minus the pill's own
+  // horizontal padding ("10px 20px" -> 20*2) — never a guessed constant.
+  const BADGE_HORIZONTAL_PADDING = 40
   const badgePill = fields.badge
-    ? box(
-        {
-          flexDirection: "row",
+    ? textLine({
+        text: fields.badge,
+        maxWidthPx: contentWidth - BADGE_HORIZONTAL_PADDING,
+        fontFamily,
+        fontWeight: 700,
+        fontSize: 20,
+        colorHex: roles.textOnAccent,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        style: {
           alignSelf: "flex-start",
           padding: "10px 20px",
           borderRadius: 999,
           backgroundColor: roles.accent,
-          color: roles.textOnAccent,
-          fontFamily,
-          fontWeight: 700,
-          fontSize: 20,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
         },
-        fields.badge
-      )
+      })
     : null
 
   const badgeConnectorKind = useConnector && (connectorChoice === "scribble-circle" || connectorChoice === "starburst") ? connectorChoice : null
@@ -339,11 +346,6 @@ async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriEleme
       )
     : null
 
-  const ctaUnderline =
-    useConnector && connectorChoice === "scribble-underline" && fields.ctaLine
-      ? scribbleUnderline(measureTextWidth(fields.ctaLine, 24), roles.accent, seed, 7)
-      : null
-
   // Design-review fix: sized to fit entirely inside the margin gutter (`m`)
   // with ZERO bleed, instead of the earlier negative-bleed placement that
   // cropped the arrowhead. See decorations.ts's connector module header.
@@ -364,34 +366,80 @@ async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriEleme
   // preserving this template's own "calm, centered" design intent) and an
   // ALWAYS-present footer bar (CTA + element cluster, or a quiet minimal
   // accent line when neither exists) pinned to the very bottom.
+  // Multi-line audit fix: body is a real wrapping paragraph field (up to
+  // 140 chars) — route it through autofitText instead of a plain
+  // fixed-fontSize node so long copy wraps + shrinks predictably.
+  const bodyFit = fields.body
+    ? autofitText({
+        text: fields.body,
+        maxWidth: contentWidth * COMPOSITION_HEADLINE_WIDTH_FRACTION[composition],
+        maxHeight: size.height * 0.2,
+        minFontSize: 20,
+        maxFontSize: 28,
+        lineHeight: 1.35,
+        maxLines: 4,
+      })
+    : null
+
   const heroGroup = box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start" }, [
     badgeRow,
     headlineBlock,
-    fields.body
+    bodyFit
       ? box(
-          {
-            flexDirection: "row",
-            justifyContent: isCentered ? "center" : "flex-start",
-            textAlign: isCentered ? "center" : "left",
-            marginTop: 22,
-            fontFamily,
-            fontWeight: 400,
-            fontSize: 28,
-            color: roles.textOnDark,
-            opacity: 0.76,
-          },
-          fields.body
+          { flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", marginTop: 22 },
+          bodyFit.lines.map((line, index) =>
+            box(
+              {
+                flexDirection: "row",
+                justifyContent: isCentered ? "center" : "flex-start",
+                textAlign: isCentered ? "center" : "left",
+                fontFamily,
+                fontWeight: 400,
+                fontSize: bodyFit.fontSize,
+                lineHeight: 1.35,
+                color: roles.textOnDark,
+                opacity: 0.76,
+                marginTop: index === 0 ? 0 : 2,
+              },
+              line
+            )
+          )
         )
       : null,
   ])
 
+  // CTA text budget: contentWidth minus the arrow icon + gap minus whatever
+  // the element cluster reserves when both footer slots are present —
+  // computed from this render's own resolved sibling widths, never a
+  // guessed constant.
+  const ctaElementClusterWidth =
+    elementIcons.length > 0 ? elementIcons.length * ELEMENT_CHIP_DIAMETER + (elementIcons.length - 1) * 14 : 0
+  const ctaTextBudget = Math.max(
+    100,
+    contentWidth - (ctaElementClusterWidth > 0 ? ctaElementClusterWidth + 24 : 0) - 22 - 10
+  )
+
+  // Reuses the exact same fit math the CTA textLine below will apply, so the
+  // underline width matches whatever actually renders even in the rare case
+  // the CTA text had to shrink.
+  const ctaFit = fitSingleLine({ text: fields.ctaLine, maxWidthPx: ctaTextBudget, maxFontSize: 24, minFontSize: 12, letterSpacingEm: 0.01 })
+  const ctaUnderline =
+    useConnector && connectorChoice === "scribble-underline" && fields.ctaLine
+      ? scribbleUnderline(measureTextWidth(ctaFit.text, ctaFit.fontSize), roles.accent, seed, 7)
+      : null
+
   const ctaBlock = fields.ctaLine
     ? box({ flexDirection: "column" }, [
         box({ flexDirection: "row", alignItems: "center" }, [
-          box(
-            { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 24, color: roles.accent, letterSpacing: "0.01em" },
-            fields.ctaLine
-          ),
+          textLine({
+            text: fields.ctaLine,
+            maxWidthPx: ctaTextBudget,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 24,
+            colorHex: roles.accent,
+            letterSpacing: "0.01em",
+          }),
           box({ width: 10, height: 1 }),
           iconChip("arrow-right", roles.accent, 22),
         ]),
@@ -427,7 +475,10 @@ async function buildAnnouncement(ctx: TemplateBuildContext): Promise<SatoriEleme
 
   const themeStickers = await buildThemeStickers(ctx, accentCorner, Boolean(logoDataUri))
 
-  const showBigAccent = !hasTheme && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): the big accent
+  // now ALSO shows for themed renders — see event-poster-v1's matching
+  // comment. Connector still drops the big accent (restraint rule).
+  const showBigAccent = !useConnector
   const bigAccentDiameter = Math.round(size.width * 0.62)
   const bigAccentEl = !showBigAccent
     ? null

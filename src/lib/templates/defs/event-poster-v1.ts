@@ -57,7 +57,7 @@
 // field) — still the same in-flow slot, so it's still placed entirely by
 // `justify-content: space-between`, never a fixed offset.
 
-import { autofitText, measureTextWidth } from "../autofit"
+import { autofitText, fitSingleLine, measureTextWidth } from "../autofit"
 import { hexToRgb } from "../contrast"
 import {
   accentBar,
@@ -80,6 +80,7 @@ import {
   starburst,
   stickerElement,
   stickerRotationJitter,
+  textLine,
   type ConnectorKey,
 } from "../decorations"
 import { computeDensityMode, echoText, pickFillStrategy } from "../density"
@@ -307,7 +308,14 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
 
   const densityMode = computeDensityMode(optionalDensityFields(fields))
   const fillStrategy = densityMode === "rich" ? pickFillStrategy(seed) : null
-  const applyFill = fillStrategy !== null && !hasTheme && !hasPhoto && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): a themed render
+  // used to unconditionally skip the rich-mode fill treatment, which is
+  // exactly backwards for a sparse/themed request — those are the renders
+  // MOST likely to read empty. Fill now fires whenever content is sparse
+  // regardless of theme (connector is already forced to "none" whenever
+  // hasTheme is true, so `!useConnector` alone still keeps fill/connector
+  // mutually exclusive).
+  const applyFill = fillStrategy !== null && !hasPhoto && !useConnector
 
   const wordCount = fields.headline.trim().split(/\s+/).filter(Boolean).length
   const oversizedCeiling =
@@ -372,6 +380,10 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
   const elementCluster = elementIcons.length > 0 ? elementChipRow(elementIcons, roles.accent, ELEMENT_CHIP_DIAMETER, 14) : null
 
   // --- highlight badge, optionally wrapped in a connector or paired with a confetti flourish ---
+  // Budget derived from real layout math: contentWidth minus the pill's own
+  // horizontal padding (16px*2 + 30px*2 = 92... see below) minus the icon
+  // (26) minus the icon-text gap (12) — never a guessed constant.
+  const BADGE_HORIZONTAL_PADDING = 60 // "16px 30px" -> 30*2.
   const badgePill = fields.highlight
     ? box(
         {
@@ -386,7 +398,15 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
         [
           iconChip("trophy", roles.textOnAccent, 26),
           box({ width: 12, height: 1 }),
-          box({ flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 28, letterSpacing: "0.02em" }, fields.highlight),
+          textLine({
+            text: fields.highlight,
+            maxWidthPx: contentWidth - BADGE_HORIZONTAL_PADDING - 26 - 12,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 28,
+            colorHex: roles.textOnAccent,
+            letterSpacing: "0.02em",
+          }),
         ]
       )
     : null
@@ -408,50 +428,101 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
       )
     : null
 
+  // Multi-line audit fix: subhead is a real wrapping paragraph field (up to
+  // 70 chars) — route it through autofitText (same discipline as headline)
+  // instead of a plain fixed-fontSize node, so long copy wraps + shrinks
+  // instead of relying on Satori's own (untrusted, see autofit.ts's module
+  // header) layout to bound it.
+  const subheadFit = fields.subhead
+    ? autofitText({
+        text: fields.subhead,
+        maxWidth: contentWidth * COMPOSITION_HEADLINE_WIDTH_FRACTION[composition],
+        maxHeight: size.height * 0.13,
+        minFontSize: 22,
+        maxFontSize: 32,
+        lineHeight: 1.3,
+        maxLines: 3,
+      })
+    : null
+
   const topChildren = [
     fields.eyebrow
-      ? box(
-          {
-            flexDirection: "row",
+      ? textLine({
+          text: fields.eyebrow,
+          maxWidthPx: contentWidth,
+          fontFamily,
+          fontWeight: 700,
+          fontSize: 26,
+          colorHex: roles.accent,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          style: {
             justifyContent: isCentered ? "center" : "flex-start",
             alignSelf: isCentered ? "center" : "flex-start",
-            fontFamily,
-            fontWeight: 700,
-            fontSize: 26,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            color: roles.accent,
             marginBottom: 20,
           },
-          fields.eyebrow
-        )
+        })
       : null,
     headlineBlock,
     box({ flexDirection: "row", justifyContent: isCentered ? "center" : "flex-start" }, [accentBar(96, 6, roles.accent, 4)]),
     highlightRow,
-    fields.subhead
+    subheadFit
       ? box(
-          {
-            flexDirection: "row",
-            justifyContent: isCentered ? "center" : "flex-start",
-            textAlign: isCentered ? "center" : "left",
-            alignSelf: isCentered ? "center" : "flex-start",
-            marginTop: 22,
-            fontFamily,
-            fontWeight: 400,
-            fontSize: 32,
-            color: roles.textOnDark,
-            opacity: 0.8,
-          },
-          fields.subhead
+          { flexDirection: "column", alignSelf: isCentered ? "center" : "flex-start", marginTop: 22 },
+          subheadFit.lines.map((line, index) =>
+            box(
+              {
+                flexDirection: "row",
+                justifyContent: isCentered ? "center" : "flex-start",
+                textAlign: isCentered ? "center" : "left",
+                fontFamily,
+                fontWeight: 400,
+                fontSize: subheadFit.fontSize,
+                lineHeight: 1.3,
+                color: roles.textOnDark,
+                opacity: 0.8,
+                marginTop: index === 0 ? 0 : 2,
+              },
+              line
+            )
+          )
         )
       : null,
   ]
 
-  // --- CTA, optionally underlined with a scribble connector ---
+  // Footer date/location rows sit alone (no sibling competing for the same
+  // row's width), so their budget is simply contentWidth minus that row's
+  // own icon + icon-text gap — real layout numbers, not guesses.
+  const dateRowBudget = contentWidth - 28 - 10
+  const locationRowBudget = contentWidth - 22 - 8
+
+  // CTA text budget: contentWidth minus whatever else shares the 3-slot
+  // footer bar (element cluster / logo, each with a fixed real width) minus
+  // the CTA pill's own horizontal padding — computed from the actual
+  // sibling widths this render resolved, never a guessed constant.
+  const CTA_HORIZONTAL_PADDING = 52 // "14px 26px" -> 26*2.
+  const LOGO_SLOT_WIDTH = 88
+  const FOOTER_SLOT_GAP = 24
+  const elementClusterWidth =
+    elementIcons.length > 0 ? elementIcons.length * ELEMENT_CHIP_DIAMETER + (elementIcons.length - 1) * 14 : 0
+  const footerReservedSiblings =
+    (elementClusterWidth > 0 ? elementClusterWidth + FOOTER_SLOT_GAP : 0) +
+    (logoDataUri ? LOGO_SLOT_WIDTH + FOOTER_SLOT_GAP : 0)
+  const ctaTextBudget = Math.max(120, contentWidth - footerReservedSiblings - CTA_HORIZONTAL_PADDING)
+
+  // Reuses the exact same fit math the CTA textLine below will apply, so the
+  // underline width matches whatever actually renders even in the rare case
+  // the CTA text had to shrink.
+  const ctaFit = fitSingleLine({
+    text: fields.ctaLine.toUpperCase(),
+    maxWidthPx: ctaTextBudget,
+    maxFontSize: 24,
+    minFontSize: 12,
+    letterSpacingEm: 0.05,
+  })
   const ctaUnderline =
     useConnector && connectorChoice === "scribble-underline"
-      ? scribbleUnderline(measureTextWidth(fields.ctaLine, 24), roles.textOnAccent, seed, 7)
+      ? scribbleUnderline(measureTextWidth(ctaFit.text, ctaFit.fontSize), roles.textOnAccent, seed, 7)
       : null
 
   const bottomChildren = [
@@ -460,13 +531,27 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
         box({ flexDirection: "row", alignItems: "center" }, [
           iconChip("calendar", accentColor, 28),
           box({ width: 10, height: 1 }),
-          box({ flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 32, color: roles.textOnDark }, fields.dateLine),
+          textLine({
+            text: fields.dateLine,
+            maxWidthPx: dateRowBudget,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 32,
+            colorHex: roles.textOnDark,
+          }),
         ]),
         fields.locationLine
           ? box({ flexDirection: "row", alignItems: "center", marginTop: 8, opacity: 0.72 }, [
               iconChip("map-pin", roles.textOnDark, 22),
               box({ width: 8, height: 1 }),
-              box({ flexDirection: "row", fontFamily, fontWeight: 400, fontSize: 26, color: roles.textOnDark }, fields.locationLine),
+              textLine({
+                text: fields.locationLine,
+                maxWidthPx: locationRowBudget,
+                fontFamily,
+                fontWeight: 400,
+                fontSize: 26,
+                colorHex: roles.textOnDark,
+              }),
             ])
           : null,
       ]),
@@ -479,21 +564,21 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
       { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 28 },
       [
         box({ flexDirection: "column" }, [
-          box(
-            {
-              flexDirection: "row",
-              fontFamily,
-              fontWeight: 700,
-              fontSize: 24,
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              color: roles.textOnAccent,
+          textLine({
+            text: fields.ctaLine,
+            maxWidthPx: ctaTextBudget,
+            fontFamily,
+            fontWeight: 700,
+            fontSize: 24,
+            colorHex: roles.textOnAccent,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            style: {
               backgroundColor: roles.accent,
               padding: "14px 26px",
               borderRadius: 12,
             },
-            fields.ctaLine
-          ),
+          }),
           ctaUnderline ? box({ marginTop: -6, marginLeft: 26 }, [ctaUnderline]) : null,
         ]),
         elementCluster,
@@ -509,10 +594,13 @@ async function buildEventPoster(ctx: TemplateBuildContext): Promise<SatoriElemen
         ? { backgroundImage: `linear-gradient(180deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
         : {} // photo_ai: leave transparent — render.ts composites the photo + scrim underneath, this layer is type/logo only.
 
-  // Branch 1 (themed): unchanged Wave 3 big-accent-off, corner+midgap stickers.
-  // Branch 2 (connector): no big accent (restraint rule).
-  // Branch 3/4: normal big accent, scaled by composition.
-  const showBigAccent = !hasPhoto && !hasTheme && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): the big accent
+  // now ALSO shows for themed renders (previously suppressed entirely),
+  // satisfying the design floor for any themed render — gradient/solid
+  // background + at least one big accent + theme stickers, never just tiny
+  // corner stickers on a flat card. Connector still drops the big accent
+  // (restraint rule) — unchanged.
+  const showBigAccent = !hasPhoto && !useConnector
   const decorationChildren = showBigAccent ? [buildBigAccent(bigAccentKind, accentColor, size, m, seed, accentScale)] : []
 
   const midGapSticker = await buildMidGapSticker(ctx, hasPhoto)

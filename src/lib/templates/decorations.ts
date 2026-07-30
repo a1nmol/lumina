@@ -23,6 +23,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 
+import { fitSingleLine } from "./autofit"
 import { pickTextColor } from "./contrast"
 import { box, img, type SatoriElement } from "./types"
 import { hashSeed, pickVariant } from "./variants"
@@ -515,6 +516,100 @@ export function positioned(
   offsets: { top?: number; left?: number; right?: number; bottom?: number }
 ): SatoriElement {
   return box({ position: "absolute", ...offsets }, [child])
+}
+
+// ===========================================================================
+// safeText — the single-line text builder every template def's label-style
+// field (footer rows, pill/badge text, CTA lines, fine print, hours row
+// cells, eyebrows, attribution lines...) must route through instead of a
+// bare `box({fontSize:...}, text)`. See autofit.ts#fitSingleLine's module
+// header for the root cause this fixes. `maxWidthPx` is REQUIRED — callers
+// must derive it from real layout math (contentWidth minus margins minus
+// sibling icon/logo/pill slots), never a guessed constant.
+// ===========================================================================
+
+export interface TextLineOptions {
+  text: string
+  /** Available width budget in px — REQUIRED, see module header above. */
+  maxWidthPx: number
+  fontFamily: string
+  fontWeight: number
+  /** Treated as a CEILING — fitSingleLine may shrink below this (down to `minFontSize`) to fit `maxWidthPx`, then ellipsizes if even that doesn't fit. */
+  fontSize: number
+  /** Defaults to a sane fraction of `fontSize` so a caller that doesn't have a specific floor in mind still gets sensible shrinking room. */
+  minFontSize?: number
+  colorHex: string
+  /** e.g. `"0.18em"` — also fed into fitSingleLine's width math (see FitSingleLineOptions#letterSpacingEm) so the measured width matches what actually gets painted. */
+  letterSpacing?: string
+  textTransform?: "uppercase"
+  opacity?: number
+  /** Extra style merged onto the returned box AFTER the computed text styles — the usual place for justifyContent/alignSelf/margin, exactly as a caller would have passed to a plain `box()` before. */
+  style?: Record<string, string | number>
+}
+
+function parseEmLetterSpacing(value: string | undefined): number {
+  if (!value) return 0
+  const match = /^(-?[\d.]+)em$/.exec(value.trim())
+  return match ? Number(match[1]) : 0
+}
+
+/**
+ * Renders `text` as a single line, GUARANTEED to measure within
+ * `maxWidthPx` — shrinking the font size (down to `minFontSize`) and, in
+ * the rare case even that doesn't fit, ellipsis-truncating, via
+ * autofit.ts#fitSingleLine. Uppercased BEFORE measurement when
+ * `textTransform: "uppercase"` is requested, since uppercase glyphs measure
+ * wider than the mixed/lower-case source string CSS `text-transform` would
+ * otherwise transform at paint time only (measuring the un-transformed
+ * string would under-count the real rendered width).
+ */
+export function textLine(opts: TextLineOptions): SatoriElement {
+  const {
+    text,
+    maxWidthPx,
+    fontFamily,
+    fontWeight,
+    fontSize,
+    minFontSize,
+    colorHex,
+    letterSpacing,
+    textTransform,
+    opacity,
+    style,
+  } = opts
+
+  const measureText = textTransform === "uppercase" ? text.toUpperCase() : text
+  const letterSpacingEm = parseEmLetterSpacing(letterSpacing)
+  const fit = fitSingleLine({
+    text: measureText,
+    maxWidthPx,
+    maxFontSize: fontSize,
+    minFontSize: minFontSize ?? Math.max(12, Math.round(fontSize * 0.5)),
+    letterSpacingEm,
+  })
+
+  return box(
+    {
+      flexDirection: "row",
+      fontFamily,
+      fontWeight,
+      fontSize: fit.fontSize,
+      lineHeight: 1,
+      color: colorHex,
+      flexShrink: 0,
+      maxWidth: maxWidthPx,
+      // Belt-and-suspenders on top of fitSingleLine's own guaranteed-to-fit
+      // measurement: force Satori to never wrap this box onto a second line
+      // regardless of any layout-context quirk (e.g. sharing a row with an
+      // icon sibling) that might otherwise still trigger a wrap.
+      whiteSpace: "nowrap",
+      ...(letterSpacing ? { letterSpacing } : {}),
+      ...(textTransform ? { textTransform } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
+      ...(style ?? {}),
+    },
+    fit.text
+  )
 }
 
 // ===========================================================================

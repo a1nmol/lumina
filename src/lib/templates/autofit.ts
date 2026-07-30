@@ -140,6 +140,127 @@ export interface AutofitResult {
 
 export const DEFAULT_LINE_HEIGHT = 1.15
 
+// ===========================================================================
+// fitSingleLine — the single-line counterpart to autofitText above.
+//
+// Root cause (owner-reported overflow bug): every template def has PLAIN
+// text nodes (footer date/location rows, pill/badge labels, CTA lines, fine
+// print, hours row cells, etc.) that were never routed through this module
+// at all — they relied on Satori's own native text layout to wrap/clip
+// within their container's width. That trust is misplaced: those nodes
+// virtually all sit inside a flex ROW alongside a sibling (an icon, a gap
+// spacer) and/or carry a CSS `letterSpacing`, and Satori does not reliably
+// bound either configuration to the container's actual available width —
+// the text can render past the intended safe margin and get hard-clipped by
+// the canvas's own `overflow: hidden` (that's the "cut-off text" bug:
+// chars ≠ pixels, and an un-measured worst-case string is wider than the
+// margin). fitSingleLine below is the fix: it PRE-COMPUTES (in plain JS,
+// with real pixel measurement, same discipline as autofitText's own
+// wrap-then-truncate) the largest font size — and, if even the minimum
+// doesn't fit, an ellipsis-truncated substring — that is GUARANTEED to
+// measure within `maxWidthPx`, so the string Satori is ever asked to render
+// is already short enough. Nothing downstream needs to trust Satori's own
+// layout engine to get this right.
+// ===========================================================================
+
+export interface FitSingleLineOptions {
+  text: string
+  /** Available width budget in px — REQUIRED. Callers (decorations.ts#textLine, or a template calling this directly) must derive this from real layout math: canvas width − 2×safe margin − sibling slots (icons/logo/other pills sharing the row) — never a guessed constant. */
+  maxWidthPx: number
+  maxFontSize: number
+  minFontSize: number
+  /**
+   * Extra per-character tracking in em units the caller will ALSO apply via
+   * a CSS `letterSpacing` on the rendered box (e.g. pass 0.18 for
+   * `letterSpacing: "0.18em"`). Satori paints letter-spacing but does not
+   * factor it into its own (untrusted, per the module header) wrap
+   * calculations, so this module must account for it explicitly — omitting
+   * it for a tracked field is exactly how the eyebrow-row overflow
+   * regressed. Default 0 (no tracking).
+   */
+  letterSpacingEm?: number
+  charWidthEm?: CharWidthFn
+}
+
+export interface FitSingleLineResult {
+  fontSize: number
+  /** Already the exact, final string to render — trimmed, and ellipsis-truncated if even `minFontSize` didn't fit `maxWidthPx`. Render this verbatim; do not re-trim/re-wrap it. */
+  text: string
+}
+
+/** The same measurement fitSingleLine uses internally (base glyph estimate + letter-spacing tracking) — exported so tests (and any caller that wants to double-check a result) can assert `measureTrackedWidth(result.text, result.fontSize, letterSpacingEm) <= maxWidthPx + 0.5`. */
+export function measureTrackedWidth(
+  text: string,
+  fontSizePx: number,
+  letterSpacingEm = 0,
+  charWidthEm: CharWidthFn = defaultCharWidthEm
+): number {
+  const base = measureTextWidth(text, fontSizePx, charWidthEm)
+  const tracking = text.length * letterSpacingEm * fontSizePx
+  return base + tracking
+}
+
+/**
+ * Binary-searches integer font sizes in [minFontSize, maxFontSize] for the
+ * largest size whose SINGLE (unwrapped) line measures within `maxWidthPx`
+ * (letter-spacing included, see `letterSpacingEm`). If even `minFontSize`
+ * doesn't fit, clamps to `minFontSize` and ellipsis-truncates the text
+ * character-by-character until it measures within budget — so the result
+ * NEVER exceeds `maxWidthPx`, mirroring autofitText's own "never overflow
+ * the caller's box" guarantee.
+ */
+export function fitSingleLine(options: FitSingleLineOptions): FitSingleLineResult {
+  const { text, maxWidthPx, maxFontSize, minFontSize, letterSpacingEm = 0, charWidthEm = defaultCharWidthEm } = options
+
+  if (minFontSize <= 0 || maxFontSize <= 0 || minFontSize > maxFontSize) {
+    throw new Error(`fitSingleLine: invalid font size bounds (min ${minFontSize}, max ${maxFontSize}).`)
+  }
+  if (maxWidthPx <= 0) {
+    throw new Error(`fitSingleLine: invalid maxWidthPx (${maxWidthPx}).`)
+  }
+
+  const trimmed = text.trim().replace(/\s+/g, " ")
+  if (!trimmed) {
+    return { fontSize: Math.floor(maxFontSize), text: "" }
+  }
+
+  const fits = (fontSize: number): boolean =>
+    measureTrackedWidth(trimmed, fontSize, letterSpacingEm, charWidthEm) <= maxWidthPx
+
+  let lo = Math.floor(minFontSize)
+  let hi = Math.floor(maxFontSize)
+  let best: number | null = null
+
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (fits(mid)) {
+      best = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+
+  if (best !== null) {
+    return { fontSize: best, text: trimmed }
+  }
+
+  // Even minFontSize doesn't fit — clamp to it and ellipsize character by
+  // character until the truncated string + ellipsis measures within budget.
+  const flooredMin = Math.floor(minFontSize)
+  const ellipsis = "…"
+  let candidate = trimmed
+  while (
+    candidate.length > 0 &&
+    measureTrackedWidth(`${candidate}${ellipsis}`, flooredMin, letterSpacingEm, charWidthEm) > maxWidthPx
+  ) {
+    candidate = candidate.slice(0, -1).trimEnd()
+  }
+  const finalText = candidate.length > 0 ? `${candidate}${ellipsis}` : ellipsis
+
+  return { fontSize: flooredMin, text: finalText }
+}
+
 /**
  * Binary-searches integer font sizes in [minFontSize, maxFontSize] for the
  * largest size whose word-wrapped line count fits both `maxHeight` and

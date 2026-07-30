@@ -14,10 +14,26 @@
 //   connector: none (weighted) / scribble-underline under the attribution
 //     line (always present, required) / tape-strip pinned at the top —
 //     a review card "pinned up" is a natural, restrained motif fit.
+//
+// Design-review fix (Bug 2 — "sparse+theme reads flat"): this template
+// previously had NO theme sticker placement at all (it only gated its own
+// connector pool on `ctx.theme`) — a themed render here showed zero visual
+// acknowledgment of the theme beyond the global palette blend. Now places 2
+// small corner stickers, same discipline as quote-v1.
 
-import { autofitText, measureTextWidth } from "../autofit"
-import { accentBar, iconChip, positioned, scribbleUnderline, tapeStrip, type ConnectorKey } from "../decorations"
-import { box, el, img, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
+import { autofitText, fitSingleLine, measureTextWidth } from "../autofit"
+import {
+  accentBar,
+  iconChip,
+  positioned,
+  scribbleUnderline,
+  stickerElement,
+  stickerRotationJitter,
+  tapeStrip,
+  textLine,
+  type ConnectorKey,
+} from "../decorations"
+import { box, el, img, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema } from "../types"
 import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1080 }
@@ -43,7 +59,27 @@ function connectorPool(): Array<ConnectorKey | "none"> {
   return ["none", "none", "none", "scribble-underline", "tape-strip"]
 }
 
-function buildTestimonial(ctx: TemplateBuildContext) {
+/** This template's 2 declared sticker safe zones (design-review fix — Bug 2) — small corner peeks top-left and bottom-right, mirroring quote-v1's own pattern (safe regardless of quote length since content is vertically centered). Returns `[]` with no theme or no resolved assets. */
+async function buildThemeStickers(ctx: TemplateBuildContext): Promise<SatoriElement[]> {
+  if (!ctx.theme) return []
+  const slots: Array<{ offsets: { top?: number; left?: number; right?: number; bottom?: number }; sizePx: number }> = [
+    { offsets: { top: -18, left: -18 }, sizePx: 84 },
+    { offsets: { bottom: -18, right: -18 }, sizePx: 84 },
+  ]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:testimonial-sticker:${index}:${asset.name}`)
+      const tintHex = ctx.roles.accent
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.95, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildTestimonial(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -101,13 +137,25 @@ function buildTestimonial(ctx: TemplateBuildContext) {
       ? { backgroundImage: `linear-gradient(135deg, ${roles.backgroundStart} 0%, ${roles.backgroundEnd} 100%)` }
       : { backgroundColor: roles.backgroundStart }
 
+  // Reuses textLine's own fit math (same fontSize/minFontSize/letterSpacing
+  // inputs) so the underline width matches whatever the attribution row
+  // actually rendered at, even in the rare case it had to shrink.
+  const attributionFit = fitSingleLine({
+    text: fields.attribution,
+    maxWidthPx: contentWidth,
+    minFontSize: 13,
+    maxFontSize: 26,
+    letterSpacingEm: 0.01,
+  })
   const attributionUnderline =
     useConnector && connectorChoice === "scribble-underline"
-      ? scribbleUnderline(measureTextWidth(fields.attribution, 26), roles.accent, seed, 7)
+      ? scribbleUnderline(measureTextWidth(attributionFit.text, attributionFit.fontSize), roles.accent, seed, 7)
       : null
 
   const tapeStripEl =
     useConnector && connectorChoice === "tape-strip" ? positioned(tapeStrip(120, 44, roles.accent, seed, 0.8), { top: -14, left: Math.round(size.width * 0.5 - 60) }) : null
+
+  const themeStickers = await buildThemeStickers(ctx)
 
   return el("div", {
     style: {
@@ -125,30 +173,33 @@ function buildTestimonial(ctx: TemplateBuildContext) {
     },
     children: [
       tapeStripEl,
+      ...themeStickers,
       starsRow,
       box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", overflow: "hidden", marginTop: 30 }, quoteLines),
       showAccentBar ? box({ marginTop: 26 }, [accentBar(56, 4, roles.accent, 3)]) : null,
       box({ flexDirection: "column", alignItems: isCentered ? "center" : "flex-start", marginTop: showAccentBar ? 22 : 32 }, [
-        box(
-          { flexDirection: "row", fontFamily, fontWeight: 700, fontSize: 26, color: roles.accent, letterSpacing: "0.01em" },
-          fields.attribution
-        ),
+        textLine({
+          text: fields.attribution,
+          maxWidthPx: contentWidth,
+          fontFamily,
+          fontWeight: 700,
+          fontSize: 26,
+          colorHex: roles.accent,
+          letterSpacing: "0.01em",
+        }),
         attributionUnderline ? box({ marginTop: -4 }, [attributionUnderline]) : null,
       ]),
       fields.context
-        ? box(
-            {
-              flexDirection: "row",
-              justifyContent: isCentered ? "center" : "flex-start",
-              marginTop: 6,
-              fontFamily,
-              fontWeight: 400,
-              fontSize: 22,
-              color: roles.textOnDark,
-              opacity: 0.66,
-            },
-            fields.context
-          )
+        ? textLine({
+            text: fields.context,
+            maxWidthPx: contentWidth,
+            fontFamily,
+            fontWeight: 400,
+            fontSize: 22,
+            colorHex: roles.textOnDark,
+            opacity: 0.66,
+            style: { justifyContent: isCentered ? "center" : "flex-start", marginTop: 6 },
+          })
         : null,
       logoDataUri
         ? box({ flexDirection: "row", justifyContent: isCentered ? "center" : "flex-start", marginTop: 24 }, [

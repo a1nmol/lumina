@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { autofitText, measureTextWidth } from "./autofit"
+import { autofitText, fitSingleLine, measureTextWidth, measureTrackedWidth } from "./autofit"
 
 describe("measureTextWidth", () => {
   it("grows linearly with font size", () => {
@@ -87,5 +87,76 @@ describe("autofitText", () => {
     expect(() =>
       autofitText({ text: "x", maxWidth: 100, maxHeight: 100, minFontSize: 50, maxFontSize: 10 })
     ).toThrow()
+  })
+})
+
+// ===========================================================================
+// fitSingleLine — the permanent guard against the owner's "single-line rows
+// overflow the canvas" bug class (see autofit.ts's module header). The
+// invariant every one of these proves: whatever fitSingleLine returns must
+// measure within the caller's budget, full stop — no wrapped/growing-past-
+// the-margin case is allowed to exist.
+// ===========================================================================
+
+describe("fitSingleLine", () => {
+  it("never returns text that measures wider than maxWidthPx, across a stress matrix of lengths/fonts/budgets", () => {
+    const wide = (n: number) => "WWMMWW HOLIDAY MMWW ".repeat(10).slice(0, n)
+    const lengths = [5, 14, 22, 32, 40, 50, 60, 80, 90]
+    const fontSizes: Array<[number, number]> = [
+      [12, 20],
+      [18, 28],
+      [24, 32],
+      [20, 52],
+      [64, 232],
+    ]
+    const budgets = [80, 150, 300, 500, 900]
+
+    for (const len of lengths) {
+      for (const [minFontSize, maxFontSize] of fontSizes) {
+        for (const maxWidthPx of budgets) {
+          const result = fitSingleLine({ text: wide(len), maxWidthPx, minFontSize, maxFontSize })
+          expect(result.fontSize).toBeGreaterThanOrEqual(minFontSize)
+          expect(result.fontSize).toBeLessThanOrEqual(maxFontSize)
+          expect(measureTrackedWidth(result.text, result.fontSize)).toBeLessThanOrEqual(maxWidthPx + 0.5)
+        }
+      }
+    }
+  })
+
+  it("accounts for letterSpacing tracking in the width guarantee — the exact regression that broke the eyebrow row", () => {
+    const wide = "WWMMWW HOLIDAY MMWW WWMMWW HOLIDAY".slice(0, 40)
+    const maxWidthPx = 400
+    const result = fitSingleLine({ text: wide, maxWidthPx, minFontSize: 14, maxFontSize: 26, letterSpacingEm: 0.18 })
+    expect(measureTrackedWidth(result.text, result.fontSize, 0.18)).toBeLessThanOrEqual(maxWidthPx + 0.5)
+    // Sanity: the tracked measurement (which the caller's rendered CSS
+    // actually pays for) must be strictly wider than the untracked one for
+    // any non-trivial letterSpacing, proving the tracking math is live, not
+    // a no-op.
+    expect(measureTrackedWidth(result.text, result.fontSize, 0.18)).toBeGreaterThan(
+      measureTextWidth(result.text, result.fontSize)
+    )
+  })
+
+  it("ellipsizes (never overflows) when even minFontSize doesn't fit", () => {
+    const result = fitSingleLine({
+      text: "WWMMWW HOLIDAY MMWW WWMMWW HOLIDAY MMWW WWMMWW HOLIDAY",
+      maxWidthPx: 60,
+      minFontSize: 20,
+      maxFontSize: 20,
+    })
+    expect(result.fontSize).toBe(20)
+    expect(measureTextWidth(result.text, 20)).toBeLessThanOrEqual(60 + 0.5)
+    expect(result.text.endsWith("…")).toBe(true)
+  })
+
+  it("returns empty text for blank/whitespace-only input without throwing", () => {
+    const result = fitSingleLine({ text: "   ", maxWidthPx: 200, minFontSize: 10, maxFontSize: 40 })
+    expect(result.text).toBe("")
+    expect(result.fontSize).toBe(40)
+  })
+
+  it("throws on invalid bounds", () => {
+    expect(() => fitSingleLine({ text: "x", maxWidthPx: 100, minFontSize: 50, maxFontSize: 10 })).toThrow()
+    expect(() => fitSingleLine({ text: "x", maxWidthPx: 0, minFontSize: 10, maxFontSize: 40 })).toThrow()
   })
 })

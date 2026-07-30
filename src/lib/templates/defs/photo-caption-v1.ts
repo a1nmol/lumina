@@ -14,10 +14,16 @@
 //   accentBar: the existing show/hide coin-flip, now a named axis.
 //   connector: none (weighted, restraint is the whole point of this
 //     template) / scribble-underline under the caption.
+//
+// Design-review fix (Bug 2 — "sparse+theme reads flat"): this template
+// previously had NO theme sticker placement at all. Adds up to 2 small
+// stickers at the TOP corners (never colliding with the bottom-anchored
+// caption block) — using only the corner opposite the logo when one is
+// present, both corners otherwise.
 
 import { autofitText, measureTextWidth } from "../autofit"
-import { accentBar, scribbleUnderline, type ConnectorKey } from "../decorations"
-import { box, el, img, type PhotoLayerSpec, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema, type TemplateSize } from "../types"
+import { accentBar, positioned, scribbleUnderline, stickerElement, stickerRotationJitter, type ConnectorKey } from "../decorations"
+import { box, el, img, type PhotoLayerSpec, type SatoriElement, type TemplateBuildContext, type TemplateDef, type TemplateFieldSchema, type TemplateSize } from "../types"
 import { pickAxis } from "../variants"
 
 const SIZE = { width: 1080, height: 1350 }
@@ -41,7 +47,31 @@ function connectorPool(): Array<ConnectorKey | "none"> {
   return ["none", "none", "none", "none", "scribble-underline"]
 }
 
-function buildPhotoCaption(ctx: TemplateBuildContext) {
+/** Sticker safe zones — TOP corners only, well clear of the bottom-anchored caption block. Uses only the corner opposite `logoCorner` when a logo is present (1 sticker), both top corners otherwise (2). Skips entirely with an active photo (never sticker over a photo, same restraint rule every other template follows) or no theme. */
+async function buildThemeStickers(
+  ctx: TemplateBuildContext,
+  logoCorner: (typeof LOGO_CORNERS)[number],
+  hasLogo: boolean,
+  hasPhoto: boolean
+): Promise<SatoriElement[]> {
+  if (hasPhoto || !ctx.theme) return []
+  const topLeft = { offsets: { top: -18, left: -18 }, sizePx: 84 }
+  const topRight = { offsets: { top: -18, right: -18 }, sizePx: 84 }
+  const slots = hasLogo ? [logoCorner === "top-left" ? topRight : topLeft] : [topLeft, topRight]
+  const picks = ctx.theme.assets.slice(0, slots.length)
+  const placed = await Promise.all(
+    picks.map(async (asset, index) => {
+      const slot = slots[index]
+      const rotation = stickerRotationJitter(`${ctx.seed}:photo-caption-sticker:${index}:${asset.name}`)
+      const tintHex = ctx.roles.accent
+      const sticker = await stickerElement(asset.path, slot.sizePx, rotation, 0.95, tintHex)
+      return sticker ? positioned(sticker, slot.offsets) : null
+    })
+  )
+  return placed.filter((el): el is SatoriElement => el !== null)
+}
+
+async function buildPhotoCaption(ctx: TemplateBuildContext): Promise<SatoriElement> {
   const { size, roles, fields, logoDataUri, backgroundKind, fontFamily, seed } = ctx
   const m = margin(size.width)
   const contentWidth = size.width - m * 2
@@ -94,6 +124,8 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
       ? scribbleUnderline(measureTextWidth(captionFit.lines[captionFit.lines.length - 1] ?? fields.caption, captionFit.fontSize), roles.accent, seed, 7)
       : null
 
+  const themeStickers = await buildThemeStickers(ctx, logoCorner, Boolean(logoDataUri), hasPhoto)
+
   return el("div", {
     style: {
       display: "flex",
@@ -107,6 +139,7 @@ function buildPhotoCaption(ctx: TemplateBuildContext) {
       ...rootBackgroundStyle,
     },
     children: [
+      ...themeStickers,
       logoDataUri
         ? box({
             position: "absolute",

@@ -74,6 +74,7 @@ import {
   starburst,
   stickerElement,
   stickerRotationJitter,
+  textLine,
   type ConnectorKey,
 } from "../decorations"
 import { computeDensityMode, echoText, pickFillStrategy } from "../density"
@@ -246,7 +247,10 @@ async function buildPromo(ctx: TemplateBuildContext): Promise<SatoriElement> {
 
   const densityMode = computeDensityMode(optionalDensityFields(fields))
   const fillStrategy = densityMode === "rich" ? pickFillStrategy(seed) : null
-  const applyFill = fillStrategy !== null && !hasTheme && !hasPhoto && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): fill now fires
+  // for sparse content regardless of theme — see event-poster-v1's matching
+  // comment for the full reasoning.
+  const applyFill = fillStrategy !== null && !hasPhoto && !useConnector
 
   const offerWordCount = fields.offer.trim().split(/\s+/).filter(Boolean).length
   const baseOfferCeiling = hasPhoto ? 168 : 232
@@ -299,9 +303,10 @@ async function buildPromo(ctx: TemplateBuildContext): Promise<SatoriElement> {
     )
   )
 
-  // Branch discipline (see module header): themed -> stickers only;
-  // connector -> no big accent; otherwise normal big accent.
-  const showBigAccent = !hasPhoto && !hasTheme && !useConnector
+  // Design-review fix (Bug 2 — "sparse+theme reads flat"): the big accent
+  // now ALSO shows for themed renders — see event-poster-v1's matching
+  // comment. Connector still drops the big accent (restraint rule).
+  const showBigAccent = !hasPhoto && !useConnector
   const decorationChildren = showBigAccent ? buildBigAccent(bigAccentKind, accentColor, blockWidth, size.height, m, seed, accentScale) : []
 
   const rawOfferNumberBlock = box({ flexDirection: "row", justifyContent: isCentered ? "center" : "flex-start", position: "relative" }, [
@@ -450,18 +455,23 @@ async function buildPromo(ctx: TemplateBuildContext): Promise<SatoriElement> {
     ctaUnderline ? box({ marginTop: -4 }, [ctaUnderline]) : null,
   ])
 
+  // Budget derived from real layout math: blockContentWidth minus the
+  // element cluster's own width (when present) plus the gap between them in
+  // the bottom bar — never a guessed constant. See bottomBarItems below.
+  const elementClusterWidth =
+    elementIcons.length > 0 ? elementIcons.length * ELEMENT_CHIP_DIAMETER + (elementIcons.length - 1) * 12 : 0
+  const finePrintBudget = Math.max(100, blockContentWidth - (elementClusterWidth > 0 ? elementClusterWidth + 16 : 0))
+
   const finePrintEl = fields.finePrint
-    ? box(
-        {
-          flexDirection: "row",
-          fontFamily,
-          fontWeight: 400,
-          fontSize: 20,
-          color: roles.textOnAccent,
-          opacity: 0.72,
-        },
-        fields.finePrint
-      )
+    ? textLine({
+        text: fields.finePrint,
+        maxWidthPx: finePrintBudget,
+        fontFamily,
+        fontWeight: 400,
+        fontSize: 20,
+        colorHex: roles.textOnAccent,
+        opacity: 0.72,
+      })
     : null
 
   const bottomBarItems = [elementCluster, finePrintEl].filter((child): child is SatoriElement => Boolean(child))
