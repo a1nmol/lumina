@@ -31,10 +31,17 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
+import { describeImageAttachment } from "@/lib/ai/describe-image"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { sendLeadAlertEmail } from "@/lib/email"
+import {
+  attachmentPlaceholderBody,
+  normalizeInstagramAttachments,
+  type NormalizedInstagramAttachment,
+  type RawInstagramAttachment,
+} from "@/lib/social/instagram-attachments"
 import { fetchInstagramSenderProfile, sendInstagramMessage } from "@/lib/social/instagram-messaging"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import type { Contact, Conversation, ConversationAiMode, Message, SocialConnection } from "@/lib/types"
@@ -43,8 +50,6 @@ import { checkRateLimit, sweepStaleRateLimitBuckets } from "../../frontdesk/_sha
 
 /** Mirrors src/app/api/frontdesk/_shared.ts's MAX_MESSAGE_LENGTH for the other public text channels. */
 const MAX_MESSAGE_TEXT_LENGTH = 1000
-/** Shown in the thread for an inbound message with no text (attachment/sticker/etc.) — recorded so the thread isn't silently missing an event, never sent to the AI. */
-const ATTACHMENT_PLACEHOLDER = "[attachment]"
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -54,15 +59,11 @@ type AdminClient = ReturnType<typeof createAdminClient>
 // fully populated on every event.
 // ---------------------------------------------------------------------------
 
-interface InstagramAttachment {
-  type?: string
-}
-
 interface InstagramMessagePayload {
   mid?: string
   text?: string
   is_echo?: boolean
-  attachments?: InstagramAttachment[]
+  attachments?: RawInstagramAttachment[]
 }
 
 interface InstagramMessagingEvent {
@@ -232,11 +233,17 @@ async function handleMessagingEvent(
   if (!checkRateLimit(`instagram:${senderId}`)) return
 
   const hasText = typeof message.text === "string" && message.text.trim().length > 0
-  const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0
+  const attachments: NormalizedInstagramAttachment[] = normalizeInstagramAttachments(message.attachments)
+  const hasAttachments = attachments.length > 0
   if (!hasText && !hasAttachments) return // nothing worth recording at all
 
   const text = hasText ? (message.text as string).trim().slice(0, MAX_MESSAGE_TEXT_LENGTH) : null
-  const storedBody = text ?? ATTACHMENT_PLACEHOLDER
+  // A typed placeholder ("[photo]", "[reel]", ...) per src/lib/social/instagram-attachments.ts
+  // instead of a generic "[attachment]" — reads better in the Inbox thread
+  // list with zero UI changes. When the customer also sent real text
+  // alongside the attachment (a caption), that text is the stored body, same
+  // as any other message.
+  const storedBody = text ?? attachmentPlaceholderBody(attachments[0].kind)
 
   // -----------------------------------------------------------------
   // 4. Org mapping — recipient.id (the specific account this event was
@@ -373,7 +380,9 @@ async function handleMessagingEvent(
       contactName: contact.name,
       contactPhone: contact.phone,
       contactEmail: contact.email,
-      messagePreview: text,
+      // storedBody, not `text` — an attachment-only first message still gives
+      // the owner's alert a preview ("[photo]") instead of a blank line.
+      messagePreview: storedBody,
     }).catch((emailError) => console.error("[webhooks/instagram] failed to send lead alert email", emailError))
   }
   if (isNewConversation) {
@@ -410,6 +419,22 @@ async function handleMessagingEvent(
     if (existingMessage) return // already recorded (Meta redelivery) — skip everything below.
   }
 
+  // Attachment metadata (migration 0012's jsonb `metadata` column, same
+  // convention as `instagram_mid` above): `attachment` is always the primary
+  // (first) attachment; `attachments` is added too when there's more than
+  // one, so nothing is lost for the rare multi-attachment event. `description`
+  // is filled in below, after the insert, once vision has had a chance to run
+  // — kept off this first insert so a slow/failed vision call never delays
+  // recording the inbound message itself.
+  const attachmentMetadata: Record<string, unknown> = hasAttachments
+    ? {
+        attachment: { type: attachments[0].kind, url: attachments[0].url, title: attachments[0].title },
+        ...(attachments.length > 1
+          ? { attachments: attachments.map((attachment) => ({ type: attachment.kind, url: attachment.url, title: attachment.title })) }
+          : {}),
+      }
+    : {}
+
   const { data: inboundMessage, error: inboundError } = await admin
     .from("messages")
     .insert({
@@ -419,7 +444,7 @@ async function handleMessagingEvent(
       kind: "message",
       body: storedBody,
       ai_handled: false,
-      metadata: mid ? { instagram_mid: mid } : {},
+      metadata: { ...(mid ? { instagram_mid: mid } : {}), ...attachmentMetadata },
     })
     .select()
     .single()
@@ -436,13 +461,55 @@ async function handleMessagingEvent(
     .eq("id", conversation.id)
     .eq("org_id", orgId)
 
-  // Attachment-only messages are recorded above (so the thread shows
-  // something) but never handed to the AI — there's no text to draft a
-  // reply from.
-  if (!hasText) return
+  // -----------------------------------------------------------------
+  // Image vision — describe the FIRST attachment, ONLY when it's an image
+  // with a url (never video/reel/etc — src/lib/ai/describe-image.ts's whole
+  // job is images). Best-effort: any failure (including out-of-quota) just
+  // means the AI answers honestly that it can't see the image, per the
+  // attachment STYLE_GUIDE line in src/lib/ai/frontdesk-reply.ts — it must
+  // never block the reply below. The description is persisted onto this same
+  // message row so future replies in this thread reuse it instead of
+  // re-describing the image every time.
+  // -----------------------------------------------------------------
+  const primaryAttachment = attachments[0]
+  if (primaryAttachment?.kind === "image" && primaryAttachment.url) {
+    try {
+      const described = await describeImageAttachment({
+        orgId,
+        imageUrl: primaryAttachment.url,
+        title: primaryAttachment.title,
+      })
+
+      if (described?.description) {
+        const currentMetadata = (inboundMessage.metadata ?? {}) as Record<string, unknown>
+        const currentAttachment = (currentMetadata.attachment ?? {}) as Record<string, unknown>
+        const updatedMetadata = {
+          ...currentMetadata,
+          attachment: { ...currentAttachment, description: described.description },
+        }
+
+        const { error: metadataUpdateError } = await admin
+          .from("messages")
+          .update({ metadata: updatedMetadata })
+          .eq("id", inboundMessage.id)
+          .eq("org_id", orgId)
+
+        if (metadataUpdateError) {
+          console.error("[webhooks/instagram] failed to persist image description", metadataUpdateError.message)
+        } else {
+          inboundMessage.metadata = updatedMetadata
+        }
+      }
+    } catch (visionError) {
+      console.error("[webhooks/instagram] image vision describe failed — falling back to type-only", visionError)
+    }
+  }
 
   // -----------------------------------------------------------------
-  // 7. AI reply.
+  // 7. AI reply. Attachment-only messages now flow through here too (no more
+  // "no text, skip the AI" gate) — the AI reacts to the description above,
+  // or is honest about not being able to see/watch/hear it, per the
+  // attachment STYLE_GUIDE line.
   // -----------------------------------------------------------------
   const { data: history, error: historyError } = await admin
     .from("messages")

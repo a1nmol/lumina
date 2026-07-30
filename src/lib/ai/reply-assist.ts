@@ -28,7 +28,7 @@ import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
 import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
-import { STYLE_GUIDE } from "./frontdesk-reply"
+import { STYLE_GUIDE, messageToPromptContent } from "./frontdesk-reply"
 import { runTextJob } from "./router"
 
 const MAX_HISTORY_MESSAGES = 10
@@ -83,14 +83,14 @@ function summarizeBusinessBrainForPrompt(brain: BusinessBrain | null): string[] 
   ].filter((line): line is string => Boolean(line))
 }
 
-/** Maps the last N stored messages to chat turns (inbound = the customer, outbound = the business/AI). Mirrors frontdesk-reply.ts's formatHistory. */
+/** Maps the last N stored messages to chat turns (inbound = the customer, outbound = the business/AI). Mirrors frontdesk-reply.ts's formatHistory — including messageToPromptContent, so attachment messages are framed as unseen/described media instead of a bare "[photo]" the model might hallucinate about. */
 function formatHistory(messages: Message[]): ChatMessage[] {
   return messages
     .filter((message) => message.kind === "message" && message.body?.trim())
     .slice(-MAX_HISTORY_MESSAGES)
     .map((message) => ({
       role: message.direction === "inbound" ? "user" : "assistant",
-      content: message.body ?? "",
+      content: messageToPromptContent(message),
     }))
 }
 

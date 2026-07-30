@@ -16,7 +16,7 @@ import type { UsageFeature } from "@/lib/types"
 import { AllowanceDeniedError } from "./errors"
 import { chatComplete, type ChatMessage } from "./openrouter"
 
-export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning"
+export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning" | "vision_describe"
 
 /**
  * Ordered candidate model ids per job. runTextJob tries them in order,
@@ -33,20 +33,31 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
   customer_reply: ["anthropic/claude-haiku-4.5", "google/gemini-2.5-flash"],
   // Analytics/hard reasoning → DeepSeek or Claude Haiku 4.5; escalate to Sonnet manually if needed.
   reasoning: ["deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
+  // Describing a customer-sent image attachment (FrontDesk DM vision) — real
+  // customer media, so PII-safe paid vision models only, same rule as
+  // customer_reply. Both candidates support image inputs on OpenRouter.
+  vision_describe: ["google/gemini-2.5-flash", "anthropic/claude-haiku-4.5"],
 }
 
 /**
  * The usage_events feature bucket each job is metered under. There are only
  * four metered features in the data model (content_generations, images,
- * slideshows, ai_replies) — classify/customer_reply/reasoning are all
- * inbox/FrontDesk-adjacent jobs and share the ai_replies allowance, while
- * content_gen has its own bucket. See src/lib/types.ts PlanLimits.
+ * slideshows, ai_replies) — classify/customer_reply/reasoning/vision_describe
+ * are all inbox/FrontDesk-adjacent jobs and share the ai_replies allowance,
+ * while content_gen has its own bucket. See src/lib/types.ts PlanLimits.
+ * vision_describe deliberately reuses ai_replies rather than introducing a
+ * new PlanLimits/usage key: checkAllowance() (src/lib/usage.ts) fails CLOSED
+ * for any feature with no configured limit, so a brand-new key would need a
+ * schema/seed migration before it could ever be allowed — describing an
+ * attachment is squarely part of "answering this customer," so it shares the
+ * bucket instead.
  */
 const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   classify: "ai_replies",
   content_gen: "content_generations",
   customer_reply: "ai_replies",
   reasoning: "ai_replies",
+  vision_describe: "ai_replies",
 }
 
 /** $/1M tokens (input, output). Estimates — verify against provider pricing pages before scale. */

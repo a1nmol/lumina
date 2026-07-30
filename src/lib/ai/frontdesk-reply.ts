@@ -19,6 +19,7 @@ import "server-only"
 // org's `ai_replies` allowance) so the caller can surface a real
 // "out of quota" state instead of silently drafting nothing.
 
+import { ATTACHMENT_PLACEHOLDER_BY_KIND } from "@/lib/social/instagram-attachments"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type {
   BusinessBrain,
@@ -77,17 +78,29 @@ const VALID_CONTACT_STATUSES: readonly ContactStatus[] = ["lead", "contacted", "
 // switch to native script, and never comment on the switch. This is a single
 // STYLE_GUIDE line (not duplicated) so it also reaches src/lib/ai/reply-assist.ts's
 // suggestReplies/rewriteDraft, which both import STYLE_GUIDE from here.
+// Romanized-spelling fidelity (owner direction, 2026-07-30 — real failures
+// testing on the owner's own account): a follow-up STYLE_GUIDE line makes
+// the mirroring concrete — copy the customer's own romanization spellings
+// instead of inventing new ones, treat punctuation-free romanized texting as
+// still asking real questions, and never fake understanding of a genuinely
+// unclear romanized phrase.
+// Attachment awareness (owner direction, 2026-07-30 — Feature B): a third
+// STYLE_GUIDE line covers photo/video/reel/etc. DMs — react to the image
+// description when one is available (see attachmentToPromptContent below),
+// and be honest (never a fixed canned line) when one isn't.
 // This sits UNDER the org's saved Business Brain tone: tone still governs
 // formality/personality, this just forces the delivery to read like a person,
 // not a bot. The escalation contract and output JSON shape are untouched.
 export const STYLE_GUIDE = [
   "How you write: short, casual, warm, like the shop owner texting back between customers, not a corporate support bot.",
   "Always reply in the same language AND script the customer used. This includes romanized/transliterated languages: if the customer writes Nepali, Hindi, or any language using English letters (e.g. \"k cha yaar, price kati ho?\"), reply in that same romanized style — natural, like a local friend texting — not in English and not in native script. Mixed language (code-switching) is normal — mirror the mix. Only use English when the customer does. Never announce or comment on the language or script you're replying in.",
+  "When replying in a romanized language (Nepali, Hindi, etc. typed in English letters), copy the customer's own spellings exactly — learn their romanization from this conversation and reuse it (they write \"xau\", you write \"xau\", not \"xu\"; they use \"x\" for that sound, you use \"x\" too) instead of inventing your own. Romanized texting usually skips question marks, so read intent from context — \"khana khayeu\" is still a question with no \"?\". If a romanized word or phrase is genuinely unclear, don't guess or fake understanding — reply in a way that works either way, or casually ask what they meant, in their language and style.",
   "Match the customer's length and energy — a one-line question gets a one or two line answer, don't over-explain or pad it out.",
   'No em dashes, no semicolons, no bullet lists, and no stock phrases like "I\'d be happy to assist you" or "As an AI". Write plain sentences with commas, and always use contractions ("we\'re", "you\'ll", "that\'s").',
   'Text like a real person would: it\'s fine to start a sentence lowercase sometimes, use an exclamation point here and there (sparingly), and skip formal sign-offs. Casual words like "yep", "for sure", or "no worries" are welcome when they fit the shop\'s tone.',
   "Never add typos or bad grammar on purpose — keep it clean, just relaxed and human, not sloppy.",
   "Only use an emoji if the customer used one first in their message, and never more than one.",
+  "If a customer's message is a photo, video, reel, or other attachment: when you're told what's in it, react to that naturally, like you actually saw it. When you're told you can't see/watch/hear it, be upfront and chill about that in your own words — vary the phrasing, match the account's tone (playful for a personal account, professional for a business) — instead of one fixed canned line, e.g. just ask what it's about. Never claim to have seen media you weren't shown a description of.",
   'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
 ].join(" ")
 
@@ -144,6 +157,75 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
   return lines.join(" ")
 }
 
+/**
+ * Shape of `messages.metadata.attachment` as persisted by
+ * src/app/api/webhooks/instagram/route.ts (see src/lib/social/instagram-attachments.ts
+ * for the `type` values). `description` is only present once
+ * src/lib/ai/describe-image.ts has successfully described an image
+ * attachment — its absence means "not described" (vision skipped, failed, or
+ * the attachment isn't an image), not "empty description."
+ */
+export interface StoredAttachmentMetadata {
+  type?: string
+  url?: string | null
+  title?: string | null
+  description?: string
+}
+
+/**
+ * Turns a stored attachment's metadata into what the model should see
+ * instead of a raw placeholder — an honest, in-voice stand-in for media the
+ * model can't actually open, or the real description when vision succeeded
+ * (image only; see describeImageAttachment's caps). Pure, exported for unit
+ * tests. Paired with the attachment STYLE_GUIDE line above, which tells the
+ * model how to react to each case.
+ */
+export function attachmentToPromptContent(attachment: StoredAttachmentMetadata): string {
+  const description = attachment.description?.trim()
+
+  switch (attachment.type) {
+    case "image":
+      return description ? `[sent a photo: ${description}]` : "[sent a photo you can't see]"
+    case "reel":
+      return "[sent a reel you can't watch]"
+    case "video":
+      return "[sent a video you can't watch]"
+    case "audio":
+      return "[sent a voice message you can't hear]"
+    case "share":
+      return "[sent a shared post you can't see]"
+    case "story_mention":
+      return "[sent a story mention you can't see]"
+    default:
+      return "[sent an attachment you can't see]"
+  }
+}
+
+/** Every known "attachment-only" placeholder body (e.g. "[photo]") — used to tell apart a real customer-typed caption from the placeholder body an attachment-only message was stored with. */
+const ATTACHMENT_PLACEHOLDER_BODIES = new Set<string>(Object.values(ATTACHMENT_PLACEHOLDER_BY_KIND))
+
+/**
+ * Resolves one stored message's content for the model: attachment context
+ * (via attachmentToPromptContent) when the message carries
+ * `metadata.attachment`, combined with any real customer-typed caption that
+ * came alongside it (a caption's stored `body` is real text, never one of
+ * the attachment placeholder strings — see ATTACHMENT_PLACEHOLDER_BODIES).
+ * Falls back to the plain stored body for every ordinary text message. Pure,
+ * exported for unit tests.
+ */
+export function messageToPromptContent(message: Pick<Message, "body" | "metadata">): string {
+  const attachment = message.metadata?.attachment as StoredAttachmentMetadata | undefined
+  if (!attachment || typeof attachment !== "object" || typeof attachment.type !== "string") {
+    return message.body ?? ""
+  }
+
+  const attachmentPhrase = attachmentToPromptContent(attachment)
+  const body = message.body?.trim()
+  const isPlaceholderOnly = !body || ATTACHMENT_PLACEHOLDER_BODIES.has(body)
+
+  return isPlaceholderOnly ? attachmentPhrase : `${body} ${attachmentPhrase}`
+}
+
 /** Maps the last N stored messages to chat turns (inbound = the customer, outbound = the business/AI). */
 function formatHistory(messages: Message[]): ChatMessage[] {
   return messages
@@ -151,7 +233,7 @@ function formatHistory(messages: Message[]): ChatMessage[] {
     .slice(-MAX_HISTORY_MESSAGES)
     .map((message) => ({
       role: message.direction === "inbound" ? "user" : "assistant",
-      content: message.body ?? "",
+      content: messageToPromptContent(message),
     }))
 }
 

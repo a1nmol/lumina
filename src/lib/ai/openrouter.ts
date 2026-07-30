@@ -9,9 +9,20 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 export type ChatRole = "system" | "user" | "assistant"
 
+/**
+ * OpenAI/OpenRouter-style multimodal content parts — only used by
+ * vision-capable jobs (src/lib/ai/describe-image.ts). `image_url.url` is
+ * passed straight through to OpenRouter; this client never downloads or
+ * re-uploads the image itself.
+ */
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+
 export type ChatMessage = {
   role: ChatRole
-  content: string
+  /** Plain text for every existing job; an array of parts for vision jobs that attach an image. */
+  content: string | ChatContentPart[]
 }
 
 export interface ChatCompleteInput {
