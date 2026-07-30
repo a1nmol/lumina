@@ -273,9 +273,16 @@ export async function saveSlideshowMediaAsset(
   const bytes = await readFile(input.filePath)
   const storagePath = `${orgId}/slideshows/${input.id}.mp4`
 
+  // Blob, not Buffer: Next's patched fetch on Vercel UTF-8-mangles raw
+  // Node Buffer bodies (diagnosed live — every uploaded PNG's binary was
+  // riddled with EF BF BD replacement sequences; a local roundtrip with
+  // identical code was byte-clean). A standard web Blob survives.
   const { error: uploadError } = await supabase.storage
     .from("media")
-    .upload(storagePath, bytes, { contentType: "video/mp4", upsert: true })
+    .upload(storagePath, new Blob([new Uint8Array(bytes)], { type: "video/mp4" }), {
+      contentType: "video/mp4",
+      upsert: true,
+    })
 
   // Bucket may not be provisioned yet in this environment — see the TODO
   // above. Swallow so a missing bucket never breaks slideshow rendering.
@@ -334,9 +341,14 @@ export async function saveRenderedPosterAsset(
   const id = randomUUID()
   const storagePath = `${orgId}/posters/${id}.png`
 
+  // Blob, not Buffer — see saveSlideshowMediaAsset's note (Vercel fetch
+  // patch corrupts Buffer bodies; diagnosed live on this exact path).
   const { error: uploadError } = await supabase.storage
     .from("media")
-    .upload(storagePath, input.bytes, { contentType: "image/png", upsert: true })
+    .upload(storagePath, new Blob([new Uint8Array(input.bytes)], { type: "image/png" }), {
+      contentType: "image/png",
+      upsert: true,
+    })
 
   if (uploadError) return null
 
