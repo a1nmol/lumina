@@ -38,7 +38,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       />
       <BrainSummaryCard brain={brain} completeness={completeness} />
       <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
-      <FrontdeskAutoReplyCard initialEnabled={brain.frontdesk_auto_reply} isLive={isSupabaseConfigured()} />
+      <FrontdeskAutoReplyCard
+        initialEnabled={brain.frontdesk_auto_reply}
+        initialIntroEnabled={brain.ai_intro_enabled}
+        initialIntroText={brain.ai_intro_text ?? ""}
+        isLive={isSupabaseConfigured()}
+      />
       <ChannelsCard
         connectedParam={firstParam(params.connected)}
         errorParam={firstParam(params.metaError)}

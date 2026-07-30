@@ -32,6 +32,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { sendLeadAlertEmail } from "@/lib/email"
 import { fetchInstagramSenderProfile, sendInstagramMessage } from "@/lib/social/instagram-messaging"
@@ -506,6 +507,42 @@ async function handleMessagingEvent(
       .eq("org_id", orgId)
 
     return
+  }
+
+  // -----------------------------------------------------------------
+  // Honest-AI intro (migration 0013, src/lib/ai/intro.ts) — when gated in,
+  // sent as its own separate DM immediately BEFORE the real reply. Computed
+  // from the server-side message history fetched above (everything except
+  // the inbound message that just triggered this reply). A send failure here
+  // is logged and swallowed — it must never block the real reply below.
+  // -----------------------------------------------------------------
+  const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
+  const introToSend = getIntroToSend({
+    aiIntroEnabled: brain?.ai_intro_enabled ?? false,
+    aiIntroText: brain?.ai_intro_text,
+    priorMessages,
+  })
+
+  if (introToSend) {
+    try {
+      await sendInstagramMessage(accessToken, senderId, introToSend)
+      const { error: introInsertError } = await admin.from("messages").insert({
+        org_id: orgId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        kind: "message",
+        body: introToSend,
+        ai_handled: true,
+        metadata: { intro: true },
+      })
+      if (introInsertError) {
+        // The DM was already sent — the transcript is now missing a message
+        // the customer really received, so this must be loud, not silent.
+        console.error("[webhooks/instagram] intro DM sent but failed to persist", introInsertError)
+      }
+    } catch (introError) {
+      console.error("[webhooks/instagram] failed to send honest-AI intro", introError)
+    }
   }
 
   // -----------------------------------------------------------------

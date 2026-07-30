@@ -31,6 +31,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { validateTwilioSignature } from "@/lib/twilio"
@@ -321,6 +322,39 @@ export async function POST(request: NextRequest) {
     }
 
     // -----------------------------------------------------------------
+    // Honest-AI intro (migration 0013, src/lib/ai/intro.ts) — when gated in,
+    // sent as its own leading <Message> verb; Twilio sends each <Message> in
+    // a <Response> as a separate outgoing SMS, in order, so this arrives as
+    // its own text immediately before the real reply below. If persisting it
+    // fails it's dropped from the TwiML too (never send an SMS we can't
+    // record) — the real reply is sent either way.
+    // -----------------------------------------------------------------
+    const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
+    const introToSend = getIntroToSend({
+      aiIntroEnabled: brain?.ai_intro_enabled ?? false,
+      aiIntroText: brain?.ai_intro_text,
+      priorMessages,
+    })
+
+    let introXml = ""
+    if (introToSend) {
+      const { error: introInsertError } = await admin.from("messages").insert({
+        org_id: orgId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        kind: "message",
+        body: introToSend,
+        ai_handled: true,
+        metadata: { intro: true },
+      })
+      if (introInsertError) {
+        console.error("[twilio/sms] failed to persist honest-AI intro message", introInsertError)
+      } else {
+        introXml = `<Message>${escapeXml(introToSend)}</Message>`
+      }
+    }
+
+    // -----------------------------------------------------------------
     // 5. AI produced a reply — persist it the same way the widget route
     // does, then answer Twilio with TwiML so it's sent back as a real SMS.
     // -----------------------------------------------------------------
@@ -354,7 +388,7 @@ export async function POST(request: NextRequest) {
       .eq("id", conversation.id)
       .eq("org_id", orgId)
 
-    return twiml(`<Message>${escapeXml(draft.reply)}</Message>`)
+    return twiml(`${introXml}<Message>${escapeXml(draft.reply)}</Message>`)
   } catch (error) {
     console.error("[twilio/sms] failed to handle inbound message", error)
     // Never surface a 5xx to Twilio for an internal error — ack with empty

@@ -35,6 +35,8 @@ function blankBusinessBrain(orgId: string): BusinessBrain {
     connected_channels: {},
     onboarding_step: 0,
     frontdesk_auto_reply: true,
+    ai_intro_enabled: false,
+    ai_intro_text: null,
     completed: false,
     updated_at: new Date(0).toISOString(),
   }
@@ -57,6 +59,7 @@ const MAX_FAQ_QUESTION = 300
 const MAX_FAQ_ANSWER = 1000
 const MAX_HOURS_VALUE = 20
 const MAX_LOGO_URL = 500
+const MAX_AI_INTRO_TEXT = 500
 
 // Contract: strictly 24-hour "HH:MM" — matches `<input type="time">` output and
 // the parsing contract in src/lib/booking-slots.ts' parseTimeToMinutes. No AM/PM.
@@ -340,6 +343,39 @@ export async function saveFrontdeskAutoReply(frontdeskAutoReply: boolean): Promi
   const { error } = await supabase
     .from("business_brain")
     .upsert({ frontdesk_auto_reply: frontdeskAutoReply, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveAiIntroResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org" | "invalid-payload"
+}
+
+/**
+ * Persists the owner's Honest-AI intro settings (migration 0013
+ * `business_brain.ai_intro_enabled` / `.ai_intro_text`) — used by the
+ * Settings hub's FrontDesk auto-reply card
+ * (src/app/(app)/settings/frontdesk-auto-reply-card.tsx). `aiIntroText` is
+ * the owner's literal, one-time disclosure line — stored trimmed, and as
+ * null when blank so `ai_intro_enabled` alone can't fire an empty intro (see
+ * the gating contract in src/lib/ai/intro.ts#shouldSendIntro). No-ops in
+ * demo mode.
+ */
+export async function saveAiIntro(aiIntroEnabled: boolean, aiIntroText: string): Promise<SaveAiIntroResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const trimmed = aiIntroText.trim()
+  if (trimmed.length > MAX_AI_INTRO_TEXT) return { ok: false, reason: "invalid-payload" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ ai_intro_enabled: aiIntroEnabled, ai_intro_text: trimmed || null, org_id: orgId }, { onConflict: "org_id" })
 
   return { ok: !error }
 }

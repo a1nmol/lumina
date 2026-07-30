@@ -20,6 +20,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { sendLeadAlertEmail } from "@/lib/email"
@@ -339,6 +340,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ai: false })
     }
 
+    // -------------------------------------------------------------------
+    // Honest-AI intro (migration 0013, src/lib/ai/intro.ts) — gated from the
+    // SERVER-side conversation history fetched above (the widget's own
+    // client-side history is per-pageload and unreliable for this), not the
+    // client. When gated in, persisted as its own outbound message and
+    // returned to the widget as a separate `intro` field so it renders above
+    // the reply. If persisting it fails, it's dropped from the response too
+    // (never show the visitor something that isn't in the durable record) —
+    // but the real reply below is unaffected either way.
+    // -------------------------------------------------------------------
+    const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
+    let introToSend = getIntroToSend({
+      aiIntroEnabled: resolved.brain?.ai_intro_enabled ?? false,
+      aiIntroText: resolved.brain?.ai_intro_text,
+      priorMessages,
+    })
+
+    if (introToSend) {
+      const { error: introInsertError } = await admin.from("messages").insert({
+        org_id: resolved.orgId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        kind: "message",
+        body: introToSend,
+        ai_handled: true,
+        metadata: { intro: true },
+      })
+      if (introInsertError) {
+        console.error("[frontdesk/chat] failed to persist honest-AI intro message", introInsertError)
+        introToSend = null
+      }
+    }
+
     const { data: outboundMessage, error: outboundError } = await admin
       .from("messages")
       .insert({
@@ -369,7 +403,7 @@ export async function POST(request: NextRequest) {
       .eq("id", conversation.id)
       .eq("org_id", resolved.orgId)
 
-    return NextResponse.json({ reply: draft.reply, ai: true })
+    return NextResponse.json({ intro: introToSend ?? undefined, reply: draft.reply, ai: true })
   } catch (error) {
     console.error("[frontdesk/chat] failed to handle message", error)
     return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 })

@@ -119,6 +119,9 @@ export type BusinessBrain = {
   updated_at: string
   /** Org-wide default AI autonomy for NEW conversations (migration 0011). */
   frontdesk_auto_reply: boolean
+  /** Honest-AI intro (migration 0013): one-time per-session disclosure before AI auto-replies. */
+  ai_intro_enabled: boolean
+  ai_intro_text: string | null
 }
 
 // ---------------------------------------------------------------------------

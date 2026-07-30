@@ -129,7 +129,7 @@ export function WidgetChat({ orgSlug, businessName, greeting }: WidgetChatProps)
         return
       }
 
-      const data = (await response.json()) as { reply?: string; ai?: boolean }
+      const data = (await response.json()) as { intro?: string; reply?: string; ai?: boolean }
       if (!data.reply) {
         // A 2xx with no reply is NOT an error: the org has AI auto-replies
         // off for this thread (ai_mode 'off'), so the message was received
@@ -150,6 +150,12 @@ export function WidgetChat({ orgSlug, businessName, greeting }: WidgetChatProps)
 
       setMessages((prev) => [
         ...prev,
+        // Honest-AI intro (owner-written, one-time-per-session) always
+        // renders as its own bubble ABOVE the real reply, both AI-badged —
+        // never merged into one message.
+        ...(data.intro
+          ? [{ id: crypto.randomUUID?.() ?? `${Date.now()}-intro`, from: "business" as const, body: data.intro, ai: true }]
+          : []),
         { id: crypto.randomUUID?.() ?? `${Date.now()}-reply`, from: "business", body: data.reply!, ai: data.ai ?? true },
       ])
       setSendState("idle")

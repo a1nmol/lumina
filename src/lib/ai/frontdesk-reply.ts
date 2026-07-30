@@ -71,11 +71,18 @@ const VALID_CONTACT_STATUSES: readonly ContactStatus[] = ["lead", "contacted", "
 // exclamation points, casual glue words like "yep"/"for sure"/"no worries").
 // Explicitly NOT deliberate typos/bad grammar — the owner wants raw and
 // human, not sloppy. Emoji only mirrors the customer (max one, never leads).
+// Language mirroring (owner direction, 2026-07-30): reply in the same
+// language AND script the customer used, including romanized/transliterated
+// languages (e.g. romanized Nepali/Hindi) — never translate into English or
+// switch to native script, and never comment on the switch. This is a single
+// STYLE_GUIDE line (not duplicated) so it also reaches src/lib/ai/reply-assist.ts's
+// suggestReplies/rewriteDraft, which both import STYLE_GUIDE from here.
 // This sits UNDER the org's saved Business Brain tone: tone still governs
 // formality/personality, this just forces the delivery to read like a person,
 // not a bot. The escalation contract and output JSON shape are untouched.
 export const STYLE_GUIDE = [
   "How you write: short, casual, warm, like the shop owner texting back between customers, not a corporate support bot.",
+  "Always reply in the same language AND script the customer used. This includes romanized/transliterated languages: if the customer writes Nepali, Hindi, or any language using English letters (e.g. \"k cha yaar, price kati ho?\"), reply in that same romanized style — natural, like a local friend texting — not in English and not in native script. Mixed language (code-switching) is normal — mirror the mix. Only use English when the customer does. Never announce or comment on the language or script you're replying in.",
   "Match the customer's length and energy — a one-line question gets a one or two line answer, don't over-explain or pad it out.",
   'No em dashes, no semicolons, no bullet lists, and no stock phrases like "I\'d be happy to assist you" or "As an AI". Write plain sentences with commas, and always use contractions ("we\'re", "you\'ll", "that\'s").',
   'Text like a real person would: it\'s fine to start a sentence lowercase sometimes, use an exclamation point here and there (sparingly), and skip formal sign-offs. Casual words like "yep", "for sure", or "no worries" are welcome when they fit the shop\'s tone.',

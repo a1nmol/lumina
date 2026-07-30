@@ -123,6 +123,10 @@ export const DEMO_BUSINESS_BRAIN: BusinessBrain = {
     web_chat: true,
   },
   frontdesk_auto_reply: true,
+  // Honest-AI intro (migration 0013) — off by default in the showcase org so
+  // the demo widget/inbox never shows an intro bubble unless someone opts in.
+  ai_intro_enabled: false,
+  ai_intro_text: null,
   onboarding_step: 5,
   completed: true,
   updated_at: "2026-07-01T00:00:00.000Z",
