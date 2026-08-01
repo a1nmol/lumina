@@ -122,6 +122,8 @@ export type BusinessBrain = {
   /** Honest-AI intro (migration 0013): one-time per-session disclosure before AI auto-replies. */
   ai_intro_enabled: boolean
   ai_intro_text: string | null
+  /** Commander update (migration 0015): AI never self-escalates into silence; topic-level deferral only. */
+  ai_always_on: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +218,10 @@ export type Contact = {
   custom: Record<string, unknown>
   created_at: string
   updated_at: string
+  /** Person-level AI memory across conversations (migration 0016) — see src/lib/ai/conversation-memory.ts. */
+  ai_memory: Record<string, unknown> | null
+  /** VIP (migration 0016): AI drafts but never auto-sends; owner gets an instant alert. */
+  is_vip: boolean
 }
 
 export type ConversationStatus = "open" | "pending" | "resolved"
@@ -241,6 +247,8 @@ export type Conversation = {
   unread: boolean
   created_at: string
   updated_at: string
+  /** Rolling structured conversation memory (migration 0015) — see src/lib/ai/conversation-memory.ts. */
+  ai_memory: Record<string, unknown> | null
 }
 
 export type ConversationAiMode = "auto" | "off"

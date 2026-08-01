@@ -42,6 +42,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         initialEnabled={brain.frontdesk_auto_reply}
         initialIntroEnabled={brain.ai_intro_enabled}
         initialIntroText={brain.ai_intro_text ?? ""}
+        initialAlwaysOn={brain.ai_always_on}
         isLive={isSupabaseConfigured()}
       />
       <ChannelsCard

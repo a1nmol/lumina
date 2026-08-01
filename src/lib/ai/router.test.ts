@@ -26,13 +26,26 @@ describe("pickModel routing table", () => {
   })
 
   it("gives every job at least one fallback candidate", () => {
-    for (const job of ["classify", "content_gen", "customer_reply", "reasoning", "vision_describe"] as const) {
+    for (const job of [
+      "classify",
+      "content_gen",
+      "customer_reply",
+      "reasoning",
+      "vision_describe",
+      "conversation_memory",
+    ] as const) {
       expect(pickModel(job).length).toBeGreaterThanOrEqual(2)
     }
   })
 
   it("never puts a free-tier model anywhere in the vision_describe chain (real customer media)", () => {
     for (const model of pickModel("vision_describe")) {
+      expect(model).not.toMatch(/:free$/)
+    }
+  })
+
+  it("never puts a free-tier model anywhere in the conversation_memory chain (real customer content)", () => {
+    for (const model of pickModel("conversation_memory")) {
       expect(model).not.toMatch(/:free$/)
     }
   })

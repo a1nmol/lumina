@@ -37,6 +37,7 @@ function blankBusinessBrain(orgId: string): BusinessBrain {
     frontdesk_auto_reply: true,
     ai_intro_enabled: false,
     ai_intro_text: null,
+    ai_always_on: false,
     completed: false,
     updated_at: new Date(0).toISOString(),
   }
@@ -376,6 +377,35 @@ export async function saveAiIntro(aiIntroEnabled: boolean, aiIntroText: string):
   const { error } = await supabase
     .from("business_brain")
     .upsert({ ai_intro_enabled: aiIntroEnabled, ai_intro_text: trimmed || null, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveAiAlwaysOnResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide "Always on" switch (Commander update, migration
+ * 0015 `business_brain.ai_always_on`) — used by the Settings hub's FrontDesk
+ * auto-reply card (src/app/(app)/settings/frontdesk-auto-reply-card.tsx).
+ * When true, src/lib/ai/frontdesk-reply.ts's buildSystemPrompt tells the
+ * model to never fully hand a conversation off — it can still flag a topic
+ * for the owner (ai_state 'escalated'), it just keeps engaging with
+ * everything else instead of going quiet. No-ops in demo mode.
+ */
+export async function saveAiAlwaysOn(aiAlwaysOn: boolean): Promise<SaveAiAlwaysOnResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ ai_always_on: aiAlwaysOn, org_id: orgId }, { onConflict: "org_id" })
 
   return { ok: !error }
 }

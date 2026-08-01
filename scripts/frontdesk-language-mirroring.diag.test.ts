@@ -40,6 +40,7 @@ function buildConversationAndMessages(history: Array<{ direction: "inbound" | "o
     unread: false,
     created_at: now,
     updated_at: now,
+    ai_memory: null,
   }
 
   const messages: Message[] = history.map((entry, index) => ({

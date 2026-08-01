@@ -16,19 +16,27 @@
 // See docs/backend-notes.md "Webhook ingestion — TODO (Phase 2 channel
 // connections)" — this route is exactly that TODO for the sms channel.
 //
-// Unlike the chat widget, an inbound SMS that the AI can't confidently
-// answer does NOT get a "we'll get back to you" text sent back — Twilio
-// webhooks reply with TwiML the caller's carrier renders as an actual SMS,
-// and sending a vague filler text over a real phone number reads as spam.
-// Instead we return empty TwiML (no reply sent) and mark the conversation
-// `ai_state: "escalated"` so it surfaces under the inbox's "Needs you" view
-// — the thread was already left `unread: true` the moment the inbound
-// message landed, which is the "owner alert" path per
-// docs/backend-notes.md's Phase 2 notes (there's no separate push-to-owner
-// mechanism yet; the inbox's unread/escalated state IS the alert).
+// An inbound SMS the model couldn't turn into a usable draft at all (not
+// configured, out of quota, or bad JSON after a retry) does NOT get a
+// "we'll get back to you" filler text — sending a vague line over a real
+// phone number reads as spam. That case returns empty TwiML and marks the
+// conversation `ai_state: "escalated"`.
+//
+// A model-decided `needsHuman` is different (Commander update, smart
+// escalation — src/lib/ai/frontdesk-reply.ts's ESCALATION_GUIDE): the model
+// only sets it for a named set of real triggers, and `draft.reply` is
+// already a warm, in-voice line deferring that one topic to the owner — so
+// it DOES get texted back, same as any other AI reply, alongside flagging
+// `ai_state: "escalated"` so the thread still surfaces under the inbox's
+// "Needs you" view. Either way the thread was already left `unread: true`
+// the moment the inbound message landed, which is the "owner alert" path
+// per docs/backend-notes.md's Phase 2 notes (there's no separate
+// push-to-owner mechanism yet; the inbox's unread/escalated state IS the
+// alert).
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { getIntroToSend } from "@/lib/ai/intro"
@@ -274,6 +282,19 @@ export async function POST(request: NextRequest) {
 
     if (historyError) throw new Error(historyError.message)
 
+    // -----------------------------------------------------------------
+    // Rolling conversation memory (Commander update, migration 0015) —
+    // fire-and-forget, BEFORE the ai_mode/needsHuman branches below, so
+    // memory keeps updating even on a thread the AI isn't (or can't)
+    // currently reply on. Never awaited on the reply path.
+    // -----------------------------------------------------------------
+    const messagesSoFar = ((history ?? []) as Message[]).filter((message) => message.kind === "message")
+    if (shouldUpdateMemory(parseConversationMemory(conversation.ai_memory), messagesSoFar.length)) {
+      void updateConversationMemory({ orgId, conversationId: conversation.id }).catch((error) =>
+        console.error("[twilio/sms] failed to update conversation memory", error)
+      )
+    }
+
     let draft: Awaited<ReturnType<typeof draftCustomerReply>> = null
     try {
       draft = await draftCustomerReply({
@@ -290,9 +311,9 @@ export async function POST(request: NextRequest) {
       draft = null
     }
 
-    if (!draft || draft.needsHuman) {
-      // Not configured, couldn't parse, out of quota, or the AI itself
-      // wants a human — no SMS reply is sent; the thread is already
+    if (!draft) {
+      // Not configured, out of quota, or the model couldn't produce a usable
+      // draft after a retry — no SMS reply is sent; the thread is already
       // unread, mark it escalated so the owner's inbox names why.
       await admin
         .from("conversations")
@@ -312,9 +333,12 @@ export async function POST(request: NextRequest) {
       // regenerates the draft on demand from the Inbox composer's "AI
       // draft" button, exactly like a manually-requested draft on any other
       // thread. unread is already true from the inbound-message update above.
+      // Gates the needsHuman deferral below too (review fix): needsHuman
+      // now SENDS a real SMS, so 'off' must block it like any auto-reply —
+      // needsHuman while off just flags escalated (owner attention).
       await admin
         .from("conversations")
-        .update({ ai_state: "ai_draft" })
+        .update({ ai_state: draft.needsHuman ? "escalated" : "ai_draft" })
         .eq("id", conversation.id)
         .eq("org_id", orgId)
 
@@ -352,6 +376,41 @@ export async function POST(request: NextRequest) {
       } else {
         introXml = `<Message>${escapeXml(introToSend)}</Message>`
       }
+    }
+
+    if (draft.needsHuman) {
+      // Smart escalation (Commander update): `reply` here is a real, warm,
+      // in-voice deferral of THIS topic — it's what actually gets texted
+      // back, the AI just also flags the thread for the owner. Sits AFTER
+      // the ai_mode gate and the intro block (review fix): 'off' blocks it,
+      // and a first-contact deferral still leads with the honest-AI intro.
+      const { data: outboundMessage, error: outboundError } = await admin
+        .from("messages")
+        .insert({
+          org_id: orgId,
+          conversation_id: conversation.id,
+          direction: "outbound",
+          kind: "message",
+          body: draft.reply,
+          ai_handled: true,
+          model: draft.model,
+          cost_usd: draft.costUsd,
+          metadata: { handoff: true },
+        })
+        .select()
+        .single()
+
+      if (outboundError || !outboundMessage) {
+        throw new Error(outboundError?.message ?? "failed to record outbound message")
+      }
+
+      await admin
+        .from("conversations")
+        .update({ ai_state: "escalated", last_message_at: outboundMessage.created_at })
+        .eq("id", conversation.id)
+        .eq("org_id", orgId)
+
+      return twiml(`${introXml}<Message>${escapeXml(draft.reply)}</Message>`)
     }
 
     // -----------------------------------------------------------------

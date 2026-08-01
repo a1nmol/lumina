@@ -18,6 +18,7 @@
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { getIntroToSend } from "@/lib/ai/intro"
@@ -258,6 +259,19 @@ export async function POST(request: NextRequest) {
       .order("created_at", { ascending: true })
 
     if (historyError) throw new Error(historyError.message)
+
+    // -----------------------------------------------------------------
+    // Rolling conversation memory (Commander update, migration 0015) —
+    // fire-and-forget, BEFORE the ai_mode/needsHuman branches below, so
+    // memory keeps updating even on a thread the AI isn't (or can't)
+    // currently reply on. Never awaited on the reply path.
+    // -----------------------------------------------------------------
+    const messagesSoFar = ((history ?? []) as Message[]).filter((message) => message.kind === "message")
+    if (shouldUpdateMemory(parseConversationMemory(conversation.ai_memory), messagesSoFar.length)) {
+      void updateConversationMemory({ orgId: resolved.orgId, conversationId: conversation.id }).catch((error) =>
+        console.error("[frontdesk/chat] failed to update conversation memory", error)
+      )
+    }
 
     // Whatever line the widget shows the customer must also exist in the
     // owner's transcript — an unrecorded promise ("we'll get back to you")

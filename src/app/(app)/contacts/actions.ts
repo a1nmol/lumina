@@ -152,6 +152,8 @@ export async function saveContactAction(input: UpsertContactInput): Promise<Save
       tags: input.tags ?? [],
       notes: input.notes ?? null,
       custom: {},
+      ai_memory: null,
+      is_vip: false,
       created_at: now,
       updated_at: now,
     }

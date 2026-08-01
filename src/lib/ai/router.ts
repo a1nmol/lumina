@@ -16,7 +16,7 @@ import type { UsageFeature } from "@/lib/types"
 import { AllowanceDeniedError } from "./errors"
 import { chatComplete, type ChatMessage } from "./openrouter"
 
-export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning" | "vision_describe"
+export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning" | "vision_describe" | "conversation_memory"
 
 /**
  * Ordered candidate model ids per job. runTextJob tries them in order,
@@ -37,6 +37,13 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
   // customer media, so PII-safe paid vision models only, same rule as
   // customer_reply. Both candidates support image inputs on OpenRouter.
   vision_describe: ["google/gemini-2.5-flash", "anthropic/claude-haiku-4.5"],
+  // Rolling conversation memory (Commander update, migration 0015) — the raw
+  // message history it summarizes is real customer content, so this stays on
+  // the same PII-safe-paid-only rule as every other customer-facing job
+  // above. Cheapest-effective first: Gemini 2.5 Flash-Lite is the cheapest
+  // paid model already proven reliable at strict-JSON summarization tasks,
+  // falling back to the DeepSeek/Haiku pair the other jobs already trust.
+  conversation_memory: ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
 }
 
 /**
@@ -50,7 +57,10 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
  * for any feature with no configured limit, so a brand-new key would need a
  * schema/seed migration before it could ever be allowed — describing an
  * attachment is squarely part of "answering this customer," so it shares the
- * bucket instead.
+ * bucket instead. conversation_memory (Commander update) is the same call:
+ * it only ever runs as a byproduct of answering/holding a FrontDesk
+ * conversation, so it meters under ai_replies too rather than minting a new
+ * PlanLimits key.
  */
 const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   classify: "ai_replies",
@@ -58,6 +68,7 @@ const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   customer_reply: "ai_replies",
   reasoning: "ai_replies",
   vision_describe: "ai_replies",
+  conversation_memory: "ai_replies",
 }
 
 /** $/1M tokens (input, output). Estimates — verify against provider pricing pages before scale. */
@@ -68,6 +79,7 @@ const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: numbe
   "google/gemini-2.5-flash": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
   "deepseek/deepseek-chat": { inputPerMTok: 0.14, outputPerMTok: 0.28 },
   "anthropic/claude-haiku-4.5": { inputPerMTok: 1, outputPerMTok: 5 },
+  "google/gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
 }
 
 /** Conservative fallback estimate for any model id not in MODEL_PRICING. */

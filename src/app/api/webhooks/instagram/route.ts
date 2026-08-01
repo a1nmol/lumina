@@ -21,6 +21,13 @@
 //     (src/app/api/frontdesk/chat/route.ts) persists its escalation
 //     handoff line.
 //
+// Smart escalation (Commander update, migration 0015): a model-decided
+// `draft.needsHuman` DOES send — `draft.reply` is already a warm, in-voice
+// line deferring that one topic to the owner (see
+// src/lib/ai/frontdesk-reply.ts's ESCALATION_GUIDE) — while also flagging
+// `ai_state: "escalated"`. Only a genuine `!draft` (not configured, out of
+// quota, or unparseable after a retry) escalates with no DM sent.
+//
 // Every per-event failure is caught and logged, never thrown past the
 // handler — this route ALWAYS acks Meta with 200 fast, because Meta retries
 // (and can eventually disable) a webhook subscription that returns
@@ -30,6 +37,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { describeImageAttachment } from "@/lib/ai/describe-image"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
@@ -520,6 +528,19 @@ async function handleMessagingEvent(
 
   if (historyError) throw new Error(historyError.message)
 
+  // -----------------------------------------------------------------
+  // Rolling conversation memory (Commander update, migration 0015) —
+  // fire-and-forget, BEFORE the ai_mode/needsHuman branches below, so
+  // memory keeps updating even on a thread the AI isn't (or can't)
+  // currently reply on. Never awaited on the reply path.
+  // -----------------------------------------------------------------
+  const messagesSoFar = ((history ?? []) as Message[]).filter((message) => message.kind === "message")
+  if (shouldUpdateMemory(parseConversationMemory(conversation.ai_memory), messagesSoFar.length)) {
+    void updateConversationMemory({ orgId, conversationId: conversation.id }).catch((error) =>
+      console.error("[webhooks/instagram] failed to update conversation memory", error)
+    )
+  }
+
   let draft: Awaited<ReturnType<typeof draftCustomerReply>> = null
   try {
     draft = await draftCustomerReply({
@@ -535,7 +556,9 @@ async function handleMessagingEvent(
     draft = null
   }
 
-  if (!draft || draft.needsHuman) {
+  if (!draft) {
+    // Not configured, out of quota, or the model couldn't produce a usable
+    // draft after a retry — no DM is sent, just flag the thread.
     await admin
       .from("conversations")
       .update({ ai_state: "escalated" })
@@ -548,6 +571,9 @@ async function handleMessagingEvent(
   // ai_mode contract (migration 0011) — re-read the conversation's current
   // ai_mode right before deciding whether to auto-send, in case the owner
   // flipped it (from the inbox) between this event's insert above and now.
+  // Sits ABOVE the needsHuman branch (review fix): a needsHuman deferral
+  // now SENDS a real DM, so the owner's 'off' toggle must gate it exactly
+  // like a normal auto-reply.
   // -----------------------------------------------------------------
   const { data: freshConversation, error: freshConversationError } = await admin
     .from("conversations")
@@ -567,9 +593,10 @@ async function handleMessagingEvent(
     // regenerates the reply on demand when the owner opens the thread.
     // Storing the unsent draft as an outbound `messages` row was rejected:
     // the thread UI renders outbound rows as sent, which would lie.
+    // needsHuman while off: flag escalated (owner attention) — never send.
     await admin
       .from("conversations")
-      .update({ ai_state: "ai_draft" })
+      .update({ ai_state: draft.needsHuman ? "escalated" : "ai_draft" })
       .eq("id", conversation.id)
       .eq("org_id", orgId)
 
@@ -610,6 +637,53 @@ async function handleMessagingEvent(
     } catch (introError) {
       console.error("[webhooks/instagram] failed to send honest-AI intro", introError)
     }
+  }
+
+  if (draft.needsHuman) {
+    // Smart escalation (Commander update): `reply` here is a real, warm,
+    // in-voice deferral of THIS topic — it's what actually gets DMed back,
+    // the AI just also flags the thread for the owner. Sits AFTER the
+    // ai_mode gate and the intro block (review fix): the owner's 'off'
+    // toggle applies, and a deferral that happens to be the first AI
+    // message still carries the honest-AI disclosure.
+    try {
+      await sendInstagramMessage(accessToken, senderId, draft.reply)
+    } catch (sendError) {
+      console.error("[webhooks/instagram] failed to send deferral DM", sendError)
+      await admin
+        .from("conversations")
+        .update({ ai_state: "escalated" })
+        .eq("id", conversation.id)
+        .eq("org_id", orgId)
+      return
+    }
+
+    const { data: outboundMessage, error: outboundError } = await admin
+      .from("messages")
+      .insert({
+        org_id: orgId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        kind: "message",
+        body: draft.reply,
+        ai_handled: true,
+        model: draft.model,
+        cost_usd: draft.costUsd,
+        metadata: { handoff: true },
+      })
+      .select()
+      .single()
+
+    if (outboundError || !outboundMessage) {
+      throw new Error(outboundError?.message ?? "failed to record outbound message")
+    }
+
+    await admin
+      .from("conversations")
+      .update({ ai_state: "escalated", last_message_at: outboundMessage.created_at })
+      .eq("id", conversation.id)
+      .eq("org_id", orgId)
+    return
   }
 
   // -----------------------------------------------------------------

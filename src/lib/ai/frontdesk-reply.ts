@@ -30,6 +30,7 @@ import type {
   Message,
 } from "@/lib/types"
 
+import { buildMemoryPromptLines, parseConversationMemory } from "./conversation-memory"
 import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { runTextJob } from "./router"
@@ -104,20 +105,61 @@ export const STYLE_GUIDE = [
   'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
 ].join(" ")
 
+// Smart escalation (Commander update, owner-approved plan, 2026-08-01):
+// needsHuman used to fire on "not confident" — the AI was escalating out of
+// mere uncertainty, which meant real conversations kept getting cut off
+// instead of the AI just saying "not sure, but..." and continuing. This
+// replaces that with a tight, named trigger set (explicit human request,
+// sustained frustration, high-stakes/sensitive topics, or a request that's
+// looped 3+ times) and makes uncertainty explicitly NOT a trigger. It also
+// changes what `reply` means when needsHuman is true: previously the model
+// could write almost anything since a human was about to take over; now the
+// reply is what actually gets SENT to the customer (see the three channel
+// routes), so it must be a real, warm, in-voice line that defers just that
+// one topic — the AI keeps holding the rest of the conversation either way.
+export const ESCALATION_GUIDE = [
+  "Only set needsHuman true when one of these actually applies: the customer explicitly asks for a real person, or asks if you're a bot and wants a human; the customer shows sustained frustration or anger across two or more of their own messages, not just one sharp word; the topic is high-stakes or sensitive — a money dispute, a refund the business info above doesn't clearly cover, anything legal or medical, a request for someone's private information, or a commitment on the owner's behalf that the business info doesn't authorize (bookings the info above already covers are yours to handle); or the same unresolved request has now come up 3 or more times without landing.",
+  "Not knowing something, or a question being unclear, is NEVER by itself a reason to set needsHuman — say so casually and/or ask one short clarifying question, and keep the conversation going.",
+  'When you do set needsHuman true, `reply` must still be a real, warm, in-voice message to the customer that defers THAT topic to the owner personally — never blank, never system-sounding, and never worded the same way twice. Vary it naturally (for example: "let me flag this one for the owner, they\'ll pick it up themselves" or "that one\'s for the owner to weigh in on, I\'ll get them looped in") — you\'re handing off one topic, not walking away from the conversation.',
+].join(" ")
+
+/**
+ * Extra prompt lines derived from `ai_always_on` (business_brain) and this
+ * conversation's rolling memory (`ai_memory` — see
+ * src/lib/ai/conversation-memory.ts). Shared by both buildSystemPrompt
+ * branches below.
+ */
+function buildContextualLines(brain: BusinessBrain | null, conversation: Conversation, messages: Message[]): string[] {
+  const lines: string[] = []
+
+  if (brain?.ai_always_on) {
+    lines.push(
+      "Always-on mode is on for this business: never fully hand the conversation off — even when flagging a topic for the owner, keep engaging with everything else; the conversation is yours to hold."
+    )
+  }
+
+  lines.push(...buildMemoryPromptLines(parseConversationMemory(conversation.ai_memory), messages))
+
+  return lines
+}
+
 /** Builds a tight (~450 token) system prompt from the Business Brain — hours, services, prices, faq, tone — plus the texting-voice rules above. */
-function buildSystemPrompt(brain: BusinessBrain | null): string {
+function buildSystemPrompt(brain: BusinessBrain | null, conversation: Conversation, messages: Message[]): string {
   const intro = brain
     ? `You are the front-desk assistant for ${brain.business_name ?? "a local business"}${
         brain.category ? `, a ${brain.category}` : ""
       }, answering customer messages (chat, SMS, DM, or email).`
     : "You are the front-desk assistant for a local small business, answering customer messages (chat, SMS, DM, or email)."
 
+  const contextualLines = buildContextualLines(brain, conversation, messages)
+
   if (!brain) {
     return [
       intro,
       STYLE_GUIDE,
+      ESCALATION_GUIDE,
       "Try to answer, qualify, or book the customer whenever you reasonably can.",
-      'If you are not confident you can answer correctly, or the request needs a human (unknown pricing/policy, a complaint, anything sensitive or urgent), set needsHuman true and say why.',
+      ...contextualLines,
     ].join(" ")
   }
 
@@ -151,7 +193,8 @@ function buildSystemPrompt(brain: BusinessBrain | null): string {
     services ? `Services/prices: ${services}.` : null,
     faq ? `FAQ: ${faq}` : null,
     "Answer as the business, in first person plural (\"we\"). Try to answer, qualify, or book the customer whenever the Business Brain above gives you enough to do so confidently.",
-    "If you are NOT confident you can answer correctly — pricing/policy not covered above, a complaint, anything sensitive or urgent — set needsHuman true and explain why in one short phrase.",
+    ESCALATION_GUIDE,
+    ...contextualLines,
   ].filter((line): line is string => Boolean(line))
 
   return lines.join(" ")
@@ -315,7 +358,7 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   if (!hasInboundMessage) return null
 
   const baseMessages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(input.businessBrain) },
+    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages) },
     ...formatHistory(input.messages),
     buildInstructionMessage(input.contact, input.conversation.channel),
   ]

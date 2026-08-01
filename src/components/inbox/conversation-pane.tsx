@@ -21,6 +21,7 @@ import type { ConversationAiMode, ConversationStatus, Message } from "@/lib/type
 
 import type { InboxConversationDetail } from "@/app/(app)/inbox/actions"
 
+import { AiMemoryStrip } from "./ai-memory-strip"
 import { AiModeToggle } from "./ai-mode-toggle"
 import { AiStateChip } from "./ai-state-chip"
 import { ChannelGlyph, CHANNEL_GLYPHS } from "./channel-glyphs"
@@ -161,6 +162,8 @@ export function ConversationPane({
           <Info aria-hidden="true" className="size-4" />
         </Button>
       </div>
+
+      <AiMemoryStrip aiMemory={detail.ai_memory} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
         <AnimatePresence mode="wait">

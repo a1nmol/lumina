@@ -20,9 +20,16 @@
 // saveAiIntro; the Switch saves immediately like the auto-reply toggle
 // above, the Textarea saves on blur (typing shouldn't fire a network call
 // per keystroke).
+//
+// Third block — "Always on" (Commander update, migration 0015
+// `business_brain.ai_always_on`): the AI never fully hands a conversation
+// off, even when it flags a topic for the owner (see the smart-escalation
+// contract in src/lib/ai/frontdesk-reply.ts's ESCALATION_GUIDE). Same
+// icon-chip/title/description/Switch language as the two blocks above,
+// persists via saveAiAlwaysOn immediately on toggle.
 
 import { useState } from "react"
-import { MessageSquareText, Sparkles } from "lucide-react"
+import { Infinity as InfinityIcon, MessageSquareText, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -31,7 +38,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
-import { saveAiIntro, saveFrontdeskAutoReply } from "./brain/actions"
+import { saveAiAlwaysOn, saveAiIntro, saveFrontdeskAutoReply } from "./brain/actions"
 
 const MAX_AI_INTRO_TEXT = 500
 
@@ -39,6 +46,7 @@ type FrontdeskAutoReplyCardProps = {
   initialEnabled: boolean
   initialIntroEnabled: boolean
   initialIntroText: string
+  initialAlwaysOn: boolean
   /** False in demo mode (Supabase unconfigured) — the toggle only updates local state. */
   isLive: boolean
   className?: string
@@ -48,6 +56,7 @@ export function FrontdeskAutoReplyCard({
   initialEnabled,
   initialIntroEnabled,
   initialIntroText,
+  initialAlwaysOn,
   isLive,
   className,
 }: FrontdeskAutoReplyCardProps) {
@@ -58,6 +67,9 @@ export function FrontdeskAutoReplyCard({
   const [introText, setIntroText] = useState(initialIntroText)
   const [savedIntroText, setSavedIntroText] = useState(initialIntroText)
   const [isSavingIntro, setIsSavingIntro] = useState(false)
+
+  const [alwaysOn, setAlwaysOn] = useState(initialAlwaysOn)
+  const [isSavingAlwaysOn, setIsSavingAlwaysOn] = useState(false)
 
   async function persist(next: boolean) {
     const previous = enabled
@@ -128,6 +140,34 @@ export function FrontdeskAutoReplyCard({
   function handleIntroTextBlur() {
     if (!hasUnsavedIntroText) return
     void persistIntro(introEnabled, introText)
+  }
+
+  async function persistAlwaysOn(next: boolean) {
+    const previous = alwaysOn
+    setAlwaysOn(next)
+
+    const successMessage = next ? "Always on enabled" : "Always on disabled"
+
+    if (!isLive) {
+      toast.success(successMessage, { description: "Demo mode — changes aren't saved." })
+      return
+    }
+
+    setIsSavingAlwaysOn(true)
+    try {
+      const result = await saveAiAlwaysOn(next)
+      if (!result.ok) {
+        setAlwaysOn(previous)
+        toast.error("Couldn't save the Always on setting", { description: "Please try again." })
+        return
+      }
+      toast.success(successMessage)
+    } catch {
+      setAlwaysOn(previous)
+      toast.error("Couldn't save the Always on setting", { description: "Please try again." })
+    } finally {
+      setIsSavingAlwaysOn(false)
+    }
   }
 
   return (
@@ -225,6 +265,36 @@ export function FrontdeskAutoReplyCard({
             </span>
           </div>
         </div>
+      </CardContent>
+
+      <div className="mx-4 border-t border-border" aria-hidden="true" />
+
+      <CardHeader className="gap-1">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+          >
+            <InfinityIcon className="size-3.5" />
+          </span>
+          <CardTitle className="text-sm">Always on</CardTitle>
+        </div>
+        <CardDescription className="text-xs">
+          The AI never goes quiet. It can still flag topics for you, but it keeps the conversation going instead of
+          stopping.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center gap-2">
+        <Switch
+          id="ai-always-on-toggle"
+          checked={alwaysOn}
+          onCheckedChange={(checked) => persistAlwaysOn(Boolean(checked))}
+          disabled={isSavingAlwaysOn}
+          aria-label="Always on"
+        />
+        <span aria-hidden="true" className="text-xs font-medium text-muted-foreground">
+          {alwaysOn ? "On" : "Off"}
+        </span>
       </CardContent>
     </Card>
   )
