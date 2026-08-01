@@ -30,7 +30,13 @@ import type {
   Message,
 } from "@/lib/types"
 
-import { buildMemoryPromptLines, parseConversationMemory } from "./conversation-memory"
+import {
+  buildMemoryPromptLines,
+  formatPersonMemoryForPrompt,
+  parseConversationMemory,
+  parsePersonMemory,
+  type PersonMemory,
+} from "./conversation-memory"
 import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { runTextJob } from "./router"
@@ -102,6 +108,7 @@ export const STYLE_GUIDE = [
   "Never add typos or bad grammar on purpose — keep it clean, just relaxed and human, not sloppy.",
   "Only use an emoji if the customer used one first in their message, and never more than one.",
   "If a customer's message is a photo, video, reel, or other attachment: when you're told what's in it, react to that naturally, like you actually saw it. When you're told you can't see/watch/hear it, be upfront and chill about that in your own words — vary the phrasing, match the account's tone (playful for a personal account, professional for a business) — instead of one fixed canned line, e.g. just ask what it's about. Never claim to have seen media you weren't shown a description of.",
+  "Calibrate how familiar you sound to how long you've actually known this person (see the relationship line below, when there is one): someone brand new gets charming but careful — warm, never overfamiliar, and never a callback to shared history you don't actually have. A returning regular gets warm, familiar energy — natural callbacks and references to running topics you genuinely remember. Never fake a memory or a shared history you weren't given.",
   'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
 ].join(" ")
 
@@ -124,12 +131,45 @@ export const ESCALATION_GUIDE = [
 ].join(" ")
 
 /**
- * Extra prompt lines derived from `ai_always_on` (business_brain) and this
+ * Relationship awareness (Commander update wave B1, owner-approved plan,
+ * 2026-08-01): a cheap, no-model-call line derived from data already on
+ * hand — contact.created_at (first seen) + contact.status, plus the
+ * person-memory's own `relationship` line when one exists (it usually says
+ * more, and more accurately, than a raw signup date + pipeline status ever
+ * could). Paired with the STYLE_GUIDE "calibrate familiarity" rule above.
+ * Returns null when there's no contact at all to ground this in.
+ */
+function buildRelationshipLine(contact: Contact | null, personMemory: PersonMemory | null): string | null {
+  if (!contact) return null
+
+  const firstSeen = new Date(contact.created_at)
+  const since = Number.isNaN(firstSeen.getTime())
+    ? null
+    : firstSeen.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+
+  const parts = [
+    since ? `you've known this person since ${since}` : null,
+    `their pipeline status is "${contact.status}"`,
+    personMemory?.relationship ? `how they relate to you: ${personMemory.relationship}` : null,
+  ].filter((part): part is string => Boolean(part))
+
+  if (parts.length === 0) return null
+  return `Relationship: ${parts.join("; ")}.`
+}
+
+/**
+ * Extra prompt lines derived from `ai_always_on` (business_brain), this
  * conversation's rolling memory (`ai_memory` — see
- * src/lib/ai/conversation-memory.ts). Shared by both buildSystemPrompt
+ * src/lib/ai/conversation-memory.ts), the contact's longer-lived person
+ * memory, and the relationship line above. Shared by both buildSystemPrompt
  * branches below.
  */
-function buildContextualLines(brain: BusinessBrain | null, conversation: Conversation, messages: Message[]): string[] {
+function buildContextualLines(
+  brain: BusinessBrain | null,
+  conversation: Conversation,
+  messages: Message[],
+  contact: Contact | null
+): string[] {
   const lines: string[] = []
 
   if (brain?.ai_always_on) {
@@ -140,18 +180,32 @@ function buildContextualLines(brain: BusinessBrain | null, conversation: Convers
 
   lines.push(...buildMemoryPromptLines(parseConversationMemory(conversation.ai_memory), messages))
 
+  const personMemory = contact ? parsePersonMemory(contact.ai_memory) : null
+  if (personMemory) {
+    const block = formatPersonMemoryForPrompt(personMemory)
+    if (block) lines.push(block)
+  }
+
+  const relationshipLine = buildRelationshipLine(contact, personMemory)
+  if (relationshipLine) lines.push(relationshipLine)
+
   return lines
 }
 
 /** Builds a tight (~450 token) system prompt from the Business Brain — hours, services, prices, faq, tone — plus the texting-voice rules above. */
-function buildSystemPrompt(brain: BusinessBrain | null, conversation: Conversation, messages: Message[]): string {
+function buildSystemPrompt(
+  brain: BusinessBrain | null,
+  conversation: Conversation,
+  messages: Message[],
+  contact: Contact | null
+): string {
   const intro = brain
     ? `You are the front-desk assistant for ${brain.business_name ?? "a local business"}${
         brain.category ? `, a ${brain.category}` : ""
       }, answering customer messages (chat, SMS, DM, or email).`
     : "You are the front-desk assistant for a local small business, answering customer messages (chat, SMS, DM, or email)."
 
-  const contextualLines = buildContextualLines(brain, conversation, messages)
+  const contextualLines = buildContextualLines(brain, conversation, messages, contact)
 
   if (!brain) {
     return [
@@ -358,7 +412,7 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   if (!hasInboundMessage) return null
 
   const baseMessages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages) },
+    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact) },
     ...formatHistory(input.messages),
     buildInstructionMessage(input.contact, input.conversation.channel),
   ]

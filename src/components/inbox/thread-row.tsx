@@ -1,7 +1,7 @@
 "use client"
 
 import { forwardRef } from "react"
-import { Sparkles } from "lucide-react"
+import { Sparkles, Star } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ChannelGlyph } from "@/components/inbox/channel-glyphs"
@@ -84,13 +84,21 @@ export const ThreadRow = forwardRef<HTMLButtonElement, ThreadRowProps>(function 
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "truncate text-sm text-foreground",
-              conversation.unread ? "font-semibold" : "font-medium"
+          <span className="flex min-w-0 items-center gap-1">
+            <span
+              className={cn(
+                "truncate text-sm text-foreground",
+                conversation.unread ? "font-semibold" : "font-medium"
+              )}
+            >
+              {name}
+            </span>
+            {conversation.contact_is_vip && (
+              <span title="VIP contact" className="inline-flex shrink-0 items-center">
+                <Star aria-hidden="true" className="size-3 fill-warning text-warning" />
+                <span className="sr-only">VIP</span>
+              </span>
             )}
-          >
-            {name}
           </span>
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
             {formatRelativeTime(conversation.last_message_at)}

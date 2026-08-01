@@ -10,6 +10,15 @@ import "server-only"
 // src/lib/ai/reply-assist.ts (prompt injection) and rendered, read-only, by
 // the Inbox thread view.
 //
+// Wave B1 (owner-approved plan, 2026-08-01; supabase/migrations/0016) adds a
+// SECOND, longer-lived memory in the SAME model call: PersonMemory, stored on
+// contacts.ai_memory. Where ConversationMemory is scoped to one thread,
+// PersonMemory follows the PERSON across every conversation they've ever had
+// with this business (who they are, how they relate to the business, running
+// topics) — see the "Person-level memory" section below. Both memories are
+// produced by one combined-JSON prompt (buildMemorySystemPrompt) so this
+// costs exactly what the wave-A conversation-only refresh already cost.
+//
 // Routes through the shared model router's "conversation_memory" job
 // (src/lib/ai/router.ts) — cheap PAID candidates only, never a free tier:
 // the messages it summarizes are real customer content (MASTER_PLAN.md §5's
@@ -141,6 +150,87 @@ export function formatMemoryForPrompt(memory: ConversationMemory): string {
   return `What you remember from earlier with this person: ${parts.join("; ")}.`
 }
 
+// ---------------------------------------------------------------------------
+// Person-level memory (Commander update wave B1, migration 0016
+// contacts.ai_memory) — unlike ConversationMemory above (scoped to one
+// conversation thread), this is a longer-lived memory of the PERSON that
+// outlives any single conversation: who they are, how they relate to this
+// account, and what topics keep coming up with them across every channel
+// they've messaged on. Computed in the SAME model call as the conversation
+// memory refresh (see buildMemorySystemPrompt/updateConversationMemory below)
+// — no extra request, no extra cost. Consumed by frontdesk-reply.ts's
+// buildSystemPrompt and reply-assist.ts's suggestReplies, exactly like
+// ConversationMemory is.
+// ---------------------------------------------------------------------------
+
+export interface PersonMemory {
+  /** Durable facts about WHO this person is that outlive a single conversation — name details, what they do, preferences, running life events. Never generic small talk. */
+  facts: string[]
+  /** One line on how this person relates to this business: new? a regular? a friend? a client? */
+  relationship: string
+  /** Running topics that come up with this person across time, not just in one thread. */
+  topics: string[]
+  updated_at: string
+}
+
+/**
+ * Defensively parses a stored (or freshly model-produced) value into a
+ * well-typed PersonMemory, or null when there's nothing usable — mirrors
+ * parseConversationMemory's contract exactly (never throws, missing/
+ * malformed fields fall back to safe empties, an entirely-empty result is
+ * "no memory" rather than an empty shell).
+ */
+export function parsePersonMemory(json: unknown): PersonMemory | null {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null
+  const obj = json as Record<string, unknown>
+
+  const facts = Array.isArray(obj.facts)
+    ? obj.facts.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : []
+  const topics = Array.isArray(obj.topics)
+    ? obj.topics.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : []
+  const relationship = typeof obj.relationship === "string" ? obj.relationship.trim() : ""
+
+  const updatedAtCandidate = typeof obj.updated_at === "string" ? obj.updated_at : null
+  const updated_at =
+    updatedAtCandidate && !Number.isNaN(new Date(updatedAtCandidate).getTime())
+      ? updatedAtCandidate
+      : new Date(0).toISOString()
+
+  if (facts.length === 0 && topics.length === 0 && !relationship) return null
+
+  return { facts, relationship, topics, updated_at }
+}
+
+const MAX_PERSON_FACTS = 10
+const MAX_PERSON_FACT_LENGTH = 140
+const MAX_PERSON_TOPICS = 5
+const MAX_PERSON_TOPIC_LENGTH = 80
+const MAX_PERSON_RELATIONSHIP_LENGTH = 200
+
+/** Caps a freshly model-produced person memory down to storable sizes (facts ≤10/≤140 chars, topics ≤5/≤80 chars, relationship ≤200 chars) and stamps updated_at. Applied once, right before persisting — mirrors capConversationMemory. */
+export function capPersonMemory(memory: PersonMemory, now: number = Date.now()): PersonMemory {
+  return {
+    facts: memory.facts.slice(0, MAX_PERSON_FACTS).map((fact) => fact.slice(0, MAX_PERSON_FACT_LENGTH)),
+    relationship: memory.relationship.slice(0, MAX_PERSON_RELATIONSHIP_LENGTH),
+    topics: memory.topics.slice(0, MAX_PERSON_TOPICS).map((topic) => topic.slice(0, MAX_PERSON_TOPIC_LENGTH)),
+    updated_at: new Date(now).toISOString(),
+  }
+}
+
+/** The compact prompt block injected into both frontdesk-reply.ts and reply-assist.ts, framed as remembered context about the PERSON (not this one thread). Empty string when the memory carries nothing renderable. */
+export function formatPersonMemoryForPrompt(memory: PersonMemory): string {
+  const parts = [
+    memory.facts.length > 0 ? `facts: ${memory.facts.join("; ")}` : null,
+    memory.relationship ? `relationship: ${memory.relationship}` : null,
+    memory.topics.length > 0 ? `running topics: ${memory.topics.join("; ")}` : null,
+  ].filter((part): part is string => Boolean(part))
+
+  if (parts.length === 0) return ""
+  return `What you know about this person from past conversations: ${parts.join("; ")}.`
+}
+
 /** The most recent AI-sent outbound message's timestamp (ms), or null when there isn't one. Mirrors src/lib/ai/intro.ts's own gap-detection logic, kept separate since this is a distinct "re-engage" concern, not the intro's "disclose once" concern. */
 export function lastOutboundAiTimestamp(
   messages: Array<Pick<Message, "direction" | "ai_handled" | "created_at">>
@@ -191,7 +281,11 @@ export function buildMemoryPromptLines(
 
 /** Defensive cap so an irregular trigger (backfill, manual call) can never balloon the prompt — normal operation stays well under this (shouldUpdateMemory fires every 6-7 messages). */
 const MAX_MESSAGES_PER_MEMORY_UPDATE = 60
-const MEMORY_MAX_TOKENS = 400
+// Bumped from 400 (Commander update wave B1): one model call now produces
+// BOTH the conversation memory and the person memory in a single combined
+// JSON response (see buildMemorySystemPrompt/parseCombinedMemoryResponse
+// below) — same request, same cost, just a bigger response shape.
+const MEMORY_MAX_TOKENS = 550
 const MEMORY_TEMPERATURE = 0.3
 
 function messageBodyForMemoryPrompt(message: Message): string {
@@ -210,45 +304,97 @@ function formatMessagesForMemoryPrompt(messages: Message[]): ChatMessage[] {
   }))
 }
 
-function buildMemorySystemPrompt(priorMemory: ConversationMemory | null): string {
+/**
+ * Builds the ONE system prompt that asks the model for both memories in a
+ * single response (Commander update wave B1 — no second LLM call): the
+ * rolling per-thread ConversationMemory (unchanged fields/behavior) plus the
+ * longer-lived per-person PersonMemory (migration 0016 contacts.ai_memory),
+ * given whatever prior memories are on file for each.
+ */
+function buildMemorySystemPrompt(
+  priorConversationMemory: ConversationMemory | null,
+  priorPersonMemory: PersonMemory | null
+): string {
   const lines = [
-    "You maintain a compact rolling memory of an ongoing customer conversation for a local small business's FrontDesk AI, so a reply drafted later can pick up right where things left off.",
-    "facts: short durable details about this specific person or what they want (a name, a preference, an order, a date, a recurring ask) — never generic small talk.",
-    "open_threads: anything asked or promised that is still unresolved right now.",
-    "vibe: one short line on their tone and the relationship so far.",
-    "summary: 3-4 plain sentences telling the whole story of this conversation so far.",
+    "You maintain two linked memories for a local small business's FrontDesk AI, so a reply drafted later — in this thread or a brand new one — can pick up naturally: a rolling memory of THIS conversation, and a longer-lived memory of the PERSON that carries across every conversation they've ever had with this business.",
+    "conversation.facts: short durable details about what's happening in THIS conversation specifically (an order, a date, a recurring ask) — never generic small talk.",
+    "conversation.open_threads: anything asked or promised in this conversation that is still unresolved right now.",
+    "conversation.vibe: one short line on their tone in this conversation.",
+    "conversation.summary: 3-4 plain sentences telling the whole story of this conversation so far.",
+    "person.facts: durable facts about WHO this person is that outlive this single conversation — name details, what they do, preferences, running life events (a kid's name, a recurring order, an upcoming event). Never generic small talk, and never something that's only true for this one conversation.",
+    "person.relationship: one short line on how this person relates to this business overall — for example a brand new lead, a regular, a friend of the owner, or a longtime client.",
+    "person.topics: running topics that come up with this person across time, not just in this one thread.",
   ]
 
-  if (priorMemory) {
+  if (priorConversationMemory) {
     lines.push(
-      `Update this prior memory, don't just discard it — fold the new messages below into it. Prior facts: ${
-        priorMemory.facts.join("; ") || "none yet"
-      }. Prior open_threads: ${priorMemory.open_threads.join("; ") || "none"}. Prior vibe: ${
-        priorMemory.vibe || "unknown"
-      }. Prior summary: ${priorMemory.summary || "none yet"}.`
+      `Update this prior CONVERSATION memory, don't just discard it — fold the new messages below into it. Prior facts: ${
+        priorConversationMemory.facts.join("; ") || "none yet"
+      }. Prior open_threads: ${priorConversationMemory.open_threads.join("; ") || "none"}. Prior vibe: ${
+        priorConversationMemory.vibe || "unknown"
+      }. Prior summary: ${priorConversationMemory.summary || "none yet"}.`
+    )
+  }
+
+  if (priorPersonMemory) {
+    lines.push(
+      `Update this prior PERSON memory the same way — fold in anything new, keep what's still true, drop what's been superseded. Prior facts: ${
+        priorPersonMemory.facts.join("; ") || "none yet"
+      }. Prior relationship: ${priorPersonMemory.relationship || "unknown"}. Prior topics: ${
+        priorPersonMemory.topics.join("; ") || "none yet"
+      }.`
     )
   }
 
   lines.push(
-    'Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape: {"facts": string[], "open_threads": string[], "vibe": string, "summary": string}'
+    'Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape: {"conversation": {"facts": string[], "open_threads": string[], "vibe": string, "summary": string}, "person": {"facts": string[], "relationship": string, "topics": string[]}}'
   )
 
   return lines.join(" ")
 }
 
-/** Finds + parses the model's JSON memory response defensively. Returns null (caller logs + skips) on any shape/parse failure. */
-function parseModelMemoryResponse(raw: string): ConversationMemory | null {
+export interface CombinedMemoryParseResult {
+  conversation: ConversationMemory | null
+  person: PersonMemory | null
+}
+
+/**
+ * Finds + parses the model's combined `{conversation, person}` JSON response
+ * defensively — never throws. Also accepts (and logs a warning for) the
+ * OLDER flat `{facts, open_threads, vibe, summary}` shape from before this
+ * combined prompt existed, treating it as conversation-only with no person
+ * data recoverable from it, so a stray/cached response in that shape still
+ * degrades gracefully instead of losing the whole update. Pure, exported for
+ * unit tests.
+ */
+export function parseCombinedMemoryResponse(raw: string): CombinedMemoryParseResult {
   const match = raw.match(/\{[\s\S]*\}/)
-  if (!match) return null
+  if (!match) return { conversation: null, person: null }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(match[0])
   } catch {
-    return null
+    return { conversation: null, person: null }
   }
 
-  return parseConversationMemory(parsed)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { conversation: null, person: null }
+  const obj = parsed as Record<string, unknown>
+
+  const isNestedObject = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value)
+
+  if (isNestedObject(obj.conversation) || isNestedObject(obj.person)) {
+    return {
+      conversation: parseConversationMemory(obj.conversation ?? null),
+      person: parsePersonMemory(obj.person ?? null),
+    }
+  }
+
+  console.warn(
+    "[conversation-memory] model returned the old flat memory shape (no conversation/person nesting) — falling back to conversation-only, no person memory recovered"
+  )
+  return { conversation: parseConversationMemory(obj), person: null }
 }
 
 export interface UpdateConversationMemoryInput {
@@ -257,15 +403,20 @@ export interface UpdateConversationMemoryInput {
 }
 
 /**
- * Refreshes a conversation's rolling memory: loads the prior memory + full
- * message history, asks the "conversation_memory" router job to fold
- * whatever's new since the prior memory's message_count into an updated
- * summary, caps it, and persists it. Fire-and-forget by design — every
- * caller does `void updateConversationMemory(...).catch(log)` and must never
- * await this on a customer-facing reply path. Never throws; every failure
- * (not configured, quota denied, model failure, bad JSON, a write error) is
- * logged and swallowed, since memory is a convenience layer, never a
- * blocker.
+ * Refreshes a conversation's rolling memory AND (Commander update wave B1)
+ * the contact's longer-lived person memory, in one combined model call:
+ * loads the prior conversation memory + prior person memory + full message
+ * history, asks the "conversation_memory" router job to fold whatever's new
+ * since the prior memory's message_count into an updated {conversation,
+ * person} pair, caps each, and persists conversation -> conversations.ai_memory
+ * (unchanged) and person -> contacts.ai_memory (new — skipped silently when
+ * this conversation has no contact_id, and left untouched when the model's
+ * response carries no usable person data at all). Fire-and-forget by design —
+ * every caller does `void updateConversationMemory(...).catch(log)` and must
+ * never await this on a customer-facing reply path. Never throws; every
+ * failure (not configured, quota denied, model failure, bad JSON, a write
+ * error) is logged and swallowed, since memory is a convenience layer, never
+ * a blocker.
  */
 export async function updateConversationMemory(input: UpdateConversationMemoryInput): Promise<void> {
   if (!isOpenRouterConfigured() || !isSupabaseConfigured()) return
@@ -276,7 +427,7 @@ export async function updateConversationMemory(input: UpdateConversationMemoryIn
     await Promise.all([
       admin
         .from("conversations")
-        .select("ai_memory")
+        .select("ai_memory, contact_id")
         .eq("id", input.conversationId)
         .eq("org_id", input.orgId)
         .maybeSingle(),
@@ -300,18 +451,39 @@ export async function updateConversationMemory(input: UpdateConversationMemoryIn
   const messages = ((messageRows ?? []) as Message[]).filter((message) => message.kind === "message")
   if (messages.length === 0) return
 
-  const priorMemory = parseConversationMemory(conversationRow?.ai_memory ?? null)
+  const priorConversationMemory = parseConversationMemory(conversationRow?.ai_memory ?? null)
 
   // Double-fire guard (review): two rapid inbound messages can both pass the
   // trigger-site shouldUpdateMemory check against stale state. Re-checking
   // here against the freshly-read memory means the loser of that race
   // returns before paying for a model call.
-  if (!shouldUpdateMemory(priorMemory, messages.length)) return
+  if (!shouldUpdateMemory(priorConversationMemory, messages.length)) return
 
-  const newMessages = (priorMemory ? messages.slice(priorMemory.message_count) : messages).slice(
+  const newMessages = (priorConversationMemory ? messages.slice(priorConversationMemory.message_count) : messages).slice(
     -MAX_MESSAGES_PER_MEMORY_UPDATE
   )
   if (newMessages.length === 0) return
+
+  const contactId = conversationRow?.contact_id ?? null
+
+  // Best-effort — a failure loading the contact's prior person memory must
+  // never block the conversation-memory refresh; it just means this round
+  // proceeds as if there were no prior person memory on file.
+  let priorPersonMemory: PersonMemory | null = null
+  if (contactId) {
+    const { data: contactRow, error: contactError } = await admin
+      .from("contacts")
+      .select("ai_memory")
+      .eq("id", contactId)
+      .eq("org_id", input.orgId)
+      .maybeSingle()
+
+    if (contactError) {
+      console.error("[conversation-memory] failed to load contact for person memory", contactError.message)
+    } else {
+      priorPersonMemory = parsePersonMemory(contactRow?.ai_memory ?? null)
+    }
+  }
 
   let result: Awaited<ReturnType<typeof runTextJob>>
   try {
@@ -319,7 +491,7 @@ export async function updateConversationMemory(input: UpdateConversationMemoryIn
       orgId: input.orgId,
       job: "conversation_memory",
       messages: [
-        { role: "system", content: buildMemorySystemPrompt(priorMemory) },
+        { role: "system", content: buildMemorySystemPrompt(priorConversationMemory, priorPersonMemory) },
         ...formatMessagesForMemoryPrompt(newMessages),
         {
           role: "user",
@@ -336,24 +508,38 @@ export async function updateConversationMemory(input: UpdateConversationMemoryIn
     return
   }
 
-  const parsedMemory = parseModelMemoryResponse(result.text)
-  if (!parsedMemory) {
+  const parsedMemory = parseCombinedMemoryResponse(result.text)
+  if (!parsedMemory.conversation) {
     console.error("[conversation-memory] model returned unparseable memory JSON, skipping update")
     return
   }
 
-  const capped = capConversationMemory(parsedMemory, messages.length)
+  const cappedConversation = capConversationMemory(parsedMemory.conversation, messages.length)
 
   const { error: updateError } = await admin
     .from("conversations")
     // ConversationMemory has no index signature, so it isn't structurally
     // assignable to the jsonb column's Record<string, unknown> — it IS a
     // plain, JSON-serializable object, so this cast is safe.
-    .update({ ai_memory: capped as unknown as Record<string, unknown> })
+    .update({ ai_memory: cappedConversation as unknown as Record<string, unknown> })
     .eq("id", input.conversationId)
     .eq("org_id", input.orgId)
 
   if (updateError) {
     console.error("[conversation-memory] failed to persist ai_memory", updateError.message)
+  }
+
+  if (contactId && parsedMemory.person) {
+    const cappedPerson = capPersonMemory(parsedMemory.person)
+
+    const { error: contactUpdateError } = await admin
+      .from("contacts")
+      .update({ ai_memory: cappedPerson as unknown as Record<string, unknown> })
+      .eq("id", contactId)
+      .eq("org_id", input.orgId)
+
+    if (contactUpdateError) {
+      console.error("[conversation-memory] failed to persist contact ai_memory", contactUpdateError.message)
+    }
   }
 }

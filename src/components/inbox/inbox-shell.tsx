@@ -15,6 +15,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { cn } from "@/lib/utils"
 import type { ConversationAiMode, ConversationStatus, ContactStatus, Message } from "@/lib/types"
 
+import { toggleContactVip } from "@/app/(app)/contacts/actions"
 import {
   addContactTag,
   getConversationDetail,
@@ -232,6 +233,32 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     }
   }
 
+  async function handleToggleVip() {
+    if (!selectedDetail?.contact) return
+    const contactId = selectedDetail.contact.id
+    const previousIsVip = selectedDetail.contact.is_vip
+    const nextIsVip = !previousIsVip
+
+    setSelectedDetail((prev) => (prev && prev.contact ? { ...prev, contact: { ...prev.contact, is_vip: nextIsVip } } : prev))
+    // The thread list renders its own star off conversation.contact_is_vip —
+    // mirror the toggle there too (every conversation with this contact), or
+    // the left-pane badge goes stale until a reload.
+    setConversations((current) =>
+      current.map((c) => (c.contact_id === contactId ? { ...c, contact_is_vip: nextIsVip } : c))
+    )
+
+    const result = await toggleContactVip(contactId, nextIsVip)
+    if (!result.ok) {
+      setSelectedDetail((prev) =>
+        prev && prev.contact ? { ...prev, contact: { ...prev.contact, is_vip: previousIsVip } } : prev
+      )
+      setConversations((current) =>
+        current.map((c) => (c.contact_id === contactId ? { ...c, contact_is_vip: previousIsVip } : c))
+      )
+      toast.error("Couldn't update VIP status", { description: "Please try again." })
+    }
+  }
+
   async function handleAddTag(tag: string) {
     if (!selectedDetail?.contact) return
     const contactId = selectedDetail.contact.id
@@ -280,6 +307,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
       onStatusChange={handleContactStatusChange}
       onAddTag={handleAddTag}
       onAddNote={handleAddNote}
+      onToggleVip={handleToggleVip}
     />
   )
 

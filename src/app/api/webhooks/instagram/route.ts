@@ -32,6 +32,11 @@
 // handler — this route ALWAYS acks Meta with 200 fast, because Meta retries
 // (and can eventually disable) a webhook subscription that returns
 // non-2xx responses.
+//
+// VIP gate (Commander update wave B1, migration 0016 contacts.is_vip): a VIP
+// contact never gets an AI auto-reply, checked BEFORE drafting even starts
+// (unlike the ai_mode 'off' branch below, which drafts first and discards) —
+// see the VIP block right before the draftCustomerReply call.
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 
@@ -43,7 +48,7 @@ import { describeImageAttachment } from "@/lib/ai/describe-image"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
-import { sendLeadAlertEmail } from "@/lib/email"
+import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
 import {
   attachmentPlaceholderBody,
   normalizeInstagramAttachments,
@@ -539,6 +544,35 @@ async function handleMessagingEvent(
     void updateConversationMemory({ orgId, conversationId: conversation.id }).catch((error) =>
       console.error("[webhooks/instagram] failed to update conversation memory", error)
     )
+  }
+
+  // -----------------------------------------------------------------
+  // VIP gate (Commander update wave B1, migration 0016 contacts.is_vip) —
+  // sits BEFORE drafting (unlike the ai_mode 'off' branch further down,
+  // which drafts first and discards): a VIP contact never gets an AI
+  // auto-reply, so there's no point paying for a draft that can never be
+  // sent. Flags ai_state 'ai_draft' directly (skipping the draft means we
+  // can't know needsHuman) and fires a best-effort owner alert distinct
+  // from the new-lead alert above. Memory still updates regardless (see the
+  // block above) — VIP only gates sending, never learning.
+  // -----------------------------------------------------------------
+  if (contact.is_vip) {
+    sendVipAlertEmail({
+      orgId,
+      channel: "instagram",
+      contactName: contact.name,
+      contactPhone: contact.phone,
+      contactEmail: contact.email,
+      messagePreview: storedBody,
+    }).catch((emailError) => console.error("[webhooks/instagram] failed to send VIP alert email", emailError))
+
+    await admin
+      .from("conversations")
+      .update({ ai_state: "ai_draft" })
+      .eq("id", conversation.id)
+      .eq("org_id", orgId)
+
+    return
   }
 
   let draft: Awaited<ReturnType<typeof draftCustomerReply>> = null

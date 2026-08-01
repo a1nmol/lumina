@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { VipToggle } from "@/components/vip-toggle"
 import { cn } from "@/lib/utils"
 import type { Appointment, AppointmentStatus, Contact, ContactStatus } from "@/lib/types"
 
@@ -40,6 +41,7 @@ type ContextPaneProps = {
   onStatusChange: (status: ContactStatus) => void
   onAddTag: (tag: string) => void
   onAddNote: () => void
+  onToggleVip: () => void
   className?: string
 }
 
@@ -51,6 +53,7 @@ export function ContextPane({
   onStatusChange,
   onAddTag,
   onAddNote,
+  onToggleVip,
   className,
 }: ContextPaneProps) {
   const [tagInput, setTagInput] = useState("")
@@ -145,7 +148,10 @@ export function ContextPane({
           {contact.phone && <p className="text-xs text-muted-foreground">{contact.phone}</p>}
           {contact.email && <p className="text-xs text-muted-foreground">{contact.email}</p>}
         </div>
-        <StatusPill {...CONTACT_STATUS_META[contact.status]} />
+        <div className="flex items-center gap-1.5">
+          <StatusPill {...CONTACT_STATUS_META[contact.status]} />
+          <VipToggle isVip={contact.is_vip} onToggle={onToggleVip} />
+        </div>
       </div>
 
       {/* Quick actions */}

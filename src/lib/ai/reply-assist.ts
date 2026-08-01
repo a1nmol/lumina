@@ -26,7 +26,14 @@ import type { BusinessBrain, Contact, Conversation, Message } from "@/lib/types"
 
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
-import { buildMemoryPromptLines, parseConversationMemory, type ConversationMemory } from "./conversation-memory"
+import {
+  buildMemoryPromptLines,
+  formatPersonMemoryForPrompt,
+  parseConversationMemory,
+  parsePersonMemory,
+  type ConversationMemory,
+  type PersonMemory,
+} from "./conversation-memory"
 import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { STYLE_GUIDE, messageToPromptContent } from "./frontdesk-reply"
@@ -151,6 +158,7 @@ function buildSuggestionsSystemPrompt(
   brain: BusinessBrain | null,
   voiceAnchors: string[],
   memory: ConversationMemory | null,
+  personMemory: PersonMemory | null,
   messages: Message[]
 ): string {
   const intro = brain?.business_name
@@ -166,6 +174,7 @@ function buildSuggestionsSystemPrompt(
     "Produce exactly 3 short alternative replies to the customer's most recent message: one that directly answers it, one that asks a clarifying question, and one that gives a warm redirect (for example offering to check and follow up, or pointing them to book or call). Each of the 3 must take a genuinely different approach, not just reworded versions of the same reply.",
     `Each reply must be ${MAX_SUGGESTION_LENGTH} characters or less.`,
     ...buildMemoryPromptLines(memory, messages),
+    ...(personMemory ? [formatPersonMemoryForPrompt(personMemory)].filter(Boolean) : []),
   ]
 
   if (voiceAnchors.length > 0) {
@@ -243,9 +252,13 @@ export async function suggestReplies(input: SuggestRepliesInput): Promise<Sugges
 
   const [businessBrain, voiceAnchors] = await Promise.all([getBusinessBrain(), fetchVoiceAnchors(input.orgId)])
   const memory = parseConversationMemory(conversation.ai_memory)
+  const personMemory = conversation.contact ? parsePersonMemory(conversation.contact.ai_memory) : null
 
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSuggestionsSystemPrompt(businessBrain, voiceAnchors, memory, conversation.messages) },
+    {
+      role: "system",
+      content: buildSuggestionsSystemPrompt(businessBrain, voiceAnchors, memory, personMemory, conversation.messages),
+    },
     ...formatHistory(conversation.messages),
     buildSuggestInstructionMessage(conversation.contact, conversation.channel),
   ]

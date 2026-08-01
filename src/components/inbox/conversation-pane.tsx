@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type Ref } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { ArrowLeft, Info } from "lucide-react"
+import { ArrowLeft, Info, Star } from "lucide-react"
 
 import { Wick } from "@/components/brand/wick"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -119,7 +119,15 @@ export function ConversationPane({
         </Avatar>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">{detail.contact_name ?? "Unknown contact"}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+            <span className="truncate">{detail.contact_name ?? "Unknown contact"}</span>
+            {detail.contact?.is_vip && (
+              <span title="VIP: AI never auto-replies, you get alerted" className="inline-flex shrink-0 items-center">
+                <Star aria-hidden="true" className="size-3.5 fill-warning text-warning" />
+                <span className="sr-only">VIP</span>
+              </span>
+            )}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <ChannelGlyph channel={detail.channel} className="size-3" />

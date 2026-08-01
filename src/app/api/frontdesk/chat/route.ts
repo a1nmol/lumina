@@ -24,7 +24,7 @@ import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
-import { sendLeadAlertEmail } from "@/lib/email"
+import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Contact, Conversation, ConversationAiMode, Message } from "@/lib/types"
 
@@ -271,6 +271,35 @@ export async function POST(request: NextRequest) {
       void updateConversationMemory({ orgId: resolved.orgId, conversationId: conversation.id }).catch((error) =>
         console.error("[frontdesk/chat] failed to update conversation memory", error)
       )
+    }
+
+    // -----------------------------------------------------------------
+    // VIP gate (Commander update wave B1, migration 0016 contacts.is_vip) —
+    // sits BEFORE drafting, not just before sending: a VIP contact never
+    // gets an AI auto-reply, so there's no point paying for a draft that can
+    // never be used. Treated like the ai_mode 'off' branch below (ai_state
+    // 'ai_draft', same {ai:false} response so the widget shows nothing),
+    // plus a best-effort owner alert distinct from the new-lead alert above.
+    // Memory still updates regardless (see the block above) — VIP only gates
+    // sending, never learning.
+    // -----------------------------------------------------------------
+    if (contact.is_vip) {
+      sendVipAlertEmail({
+        orgId: resolved.orgId,
+        channel: "web_chat",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: trimmedMessage,
+      }).catch((emailError) => console.error("[frontdesk/chat] failed to send VIP alert email", emailError))
+
+      await admin
+        .from("conversations")
+        .update({ ai_state: "ai_draft" })
+        .eq("id", conversation.id)
+        .eq("org_id", resolved.orgId)
+
+      return NextResponse.json({ ai: false })
     }
 
     // Whatever line the widget shows the customer must also exist in the

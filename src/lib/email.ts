@@ -219,3 +219,86 @@ export async function sendLeadAlertEmail(input: LeadAlertInput): Promise<void> {
 
   await sendEmail({ to: ownerEmail, subject, html, text })
 }
+
+// ---------------------------------------------------------------------------
+// VIP alert (Commander update wave B1, migration 0016 contacts.is_vip)
+// ---------------------------------------------------------------------------
+
+export interface VipAlertInput {
+  orgId: string
+  channel: ConversationChannel
+  contactName?: string | null
+  contactPhone?: string | null
+  contactEmail?: string | null
+  /** First line of what the VIP said, if any — shown as a short preview. */
+  messagePreview?: string | null
+}
+
+/**
+ * Sends the VIP alert email to the org owner when a VIP contact
+ * (contacts.is_vip) messages in — modeled directly on sendLeadAlertEmail
+ * above, since the delivery mechanics (fire-and-forget, best-effort,
+ * shared-sender constraint) are identical; only the subject/copy differ to
+ * make clear this is a VIP who's waiting on the owner personally, not a new
+ * lead. Called from the three channel routes' VIP gate — see
+ * src/app/api/frontdesk/chat/route.ts, src/app/api/twilio/sms/route.ts, and
+ * src/app/api/webhooks/instagram/route.ts — AFTER the inbound message is
+ * already persisted, BEFORE any drafting is attempted. No-ops quietly when
+ * email isn't configured or the owner's email can't be resolved.
+ */
+export async function sendVipAlertEmail(input: VipAlertInput): Promise<void> {
+  if (!isEmailConfigured()) return
+
+  const ownerEmail = await resolveOrgOwnerEmail(input.orgId)
+  if (!ownerEmail) return
+
+  const who = input.contactName?.trim() || input.contactPhone?.trim() || input.contactEmail?.trim() || "A VIP contact"
+  const channelLabel = CHANNEL_LABELS[input.channel]
+  const subject = `VIP messaged you — ${who}`
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  const inboxUrl = `${appUrl}/inbox`
+
+  const contactLines = [
+    input.contactName ? `Name: ${input.contactName}` : null,
+    input.contactPhone ? `Phone: ${input.contactPhone}` : null,
+    input.contactEmail ? `Email: ${input.contactEmail}` : null,
+  ].filter((line): line is string => Boolean(line))
+
+  const text = [
+    `${who} (VIP) just messaged you via ${channelLabel}. Lumina is drafting a reply, but a VIP never gets auto-sent — you'll need to send it yourself.`,
+    contactLines.length > 0 ? contactLines.join(" · ") : null,
+    input.messagePreview ? `"${input.messagePreview}"` : null,
+    `Reply in Inbox: ${inboxUrl}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+
+  // Plain, system-font inline styles — matches sendLeadAlertEmail's html
+  // above; email clients don't load app CSS/design tokens.
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+      <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #b4551f; font-weight: 600; margin: 0 0 8px;">VIP &mdash; ${escapeHtml(channelLabel)}</p>
+      <h1 style="font-size: 20px; margin: 0 0 16px;">${escapeHtml(who)}</h1>
+      <p style="font-size: 14px; line-height: 1.6; margin: 0 0 12px; color: #444444;">This contact is marked VIP, so Lumina will draft a reply but never send it automatically &mdash; it's waiting on you.</p>
+      ${
+        contactLines.length > 0
+          ? `<p style="font-size: 14px; line-height: 1.6; margin: 0 0 12px; color: #444444;">${contactLines
+              .map(escapeHtml)
+              .join("<br/>")}</p>`
+          : ""
+      }
+      ${
+        input.messagePreview
+          ? `<p style="font-size: 14px; line-height: 1.6; margin: 0 0 20px; padding: 12px 16px; background: #f6f2ee; border-left: 3px solid #b4551f; color: #333333;">${escapeHtml(
+              input.messagePreview
+            )}</p>`
+          : ""
+      }
+      <a href="${inboxUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Reply in Inbox</a>
+      <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; sent to the org owner</p>
+    </div>
+  `.trim()
+
+  await sendEmail({ to: ownerEmail, subject, html, text })
+}

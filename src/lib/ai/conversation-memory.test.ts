@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   buildMemoryPromptLines,
   capConversationMemory,
+  capPersonMemory,
   formatMemoryForPrompt,
+  formatPersonMemoryForPrompt,
   lastOutboundAiTimestamp,
+  parseCombinedMemoryResponse,
   parseConversationMemory,
+  parsePersonMemory,
   shouldUpdateMemory,
   type ConversationMemory,
+  type PersonMemory,
 } from "./conversation-memory"
 
 const FULL_MEMORY: ConversationMemory = {
@@ -222,5 +227,190 @@ describe("buildMemoryPromptLines", () => {
   it("omits the re-engage line when there is no prior AI-sent message at all", () => {
     const lines = buildMemoryPromptLines(FULL_MEMORY, [], now)
     expect(lines).toHaveLength(1)
+  })
+})
+
+const FULL_PERSON_MEMORY: PersonMemory = {
+  facts: ["runs a small dog-walking business", "has a daughter named Mia"],
+  relationship: "regular customer, orders birthday cakes every year",
+  topics: ["birthday cakes", "dog treats"],
+  updated_at: "2026-08-01T00:00:00.000Z",
+}
+
+describe("parsePersonMemory", () => {
+  it("parses a well-formed person memory object", () => {
+    expect(parsePersonMemory(FULL_PERSON_MEMORY)).toEqual(FULL_PERSON_MEMORY)
+  })
+
+  it("returns null for non-objects", () => {
+    expect(parsePersonMemory(null)).toBeNull()
+    expect(parsePersonMemory(undefined)).toBeNull()
+    expect(parsePersonMemory("a string")).toBeNull()
+    expect(parsePersonMemory(42)).toBeNull()
+    expect(parsePersonMemory(["array", "not", "object"])).toBeNull()
+  })
+
+  it("returns null when every field is empty (nothing usable)", () => {
+    expect(parsePersonMemory({})).toBeNull()
+    expect(parsePersonMemory({ facts: [], relationship: "", topics: [] })).toBeNull()
+  })
+
+  it("keeps a partial memory usable when at least one field has content", () => {
+    const result = parsePersonMemory({ relationship: "brand new lead" })
+    expect(result).not.toBeNull()
+    expect(result?.relationship).toBe("brand new lead")
+    expect(result?.facts).toEqual([])
+    expect(result?.topics).toEqual([])
+  })
+
+  it("filters out non-string entries in facts/topics defensively", () => {
+    const result = parsePersonMemory({
+      facts: ["real fact", 42, null, "  ", "another fact"],
+      topics: [true, "real topic"],
+    })
+    expect(result?.facts).toEqual(["real fact", "another fact"])
+    expect(result?.topics).toEqual(["real topic"])
+  })
+
+  it("falls back to a safe updated_at on malformed values", () => {
+    const result = parsePersonMemory({ relationship: "hi", updated_at: 12345 })
+    expect(result?.updated_at).toBe(new Date(0).toISOString())
+  })
+
+  it("rejects an unparseable updated_at string", () => {
+    const result = parsePersonMemory({ relationship: "hi", updated_at: "not-a-date" })
+    expect(result?.updated_at).toBe(new Date(0).toISOString())
+  })
+})
+
+describe("capPersonMemory", () => {
+  it("caps facts to 10 items of at most 140 chars each", () => {
+    const longFact = "x".repeat(200)
+    const memory: PersonMemory = {
+      ...FULL_PERSON_MEMORY,
+      facts: Array.from({ length: 15 }, (_, index) => `${longFact}-${index}`),
+    }
+    const capped = capPersonMemory(memory)
+    expect(capped.facts).toHaveLength(10)
+    for (const fact of capped.facts) {
+      expect(fact.length).toBeLessThanOrEqual(140)
+    }
+  })
+
+  it("caps topics to 5 items of at most 80 chars each", () => {
+    const longTopic = "y".repeat(150)
+    const memory: PersonMemory = {
+      ...FULL_PERSON_MEMORY,
+      topics: Array.from({ length: 8 }, (_, index) => `${longTopic}-${index}`),
+    }
+    const capped = capPersonMemory(memory)
+    expect(capped.topics).toHaveLength(5)
+    for (const topic of capped.topics) {
+      expect(topic.length).toBeLessThanOrEqual(80)
+    }
+  })
+
+  it("caps relationship to 200 chars", () => {
+    const memory: PersonMemory = { ...FULL_PERSON_MEMORY, relationship: "z".repeat(400) }
+    const capped = capPersonMemory(memory)
+    expect(capped.relationship.length).toBe(200)
+  })
+
+  it("stamps updated_at from the given `now`", () => {
+    const now = new Date("2026-08-01T12:00:00.000Z").getTime()
+    const capped = capPersonMemory(FULL_PERSON_MEMORY, now)
+    expect(capped.updated_at).toBe(new Date(now).toISOString())
+  })
+
+  it("leaves well-under-cap fields untouched", () => {
+    const capped = capPersonMemory(FULL_PERSON_MEMORY)
+    expect(capped.facts).toEqual(FULL_PERSON_MEMORY.facts)
+    expect(capped.topics).toEqual(FULL_PERSON_MEMORY.topics)
+    expect(capped.relationship).toBe(FULL_PERSON_MEMORY.relationship)
+  })
+})
+
+describe("formatPersonMemoryForPrompt", () => {
+  it("formats all three fields into one compact block", () => {
+    const block = formatPersonMemoryForPrompt(FULL_PERSON_MEMORY)
+    expect(block).toContain("What you know about this person from past conversations:")
+    expect(block).toContain("facts: runs a small dog-walking business; has a daughter named Mia")
+    expect(block).toContain("relationship: regular customer, orders birthday cakes every year")
+    expect(block).toContain("running topics: birthday cakes; dog treats")
+  })
+
+  it("returns an empty string when the memory has nothing renderable", () => {
+    expect(formatPersonMemoryForPrompt({ facts: [], relationship: "", topics: [], updated_at: "" })).toBe("")
+  })
+
+  it("omits empty sections rather than rendering blank labels", () => {
+    const block = formatPersonMemoryForPrompt({
+      facts: [],
+      relationship: "brand new lead",
+      topics: [],
+      updated_at: "",
+    })
+    expect(block).toBe("What you know about this person from past conversations: relationship: brand new lead.")
+  })
+})
+
+describe("parseCombinedMemoryResponse", () => {
+  it("parses a well-formed combined {conversation, person} response", () => {
+    const raw = JSON.stringify({
+      conversation: { facts: FULL_MEMORY.facts, open_threads: FULL_MEMORY.open_threads, vibe: FULL_MEMORY.vibe, summary: FULL_MEMORY.summary },
+      person: { facts: FULL_PERSON_MEMORY.facts, relationship: FULL_PERSON_MEMORY.relationship, topics: FULL_PERSON_MEMORY.topics },
+    })
+    const result = parseCombinedMemoryResponse(raw)
+    expect(result.conversation).not.toBeNull()
+    expect(result.conversation?.facts).toEqual(FULL_MEMORY.facts)
+    expect(result.person).not.toBeNull()
+    expect(result.person?.relationship).toBe(FULL_PERSON_MEMORY.relationship)
+  })
+
+  it("parses a combined response with only one side present", () => {
+    const raw = JSON.stringify({ conversation: { summary: "Just started chatting." } })
+    const result = parseCombinedMemoryResponse(raw)
+    expect(result.conversation?.summary).toBe("Just started chatting.")
+    expect(result.person).toBeNull()
+  })
+
+  it("returns nulls when there's no JSON object at all", () => {
+    expect(parseCombinedMemoryResponse("not json")).toEqual({ conversation: null, person: null })
+  })
+
+  it("returns nulls on unparseable JSON inside braces", () => {
+    expect(parseCombinedMemoryResponse("{not: valid json}")).toEqual({ conversation: null, person: null })
+  })
+
+  it("returns nulls when the parsed value is an array, not an object", () => {
+    expect(parseCombinedMemoryResponse("[1, 2, 3]")).toEqual({ conversation: null, person: null })
+  })
+
+  it("falls back to the old flat {facts, open_threads, vibe, summary} shape, logging a warning, with no person data recovered", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const raw = JSON.stringify({
+      facts: FULL_MEMORY.facts,
+      open_threads: FULL_MEMORY.open_threads,
+      vibe: FULL_MEMORY.vibe,
+      summary: FULL_MEMORY.summary,
+    })
+
+    const result = parseCombinedMemoryResponse(raw)
+
+    expect(result.conversation).not.toBeNull()
+    expect(result.conversation?.facts).toEqual(FULL_MEMORY.facts)
+    expect(result.conversation?.summary).toBe(FULL_MEMORY.summary)
+    expect(result.person).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("old flat memory shape")
+
+    warnSpy.mockRestore()
+  })
+
+  it("extracts the first JSON object even with surrounding prose, per the flat-shape fallback path", () => {
+    const raw = `Sure, here you go:\n${JSON.stringify({ summary: "hi there" })}\nHope that helps!`
+    const result = parseCombinedMemoryResponse(raw)
+    expect(result.conversation?.summary).toBe("hi there")
+    expect(result.person).toBeNull()
   })
 })

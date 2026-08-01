@@ -19,6 +19,7 @@ import {
   getContactWithTimeline,
   listContacts,
   updateContactStatus,
+  updateContactVip,
   upsertContact,
   type UpsertContactInput,
 } from "@/lib/frontdesk"
@@ -186,6 +187,33 @@ export async function updateStatusAction(id: string, status: ContactStatus): Pro
 
   try {
     const updated = await updateContactStatus(orgId, id, status)
+    return { ok: updated !== null }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export interface ToggleVipResult {
+  ok: boolean
+}
+
+/**
+ * Toggles a contact's VIP flag (migration 0016 contacts.is_vip — see
+ * src/lib/frontdesk.ts#updateContactVip). Called from the VipToggle button
+ * wherever a contact's identity renders: the Inbox context pane and the
+ * Contacts quick-view drawer. Demo-safe no-op when unconfigured, mirroring
+ * updateStatusAction above.
+ */
+export async function toggleContactVip(id: string, isVip: boolean): Promise<ToggleVipResult> {
+  if (typeof id !== "string" || id.length === 0) return { ok: false }
+
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false }
+
+  try {
+    const updated = await updateContactVip(orgId, id, isVip)
     return { ok: updated !== null }
   } catch {
     return { ok: false }

@@ -475,6 +475,8 @@ export type ConversationWithContact = Conversation & {
   contact_name: string | null
   contact_phone: string | null
   contact_email: string | null
+  /** Mirrors contacts.is_vip (migration 0016) — lets the thread list badge a VIP contact's threads without loading the full contact. */
+  contact_is_vip: boolean
 }
 
 /** A conversation with its full message history + contact, for the detail pane. */

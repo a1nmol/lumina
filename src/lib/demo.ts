@@ -167,7 +167,7 @@ export const DEMO_CONTACTS: Contact[] = [
     notes: null,
     custom: {},
     ai_memory: null,
-    is_vip: false,
+    is_vip: true,
     created_at: "2026-07-14T15:02:00.000Z",
     updated_at: "2026-07-14T15:06:00.000Z",
   },
@@ -372,6 +372,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Emma Rodriguez",
     contact_phone: "+1 (555) 010-1001",
     contact_email: "emma.rodriguez@example.com",
+    contact_is_vip: DEMO_CONTACTS[0].is_vip,
     contact: DEMO_CONTACTS[0],
     messages: [
       demoMessage({
@@ -426,6 +427,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Marcus Chen",
     contact_phone: "+1 (555) 010-1002",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[1].is_vip,
     contact: DEMO_CONTACTS[1],
     messages: [
       demoMessage({
@@ -480,6 +482,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Priya Patel",
     contact_phone: "+1 (555) 010-1003",
     contact_email: "priya.patel@example.com",
+    contact_is_vip: DEMO_CONTACTS[2].is_vip,
     contact: DEMO_CONTACTS[2],
     messages: [
       demoMessage({
@@ -509,6 +512,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Daniel Okafor",
     contact_phone: null,
     contact_email: "daniel.okafor@example.com",
+    contact_is_vip: DEMO_CONTACTS[3].is_vip,
     contact: DEMO_CONTACTS[3],
     messages: [
       demoMessage({
@@ -543,6 +547,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Sofia Alvarez",
     contact_phone: "+1 (555) 010-1005",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[4].is_vip,
     contact: DEMO_CONTACTS[4],
     messages: [
       demoMessage({
@@ -580,6 +585,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "James Whitfield",
     contact_phone: "+1 (555) 010-1006",
     contact_email: "james.whitfield@example.com",
+    contact_is_vip: DEMO_CONTACTS[5].is_vip,
     contact: DEMO_CONTACTS[5],
     messages: [
       demoMessage({
@@ -615,6 +621,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Grace Kim",
     contact_phone: "+1 (555) 010-1007",
     contact_email: "grace.kim@example.com",
+    contact_is_vip: DEMO_CONTACTS[6].is_vip,
     contact: DEMO_CONTACTS[6],
     messages: [
       demoMessage({
@@ -652,6 +659,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Tyler Brooks",
     contact_phone: "+1 (555) 010-1008",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[7].is_vip,
     contact: DEMO_CONTACTS[7],
     messages: [
       demoMessage({

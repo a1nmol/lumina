@@ -16,7 +16,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
-import { sendLeadAlertEmail } from "@/lib/email"
+import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
 import { resolveWidgetOrg, ORG_SLUG_RE } from "@/app/widget/resolve-org"
 import type { BusinessBrain } from "@/lib/types"
 
@@ -147,6 +147,29 @@ export async function POST(request: NextRequest) {
         throw new Error(conversationInsertError?.message ?? "failed to create conversation")
       }
       conversation = createdConversation
+    }
+
+    // VIP gate (migration 0016): no automated message reaches a VIP without
+    // the owner in the loop — even this templated text-back. Only possible
+    // for pre-existing contacts (new ones default is_vip false). Flag the
+    // thread unread + alert the owner, send nothing.
+    if (contact.is_vip) {
+      await admin
+        .from("conversations")
+        .update({ unread: true })
+        .eq("id", conversation.id)
+        .eq("org_id", resolved.orgId)
+
+      sendVipAlertEmail({
+        orgId: resolved.orgId,
+        channel: "missed_call",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: "Missed call — no auto text sent (VIP).",
+      }).catch((emailError) => console.error("[frontdesk/missed-call] failed to send VIP alert email", emailError))
+
+      return NextResponse.json({ message: null, contactId: contact.id, conversationId: conversation.id })
     }
 
     // Best-effort loop-data recording — never fail the missed-call text over

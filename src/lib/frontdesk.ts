@@ -55,13 +55,14 @@ export interface ListConversationsFilter {
 
 function toConversationWithContact(
   conversation: Conversation,
-  contact: Pick<Contact, "name" | "phone" | "email"> | undefined
+  contact: Pick<Contact, "name" | "phone" | "email" | "is_vip"> | undefined
 ): ConversationWithContact {
   return {
     ...conversation,
     contact_name: contact?.name ?? null,
     contact_phone: contact?.phone ?? null,
     contact_email: contact?.email ?? null,
+    contact_is_vip: contact?.is_vip ?? false,
   }
 }
 
@@ -94,7 +95,7 @@ export async function listConversations(
 
   const { data: contacts, error: contactsError } = await supabase
     .from("contacts")
-    .select("id, name, phone, email")
+    .select("id, name, phone, email, is_vip")
     .eq("org_id", orgId)
     .in("id", contactIds)
 
@@ -553,6 +554,33 @@ export async function updateContactStatus(
 
   if (error) {
     throw new Error(`updateContactStatus: failed to update contact ${contactId}: ${error.message}`)
+  }
+
+  return data
+}
+
+/**
+ * Sets a contact's VIP flag (Commander update wave B1, migration 0016
+ * contacts.is_vip). VIP true means the AI drafts but never auto-sends for
+ * this contact on any channel, and the owner gets an instant email alert —
+ * see the VIP gate in src/app/api/frontdesk/chat/route.ts,
+ * src/app/api/twilio/sms/route.ts, and src/app/api/webhooks/instagram/route.ts,
+ * plus src/lib/email.ts#sendVipAlertEmail.
+ */
+export async function updateContactVip(orgId: string, contactId: string, isVip: boolean): Promise<Contact | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("contacts")
+    .update({ is_vip: isVip })
+    .eq("id", contactId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`updateContactVip: failed to update contact ${contactId}: ${error.message}`)
   }
 
   return data
