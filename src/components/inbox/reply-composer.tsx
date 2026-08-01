@@ -15,11 +15,27 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { Message, MessageKind } from "@/lib/types"
 
-import { draftReply, rewriteDraft, sendReply, suggestReplies } from "@/app/(app)/inbox/actions"
+import { draftReply, rewriteDraft, sendReply, suggestReplies, whisperToConversation } from "@/app/(app)/inbox/actions"
 
 const AI_FAILURE_TOAST = "I couldn't answer this — flagging for you."
 
 type ComposerMode = "reply" | "note"
+
+// Whisper commands (Commander update wave B2): a draft starting with "@ai "
+// (case-insensitive, whitespace before the mention allowed) is a private
+// instruction to the AI, not a message to send verbatim — see
+// src/app/(app)/inbox/actions.ts#whisperToConversation. WHISPER_HINT_RE is
+// looser (just "@ai" as a whole word) so the hint chip below appears the
+// moment someone starts typing it, before they've added an instruction yet;
+// WHISPER_SEND_RE requires the instruction text to actually extract one.
+const WHISPER_HINT_RE = /^@ai\b/i
+const WHISPER_SEND_RE = /^@ai\s+([\s\S]+)$/i
+
+/** Pulls the instruction out of a "@ai <instruction>" draft, or null when the draft doesn't match that shape (no prefix, or prefix with nothing after it). Pure. */
+function extractWhisperInstruction(value: string): string | null {
+  const match = value.trim().match(WHISPER_SEND_RE)
+  return match ? match[1].trim() : null
+}
 
 /** Mirrors src/lib/ai/reply-assist.ts's RewriteMode — kept as a local literal
  *  union (rather than importing that server-only module's type) so this
@@ -264,9 +280,57 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     }
   }
 
+  /** Whisper submit path — swaps in for a normal send when the draft matches "@ai <instruction>" (see WHISPER_SEND_RE above). Never sends the raw instruction text itself; the AI composes what actually goes to the customer. */
+  async function handleWhisperSend(instruction: string) {
+    setIsSending(true)
+    try {
+      const result = await whisperToConversation(conversationId, instruction)
+      if (!isMountedRef.current) return
+
+      if ("error" in result) {
+        if (result.error === "allowance") {
+          toast.error("You're out of AI reply quota this month", { description: result.message })
+        } else {
+          toast.error("Couldn't send that whisper", { description: result.message })
+        }
+        return
+      }
+
+      onSent(result.note)
+      onSent(result.reply)
+      setText("")
+      setIsDraftPending(false)
+      setDraftMeta({})
+      setSuggestions([])
+      setAnnouncement("Whisper delivered")
+    } catch (error) {
+      if (!isMountedRef.current) return
+      const description = error instanceof Error && error.message ? error.message : "Please try again."
+      toast.error("Couldn't send that whisper", { description })
+    } finally {
+      if (isMountedRef.current) setIsSending(false)
+    }
+  }
+
   async function handleSend() {
     const trimmed = text.trim()
     if (!trimmed || isSending) return
+
+    if (mode === "reply") {
+      const whisperInstruction = extractWhisperInstruction(trimmed)
+      if (whisperInstruction) {
+        await handleWhisperSend(whisperInstruction)
+        return
+      }
+      // A bare "@ai" with no instruction must never fall through to a normal
+      // send — the customer would literally receive the text "@ai".
+      if (WHISPER_HINT_RE.test(trimmed)) {
+        toast.error("Add an instruction after @ai", {
+          description: 'For example: "@ai tell them I\'ll be there around 5".',
+        })
+        return
+      }
+    }
 
     const kind: MessageKind = mode === "note" ? "note" : "message"
     const aiHandled = mode === "reply" && isDraftPending
@@ -316,6 +380,8 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     }
   }
 
+  const isWhisperIntent = mode === "reply" && WHISPER_HINT_RE.test(text.trimStart())
+
   return (
     <div
       className={cn(
@@ -360,6 +426,16 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
         })}
       </div>
 
+      {isWhisperIntent && (
+        <div
+          role="status"
+          className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary"
+        >
+          <Sparkles aria-hidden="true" className="size-3.5 shrink-0" />
+          Whisper — the AI will deliver this in its own words.
+        </div>
+      )}
+
       {mode === "reply" && suggestions.length > 0 && (
         <div role="list" aria-label="Suggested replies" className="flex flex-wrap gap-1.5">
           {suggestions.map((suggestion, index) => (
@@ -400,7 +476,9 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={mode === "note" ? "Add an internal note (not sent to the customer)…" : "Write a reply…"}
+          placeholder={
+            mode === "note" ? "Add an internal note (not sent to the customer)…" : 'Write a reply… or "@ai " to whisper'
+          }
           disabled={isSending}
           className={cn(
             "min-h-24 resize-none bg-transparent",

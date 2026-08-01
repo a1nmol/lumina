@@ -171,6 +171,8 @@ export interface SendMessageInput {
   direction?: MessageDirection
   model?: string | null
   costUsd?: number
+  /** Arbitrary jsonb tags (e.g. `{ whisper: true }`, `{ wind_down: "close" }`) — merged with the messages table's default `{}` when omitted. */
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -202,6 +204,7 @@ export async function sendMessage(
       ai_handled: input.aiHandled ?? false,
       model: input.model ?? null,
       cost_usd: input.costUsd ?? 0,
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     })
     .select()
     .single()

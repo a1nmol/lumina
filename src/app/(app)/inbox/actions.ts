@@ -12,7 +12,7 @@
 // docs/design-briefs/phase-2-inbox-frontdesk-crm.md.
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
-import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { draftCustomerReply, draftWhisperMessage } from "@/lib/ai/frontdesk-reply"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
 import {
   rewriteDraft as rewriteDraftInternal,
@@ -384,9 +384,13 @@ export async function rewriteDraft(text: string, mode: RewriteMode): Promise<Rew
 const INSTAGRAM_STANDARD_WINDOW_MS = 24 * 60 * 60 * 1000
 /**
  * Meta's HUMAN_AGENT tag extends replies out to 7 days after the customer's
- * last message, but ONLY for a genuine human reply — never an AI auto-send.
- * sendReply only ever runs from the owner's composer, so every send on this
- * path legitimately qualifies.
+ * last message, but ONLY for human-directed replies — never an unattended AI
+ * auto-send (the webhook routes never use this path; their sends happen
+ * inside the standard window a fresh inbound message just opened). Both
+ * senders here qualify as human-directed: sendReply is the owner's own
+ * composer, and whisperToConversation is the owner personally instructing
+ * the exact response moments before it goes out — the owner is in the loop
+ * for every tagged send. Deliberate decision (Commander wave B2 review).
  */
 const INSTAGRAM_HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -491,6 +495,45 @@ async function deliverReply(orgId: string, conversation: ConversationDetail, bod
   }
 }
 
+export interface DeliverAndPersistReplyInput {
+  orgId: string
+  conversationId: string
+  body: string
+  aiHandled?: boolean
+  model?: string | null
+  costUsd?: number
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * The shared channel-delivery core (Commander update wave B2): loads the
+ * conversation, delivers `body` on its channel (see deliverReply — throws a
+ * clear, human-readable Error on a real delivery failure, e.g. an Instagram
+ * messaging-window miss or SMS not configured, and persists NOTHING when it
+ * does), then persists the message via sendMessage once delivery succeeds.
+ * Used by BOTH sendReply (the owner's manual composer send) and
+ * whisperToConversation (the owner's whisper-to-AI send) so every reply that
+ * actually leaves Lumina — human-typed or AI-composed — goes through
+ * IDENTICAL Instagram-window/SMS delivery logic. Never used for internal
+ * notes, which never leave Lumina (see sendReply's own "note" branch).
+ */
+async function deliverAndPersistReply(input: DeliverAndPersistReplyInput): Promise<Message | null> {
+  const conversation = await getConversation(input.orgId, input.conversationId)
+  if (!conversation) {
+    throw new Error("This conversation could not be found.")
+  }
+  await deliverReply(input.orgId, conversation, input.body)
+
+  return await sendMessage(input.orgId, input.conversationId, {
+    body: input.body,
+    kind: "message",
+    aiHandled: input.aiHandled,
+    model: input.model,
+    costUsd: input.costUsd,
+    metadata: input.metadata,
+  })
+}
+
 export interface SendReplyInput {
   conversationId: string
   body: string
@@ -503,10 +546,11 @@ export interface SendReplyInput {
 
 /**
  * Sends a reply or internal note. Demo mode synthesizes a Message for
- * optimistic append; configured mode delivers first (see deliverReply — skipped
- * for internal notes, which never leave Lumina) and only persists via
- * sendMessage once delivery succeeds. A delivery failure throws and nothing
- * is persisted — the composer's catch surfaces the thrown message as a toast.
+ * optimistic append; configured mode delivers first (see
+ * deliverAndPersistReply — skipped for internal notes, which never leave
+ * Lumina) and only persists once delivery succeeds. A delivery failure
+ * throws and nothing is persisted — the composer's catch surfaces the thrown
+ * message as a toast.
  */
 export async function sendReply(input: SendReplyInput): Promise<Message | null> {
   const trimmed = input.body.trim()
@@ -533,21 +577,129 @@ export async function sendReply(input: SendReplyInput): Promise<Message | null> 
   const orgId = await getCurrentOrgId()
   if (!orgId) return null
 
-  if (input.kind !== "note") {
-    const conversation = await getConversation(orgId, input.conversationId)
-    if (!conversation) {
-      throw new Error("This conversation could not be found.")
-    }
-    await deliverReply(orgId, conversation, trimmed)
+  if (input.kind === "note") {
+    return await sendMessage(orgId, input.conversationId, {
+      body: trimmed,
+      kind: "note",
+      aiHandled: input.aiHandled,
+      model: input.model,
+      costUsd: input.costUsd,
+    })
   }
 
-  return await sendMessage(orgId, input.conversationId, {
+  return await deliverAndPersistReply({
+    orgId,
+    conversationId: input.conversationId,
     body: trimmed,
-    kind: input.kind,
     aiHandled: input.aiHandled,
     model: input.model,
     costUsd: input.costUsd,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Whisper commands (Commander update wave B2) — the owner privately tells the
+// AI what to say next (composer detects a draft starting with "@ai ", see
+// src/components/inbox/reply-composer.tsx) and the AI weaves it into the
+// conversation in its own voice (src/lib/ai/frontdesk-reply.ts#draftWhisperMessage).
+// ---------------------------------------------------------------------------
+
+const MAX_WHISPER_INSTRUCTION_LENGTH = 500
+const WHISPER_UNAVAILABLE_MESSAGE = "Whisper isn't available right now."
+const WHISPER_FAILED_MESSAGE = "Couldn't compose that — please try again."
+
+export type WhisperToConversationResult =
+  | { note: Message; reply: Message; text: string; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+  | { error: "invalid" | "failed" | "not_found"; message: string }
+
+/**
+ * The owner's private whisper flow: persists `instruction` as an internal
+ * note FIRST (kind "note", ai_handled false — so it's on record even if
+ * drafting/delivery fails next), then drafts a customer-facing message from
+ * it (draftWhisperMessage) and sends it through the exact same delivery path
+ * sendReply uses (deliverAndPersistReply above), persisted as outbound
+ * ai_handled true with `metadata: { whisper: true }`. Demo mode / no
+ * OpenRouter configured returns a typed "failed" error rather than faking a
+ * whisper reply — there's no honest canned line for "the AI composed
+ * whatever you privately asked it to."
+ */
+export async function whisperToConversation(
+  conversationId: string,
+  instruction: string
+): Promise<WhisperToConversationResult> {
+  const trimmedInstruction = instruction.trim()
+  if (!trimmedInstruction || trimmedInstruction.length > MAX_WHISPER_INSTRUCTION_LENGTH) {
+    return { error: "invalid", message: "Whisper instruction must be between 1 and 500 characters." }
+  }
+
+  if (!isSupabaseConfigured() || !isOpenRouterConfigured()) {
+    return { error: "failed", message: WHISPER_UNAVAILABLE_MESSAGE }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    return { error: "failed", message: WHISPER_UNAVAILABLE_MESSAGE }
+  }
+
+  const conversation = await getConversation(orgId, conversationId)
+  if (!conversation) {
+    return { error: "not_found", message: "This conversation could not be found." }
+  }
+
+  // Persisted first and unconditionally — the owner's private instruction
+  // stays on record even if the AI can't compose or deliver a reply below.
+  const note = await sendMessage(orgId, conversationId, {
+    body: `Whisper to AI: ${trimmedInstruction}`,
+    kind: "note",
+    aiHandled: false,
+  })
+  if (!note) {
+    return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+  }
+
+  try {
+    const businessBrain = await getBusinessBrain()
+    const drafted = await draftWhisperMessage({
+      orgId,
+      instruction: trimmedInstruction,
+      businessBrain,
+      conversation,
+      messages: conversation.messages,
+      contact: conversation.contact,
+    })
+
+    if (!drafted) {
+      return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+    }
+
+    const reply = await deliverAndPersistReply({
+      orgId,
+      conversationId,
+      body: drafted.reply,
+      aiHandled: true,
+      model: drafted.model,
+      costUsd: drafted.costUsd,
+      metadata: { whisper: true },
+    })
+
+    if (!reply) {
+      return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+    }
+
+    return { note, reply, text: reply.body ?? drafted.reply, model: drafted.model, costUsd: drafted.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    // deliverAndPersistReply throws a clear, human-readable message for a
+    // real delivery failure (Instagram messaging-window miss, SMS not
+    // configured, etc.) — surface that instead of a generic failure.
+    if (error instanceof Error && error.message) {
+      return { error: "failed", message: error.message }
+    }
+    throw error
+  }
 }
 
 export interface ActionResult {

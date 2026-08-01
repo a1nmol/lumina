@@ -120,6 +120,31 @@ function resolveLimit(limits: PlanLimits, feature: UsageFeature): number | null 
 }
 
 /**
+ * Cheap fraction-of-allowance read for the graceful wind-down feature
+ * (Commander update wave B2) — reuses the same entitlements/usage queries
+ * checkAllowance already runs, just returns `used / limit` instead of a
+ * boolean. Returns null when Supabase isn't configured, the org has no
+ * configured `ai_replies` limit, or the limit is non-positive — all of which
+ * mean "no graceful stage applies" to the caller (src/lib/ai/frontdesk-reply.ts's
+ * windDownStage treats null as "none"). Deliberately does NOT consider
+ * `spend_cap_usd` — that's a whole-account dollar cap across every metered
+ * feature, not a reply-count fraction, and mixing the two would make the
+ * wind-down cues fire off a number that doesn't track what's actually
+ * running out.
+ */
+export async function getAiRepliesUsageFraction(orgId: string): Promise<number | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const [entitlements, summary] = await Promise.all([getEntitlements(orgId), getUsageSummary(orgId)])
+
+  const limit = resolveLimit(entitlements.limits, "ai_replies")
+  if (limit === null || limit <= 0) return null
+
+  const used = summary.unitsByFeature.ai_replies ?? 0
+  return used / limit
+}
+
+/**
  * The spend guard + per-feature allowance check. Merges plan limits with
  * per-org overrides, compares against this month's usage, and denies once
  * either the feature-specific limit or the org's spend_cap_usd is hit.

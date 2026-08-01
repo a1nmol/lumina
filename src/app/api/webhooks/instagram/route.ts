@@ -55,7 +55,11 @@ import {
   type NormalizedInstagramAttachment,
   type RawInstagramAttachment,
 } from "@/lib/social/instagram-attachments"
-import { fetchInstagramSenderProfile, sendInstagramMessage } from "@/lib/social/instagram-messaging"
+import {
+  fetchInstagramSenderProfile,
+  sendInstagramMessage,
+  sendInstagramTypingIndicator,
+} from "@/lib/social/instagram-messaging"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import type { Contact, Conversation, ConversationAiMode, Message, SocialConnection } from "@/lib/types"
 
@@ -575,6 +579,22 @@ async function handleMessagingEvent(
     return
   }
 
+  // Typing indicator (Commander update wave B2) — best-effort, fired right
+  // before the model call so the customer sees a live "…typing" cue while it
+  // thinks. Never let this affect the real reply below: a plain try/catch,
+  // not awaited-blocking beyond itself, and its failure is just logged.
+  // Skipped when this thread's AI is off (review fix): the off-branch below
+  // never sends, and "typing… then nothing" is worse than no cue at all.
+  // conversation.ai_mode here can be seconds stale vs the authoritative
+  // re-read below — worst case is one spurious typing cue, never a wrong send.
+  if (conversation.ai_mode !== "off") {
+    try {
+      await sendInstagramTypingIndicator(accessToken, senderId)
+    } catch (typingError) {
+      console.error("[webhooks/instagram] typing indicator failed", typingError)
+    }
+  }
+
   let draft: Awaited<ReturnType<typeof draftCustomerReply>> = null
   try {
     draft = await draftCustomerReply({
@@ -703,7 +723,7 @@ async function handleMessagingEvent(
         ai_handled: true,
         model: draft.model,
         cost_usd: draft.costUsd,
-        metadata: { handoff: true },
+        metadata: draft.windDown === "close" ? { handoff: true, wind_down: "close" } : { handoff: true },
       })
       .select()
       .single()
@@ -723,7 +743,11 @@ async function handleMessagingEvent(
   // -----------------------------------------------------------------
   // 'auto' — actually send the DM via the Instagram Graph API, then
   // persist exactly as src/app/api/twilio/sms/route.ts's ai_answered path
-  // does.
+  // does. A wind-down "close" reply (Commander update wave B2) still sends
+  // for real — it's the AI's warm sign-off — but flips ai_state to
+  // 'escalated' instead of 'ai_answered' (the owner needs to pick this
+  // thread up) and tags the message so draftCustomerReply's own dedupe skips
+  // drafting a repeat sign-off on the next inbound message.
   // -----------------------------------------------------------------
   try {
     await sendInstagramMessage(accessToken, senderId, draft.reply)
@@ -737,6 +761,8 @@ async function handleMessagingEvent(
     return
   }
 
+  const isWindDownClose = draft.windDown === "close"
+
   const { data: outboundMessage, error: outboundError } = await admin
     .from("messages")
     .insert({
@@ -748,6 +774,7 @@ async function handleMessagingEvent(
       ai_handled: true,
       model: draft.model,
       cost_usd: draft.costUsd,
+      metadata: isWindDownClose ? { wind_down: "close" } : {},
     })
     .select()
     .single()
@@ -759,7 +786,7 @@ async function handleMessagingEvent(
   await admin
     .from("conversations")
     .update({
-      ai_state: "ai_answered",
+      ai_state: isWindDownClose ? "escalated" : "ai_answered",
       status: "open",
       unread: false,
       last_message_at: outboundMessage.created_at,

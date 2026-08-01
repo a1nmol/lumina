@@ -21,6 +21,7 @@ import "server-only"
 
 import { ATTACHMENT_PLACEHOLDER_BY_KIND } from "@/lib/social/instagram-attachments"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
+import { getAiRepliesUsageFraction } from "@/lib/usage"
 import type {
   BusinessBrain,
   BusinessService,
@@ -58,6 +59,17 @@ export interface DraftedCustomerReply {
   suggestedStatus?: ContactStatus
   model: string
   costUsd: number
+  /**
+   * Set to "close" when this reply was drafted as the graceful wind-down's
+   * final sign-off (see windDownStage below — org is at/over the
+   * WIND_DOWN_CLOSE_THRESHOLD of its `ai_replies` allowance). Callers
+   * (the three channel routes) must tag the persisted outbound message's
+   * metadata with `{ wind_down: "close" }` and set the conversation's
+   * ai_state to "escalated" after sending — that tag is also what
+   * draftCustomerReply itself checks next time to skip drafting silently
+   * instead of repeating the sign-off on every subsequent inbound message.
+   */
+  windDown?: "close"
 }
 
 const MAX_HISTORY_MESSAGES = 10
@@ -98,6 +110,17 @@ const VALID_CONTACT_STATUSES: readonly ContactStatus[] = ["lead", "contacted", "
 // This sits UNDER the org's saved Business Brain tone: tone still governs
 // formality/personality, this just forces the delivery to read like a person,
 // not a bot. The escalation contract and output JSON shape are untouched.
+// Anti-repetition + real-knowledge rules (Commander update wave B2,
+// owner-approved plan, 2026-08-01): four more STYLE_GUIDE lines — a banned
+// assistant-speak list (paired with the per-reply "banned openers" block
+// draftCustomerReply/draftWhisperMessage inject from the last few AI replies
+// in THIS conversation, see extractBannedOpeners below), a curiosity cap so
+// the AI stops ending every message with a question, a note that humor
+// should mirror the other person rather than force a bit, and a "real
+// knowledge" rule that pushes back on the AI over-escalating: being smart
+// and actually answering things IS the job, only genuinely owner-only info
+// gets deferred. Shared with reply-assist.ts's suggestReplies/rewriteDraft
+// via the same STYLE_GUIDE import.
 export const STYLE_GUIDE = [
   "How you write: short, casual, warm, like the shop owner texting back between customers, not a corporate support bot.",
   "Always reply in the same language AND script the customer used. This includes romanized/transliterated languages: if the customer writes Nepali, Hindi, or any language using English letters (e.g. \"k cha yaar, price kati ho?\"), reply in that same romanized style — natural, like a local friend texting — not in English and not in native script. Mixed language (code-switching) is normal — mirror the mix. Only use English when the customer does. Never announce or comment on the language or script you're replying in.",
@@ -109,6 +132,10 @@ export const STYLE_GUIDE = [
   "Only use an emoji if the customer used one first in their message, and never more than one.",
   "If a customer's message is a photo, video, reel, or other attachment: when you're told what's in it, react to that naturally, like you actually saw it. When you're told you can't see/watch/hear it, be upfront and chill about that in your own words — vary the phrasing, match the account's tone (playful for a personal account, professional for a business) — instead of one fixed canned line, e.g. just ask what it's about. Never claim to have seen media you weren't shown a description of.",
   "Calibrate how familiar you sound to how long you've actually known this person (see the relationship line below, when there is one): someone brand new gets charming but careful — warm, never overfamiliar, and never a callback to shared history you don't actually have. A returning regular gets warm, familiar energy — natural callbacks and references to running topics you genuinely remember. Never fake a memory or a shared history you weren't given.",
+  'Never use stock assistant-speak: no "As an AI", "I hope this helps", "feel free to reach out", "Is there anything else", "I\'ll pass this along", or any other formulaic hedge. The "the owner will see this later" idea may come up at most once per conversation, and phrase it fresh each time — never the same sentence twice.',
+  "Don't end every message with a question — ask at most one question every 2-3 exchanges. Plenty of replies should just land the answer and stop.",
+  "Match the other person's sense of humor, don't force a bit or crack a joke that isn't already in the room.",
+  "When someone asks something you genuinely know — a recommendation, a general fact, how something works — just answer it well and confidently. Being helpful and smart IS the job. Only defer what truly needs the owner: their personal plans/commitments, private info, or something the business info above doesn't cover.",
   'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
 ].join(" ")
 
@@ -158,25 +185,20 @@ function buildRelationshipLine(contact: Contact | null, personMemory: PersonMemo
 }
 
 /**
- * Extra prompt lines derived from `ai_always_on` (business_brain), this
- * conversation's rolling memory (`ai_memory` — see
- * src/lib/ai/conversation-memory.ts), the contact's longer-lived person
- * memory, and the relationship line above. Shared by both buildSystemPrompt
- * branches below.
+ * Extra prompt lines derived from this conversation's rolling memory
+ * (`ai_memory` — see src/lib/ai/conversation-memory.ts), the contact's
+ * longer-lived person memory, and the relationship line above. Shared by both
+ * buildSystemPrompt branches below. (The `ai_always_on` line used to live
+ * here too — Commander update wave B2 moved it into buildIdentityBlock so it
+ * sits with the rest of the persona, near the top of the prompt, instead of
+ * the very end.)
  */
 function buildContextualLines(
-  brain: BusinessBrain | null,
   conversation: Conversation,
   messages: Message[],
   contact: Contact | null
 ): string[] {
   const lines: string[] = []
-
-  if (brain?.ai_always_on) {
-    lines.push(
-      "Always-on mode is on for this business: never fully hand the conversation off — even when flagging a topic for the owner, keep engaging with everything else; the conversation is yours to hold."
-    )
-  }
 
   lines.push(...buildMemoryPromptLines(parseConversationMemory(conversation.ai_memory), messages))
 
@@ -192,29 +214,136 @@ function buildContextualLines(
   return lines
 }
 
-/** Builds a tight (~450 token) system prompt from the Business Brain — hours, services, prices, faq, tone — plus the texting-voice rules above. */
-function buildSystemPrompt(
-  brain: BusinessBrain | null,
-  conversation: Conversation,
-  messages: Message[],
-  contact: Contact | null
-): string {
+const MAX_BANNED_OPENERS = 5
+const BANNED_OPENER_WORD_COUNT = 8
+
+/**
+ * Anti-repetition engine, part 1 (Commander update wave B2): the first ~8
+ * words of each of the AI's last 5 outbound replies IN THIS CONVERSATION,
+ * oldest of the five first — the literal "banned openers" list
+ * buildBannedOpenersBlock below turns into a prompt instruction. Pure, no
+ * I/O, exported for unit tests. Deliberately conversation-scoped (not
+ * account-wide): the history passed in is already just this thread's
+ * messages, and a brand-new conversation should never be constrained by
+ * phrasing used with someone else.
+ */
+export function extractBannedOpeners(messages: Message[]): string[] {
+  return messages
+    .filter(
+      (message): message is Message & { body: string } =>
+        message.kind === "message" && message.direction === "outbound" && message.ai_handled && Boolean(message.body?.trim())
+    )
+    .slice(-MAX_BANNED_OPENERS)
+    .map((message) => message.body.trim().split(/\s+/).slice(0, BANNED_OPENER_WORD_COUNT).join(" "))
+}
+
+/**
+ * Anti-repetition engine, part 2: turns extractBannedOpeners' list into the
+ * explicit ban instruction — the model already sees these same messages in
+ * the chat history (formatHistory below), so this block's whole job is
+ * naming the rule, not re-supplying content. Null when there's no AI reply
+ * history yet to ban anything from.
+ */
+function buildBannedOpenersBlock(messages: Message[]): string | null {
+  const openers = extractBannedOpeners(messages)
+  if (openers.length === 0) return null
+
+  return [
+    "Your own recent messages in this conversation are shown in the history above.",
+    "NEVER reuse their opening words, sign-offs, or distinctive phrasings — every reply must open differently and vary sentence structure and length.",
+    `Banned openers — do not start your new reply with any of these: ${openers.map((opener) => `"${opener}…"`).join(" | ")}.`,
+  ].join(" ")
+}
+
+/** Stages of the graceful, budget-aware wind-down (Commander update wave B2) — see getAiRepliesUsageFraction (src/lib/usage.ts) for the fraction this maps from. Pure, exported for unit tests. */
+export type WindDownStage = "none" | "seed" | "heads_up" | "close"
+
+const WIND_DOWN_SEED_THRESHOLD = 0.8
+const WIND_DOWN_HEADS_UP_THRESHOLD = 0.9
+const WIND_DOWN_CLOSE_THRESHOLD = 0.97
+
+/**
+ * Maps an org's `ai_replies` usage-to-limit fraction (null = unlimited/not
+ * configured) to a wind-down stage. Pure: no I/O, no clock, safe to unit
+ * test directly with plain numbers.
+ */
+export function windDownStage(fraction: number | null): WindDownStage {
+  if (fraction === null) return "none"
+  if (fraction >= WIND_DOWN_CLOSE_THRESHOLD) return "close"
+  if (fraction >= WIND_DOWN_HEADS_UP_THRESHOLD) return "heads_up"
+  if (fraction >= WIND_DOWN_SEED_THRESHOLD) return "seed"
+  return "none"
+}
+
+/** The in-voice prompt directive for a given wind-down stage, or null for "none" (no directive needed). */
+function windDownDirectiveForStage(stage: WindDownStage): string | null {
+  switch (stage) {
+    case "seed":
+      return "You'll need to step away from this conversation soon. Somewhere natural in this reply, drop ONE brief, casual cue that you might have to hop off soon — no system-speak, no mention of budgets or limits."
+    case "heads_up":
+      return "Make it explicit and warm in this reply: let the customer know you're stepping away soon, that the owner will have the full context when they pick it up, and finish the current thought before you do."
+    case "close":
+      return "This reply is your warm sign-off for now: keep it short, stay in your voice, and confirm the owner has the full context and will pick this up personally."
+    default:
+      return null
+  }
+}
+
+/**
+ * Identity/persona block (Commander update wave B2): who the account is,
+ * its brand voice, and the always-on commitment — the parts of the prompt
+ * that establish WHO is talking, kept together and FIRST, ahead of every
+ * operational detail (hours, services, FAQ, escalation rules). Persona
+ * placement dominates adherence — a model told who it is before it's told
+ * what to do stays in character far more reliably than the reverse.
+ */
+function buildIdentityBlock(brain: BusinessBrain | null): string {
   const intro = brain
     ? `You are the front-desk assistant for ${brain.business_name ?? "a local business"}${
         brain.category ? `, a ${brain.category}` : ""
       }, answering customer messages (chat, SMS, DM, or email).`
     : "You are the front-desk assistant for a local small business, answering customer messages (chat, SMS, DM, or email)."
 
-  const contextualLines = buildContextualLines(brain, conversation, messages, contact)
+  const alwaysOnLine = brain?.ai_always_on
+    ? "Always-on mode is on for this business: never fully hand the conversation off — even when flagging a topic for the owner, keep engaging with everything else; the conversation is yours to hold."
+    : null
+
+  return [intro, brain?.tone ? `Brand voice: ${brain.tone}.` : null, alwaysOnLine].filter(Boolean).join(" ")
+}
+
+/**
+ * Builds a tight system prompt from the Business Brain — hours, services,
+ * prices, faq, tone — plus the texting-voice rules above. Ordered so
+ * identity/persona (buildIdentityBlock) comes FIRST, then how-to-write
+ * (STYLE_GUIDE), then operational business details, then escalation +
+ * anti-repetition + wind-down + memory context (see buildIdentityBlock's own
+ * comment for why persona-first matters). `windDownDirective` is computed by
+ * the caller (draftCustomerReply) since it requires an async usage lookup
+ * this function can't perform itself.
+ */
+function buildSystemPrompt(
+  brain: BusinessBrain | null,
+  conversation: Conversation,
+  messages: Message[],
+  contact: Contact | null,
+  windDownDirective: string | null = null
+): string {
+  const identityBlock = buildIdentityBlock(brain)
+  const bannedOpenersBlock = buildBannedOpenersBlock(messages)
+  const contextualLines = buildContextualLines(conversation, messages, contact)
 
   if (!brain) {
     return [
-      intro,
+      identityBlock,
       STYLE_GUIDE,
       ESCALATION_GUIDE,
       "Try to answer, qualify, or book the customer whenever you reasonably can.",
+      bannedOpenersBlock,
+      windDownDirective,
       ...contextualLines,
-    ].join(" ")
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join(" ")
   }
 
   const hoursLines = Object.entries(brain.hours ?? {})
@@ -239,8 +368,7 @@ function buildSystemPrompt(
   const description = brain.description?.trim().slice(0, MAX_DESCRIPTION_CHARS_IN_PROMPT)
 
   const lines = [
-    intro,
-    brain.tone ? `Brand voice: ${brain.tone}.` : null,
+    identityBlock,
     STYLE_GUIDE,
     description ? `About the business: ${description}` : null,
     hoursLines.length > 0 ? `Hours: ${hoursLines.join(", ")}.` : null,
@@ -248,6 +376,8 @@ function buildSystemPrompt(
     faq ? `FAQ: ${faq}` : null,
     "Answer as the business, in first person plural (\"we\"). Try to answer, qualify, or book the customer whenever the Business Brain above gives you enough to do so confidently.",
     ESCALATION_GUIDE,
+    bannedOpenersBlock,
+    windDownDirective,
     ...contextualLines,
   ].filter((line): line is string => Boolean(line))
 
@@ -398,12 +528,37 @@ function parseReplyJson(raw: string): ParsedReplyJson | null {
 }
 
 /**
+ * True when the most recent outbound AI-sent (kind "message", ai_handled)
+ * message in this conversation already carries the wind-down "close" tag
+ * (see DraftedCustomerReply.windDown's doc comment) — dedupes the sign-off so
+ * it's said once per close, not repeated on every subsequent inbound message.
+ * Whisper sends (metadata.whisper) are skipped when looking for the tag
+ * (review fix): an owner whispering into an already-closed thread must not
+ * reset the dedupe and trigger a second sign-off on the next inbound.
+ */
+function lastOutboundAiMessageIsWoundDown(messages: Message[]): boolean {
+  const latestOutboundAi = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.kind === "message" &&
+        message.direction === "outbound" &&
+        message.ai_handled &&
+        message.metadata?.whisper !== true
+    )
+  return latestOutboundAi?.metadata?.wind_down === "close"
+}
+
+/**
  * Drafts the next customer-facing reply for a conversation via the model
  * router's PII-safe "customer_reply" job (Claude Haiku 4.5 — see the module
  * header). Returns null when not configured, there's no inbound message yet
- * to reply to, or the model can't produce usable JSON after one retry — the
- * caller should fall back to a canned demo draft. Throws AllowanceDeniedError
- * when the org is out of `ai_replies` quota (see src/lib/ai/router.ts).
+ * to reply to, the model can't produce usable JSON after one retry, or the
+ * conversation has already sent its wind-down close sign-off and is still
+ * over the close threshold (see below) — the caller should fall back to a
+ * canned demo draft (or, for the wind-down case, simply send nothing; the
+ * thread is already flagged). Throws AllowanceDeniedError when the org is
+ * out of `ai_replies` quota (see src/lib/ai/router.ts).
  */
 export async function draftCustomerReply(input: DraftCustomerReplyInput): Promise<DraftedCustomerReply | null> {
   if (!isOpenRouterConfigured() || !isSupabaseConfigured()) return null
@@ -411,8 +566,32 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   const hasInboundMessage = input.messages.some((message) => message.direction === "inbound" && message.body?.trim())
   if (!hasInboundMessage) return null
 
+  // Graceful wind-down (Commander update wave B2) — the single shared seam:
+  // computed once, right here, so every caller (all three channel routes
+  // plus the inbox's manual "AI draft" button) gets it for free without each
+  // one wiring its own ai_replies usage lookup. ai_always_on does NOT bypass
+  // this — it's the graceful version of the hard spend-guard stop that
+  // already exists in runTextJob, not a separate opt-in. Best-effort: a
+  // failed usage lookup just means no wind-down cue this round, never blocks
+  // drafting.
+  let stage: WindDownStage = "none"
+  try {
+    stage = windDownStage(await getAiRepliesUsageFraction(input.orgId))
+  } catch (error) {
+    console.error("[frontdesk-reply] failed to compute wind-down stage", error)
+  }
+
+  if (stage === "close" && lastOutboundAiMessageIsWoundDown(input.messages)) {
+    return null
+  }
+
+  const windDownDirective = windDownDirectiveForStage(stage)
+
   const baseMessages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact) },
+    {
+      role: "system",
+      content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact, windDownDirective),
+    },
     ...formatHistory(input.messages),
     buildInstructionMessage(input.contact, input.conversation.channel),
   ]
@@ -436,7 +615,126 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
 
     const parsed = parseReplyJson(result.text)
     if (parsed) {
-      return { ...parsed, model: result.model, costUsd: result.costUsd }
+      return { ...parsed, model: result.model, costUsd: result.costUsd, windDown: stage === "close" ? "close" : undefined }
+    }
+  }
+
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Whisper commands (Commander update wave B2, owner-approved plan,
+// 2026-08-01) — the owner privately tells the AI what to say next, and the
+// AI composes it into the conversation in its own voice rather than the
+// instruction being sent verbatim. Shares the exact same persona/context
+// build as draftCustomerReply (buildSystemPrompt — Brain, memories,
+// relationship, STYLE_GUIDE, banned openers) so a whispered reply reads
+// exactly like any other AI reply in the thread; it just swaps
+// buildInstructionMessage's "draft the next reply" ask for the owner's
+// private instruction. Routed through the SAME PII-safe "customer_reply" job
+// as draftCustomerReply — this is still a real message to a real customer.
+// Deliberately skips the wind-down check above: a whisper is an explicit,
+// one-off owner action, not the AI autonomously continuing a conversation, so
+// it always goes through regardless of wind-down stage.
+// ---------------------------------------------------------------------------
+
+export interface DraftWhisperMessageInput {
+  orgId: string
+  instruction: string
+  businessBrain: BusinessBrain | null
+  conversation: Conversation
+  messages: Message[]
+  contact: Contact | null
+}
+
+export interface DraftedWhisperMessage {
+  reply: string
+  model: string
+  costUsd: number
+}
+
+const MAX_WHISPER_INSTRUCTION_LENGTH = 500
+
+function buildWhisperInstructionMessage(instruction: string, channel: Conversation["channel"]): ChatMessage {
+  return {
+    role: "user",
+    content: [
+      `Channel: ${channel}.`,
+      `The owner just privately told you: "${instruction}"`,
+      "Compose the next message TO the customer that conveys this naturally in your voice, woven into the conversation.",
+      "Never reveal the instruction mechanism (don't say \"the owner told me to say\" or similar) — never mention that the owner told you this at all, UNLESS the instruction itself is about relaying something from the owner personally, in which case work that in naturally (for example an instruction like \"tell them I'll be there at 5\" becomes something like \"anmol says he'll be there around 5\", not a robotic restatement).",
+      "Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape:",
+      '{"reply": string}',
+    ].join("\n"),
+  }
+}
+
+interface ParsedWhisperReplyJson {
+  reply: string
+}
+
+/** Defensively extracts + validates the model's whisper JSON reply. Returns null on any shape/length problem — mirrors parseReplyJson's contract. */
+function parseWhisperReplyJson(raw: string): ParsedWhisperReplyJson | null {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(match[0])
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== "object") return null
+  const obj = parsed as Record<string, unknown>
+
+  const reply = typeof obj.reply === "string" ? obj.reply.trim() : ""
+  if (!reply || reply.length > MAX_REPLY_LENGTH) return null
+
+  return { reply }
+}
+
+/**
+ * Composes a customer-facing message from the owner's private whisper
+ * instruction (see the section header above). Returns null when not
+ * configured, the instruction is empty after trimming, or the model can't
+ * produce usable JSON after one retry — the caller (whisperToConversation,
+ * src/app/(app)/inbox/actions.ts) surfaces that as a "couldn't compose"
+ * error. Throws AllowanceDeniedError when the org is out of `ai_replies`
+ * quota, exactly like draftCustomerReply.
+ */
+export async function draftWhisperMessage(input: DraftWhisperMessageInput): Promise<DraftedWhisperMessage | null> {
+  if (!isOpenRouterConfigured() || !isSupabaseConfigured()) return null
+
+  const instruction = input.instruction.trim().slice(0, MAX_WHISPER_INSTRUCTION_LENGTH)
+  if (!instruction) return null
+
+  const baseMessages: ChatMessage[] = [
+    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact) },
+    ...formatHistory(input.messages),
+    buildWhisperInstructionMessage(instruction, input.conversation.channel),
+  ]
+
+  const retryMessage: ChatMessage = {
+    role: "user",
+    content:
+      "Your last reply was not valid JSON matching the requested shape. Respond again with ONLY the strict JSON object — nothing else.",
+  }
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const messages = attempt === 0 ? baseMessages : [...baseMessages, retryMessage]
+
+    const result = await runTextJob({
+      orgId: input.orgId,
+      job: "customer_reply",
+      messages,
+      maxTokens: 300,
+      temperature: 0.6,
+    })
+
+    const parsed = parseWhisperReplyJson(result.text)
+    if (parsed) {
+      return { reply: parsed.reply, model: result.model, costUsd: result.costUsd }
     }
   }
 

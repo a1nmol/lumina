@@ -424,7 +424,7 @@ export async function POST(request: NextRequest) {
           ai_handled: true,
           model: draft.model,
           cost_usd: draft.costUsd,
-          metadata: { handoff: true },
+          metadata: draft.windDown === "close" ? { handoff: true, wind_down: "close" } : { handoff: true },
         })
         .select()
         .single()
@@ -445,7 +445,13 @@ export async function POST(request: NextRequest) {
     // -----------------------------------------------------------------
     // 5. AI produced a reply — persist it the same way the widget route
     // does, then answer Twilio with TwiML so it's sent back as a real SMS.
+    // A wind-down "close" reply (Commander update wave B2) still texts back
+    // for real — it's the AI's warm sign-off — but flips ai_state to
+    // 'escalated' instead of 'ai_answered' and tags the message so
+    // draftCustomerReply's own dedupe skips a repeat sign-off next time.
     // -----------------------------------------------------------------
+    const isWindDownClose = draft.windDown === "close"
+
     const { data: outboundMessage, error: outboundError } = await admin
       .from("messages")
       .insert({
@@ -457,6 +463,7 @@ export async function POST(request: NextRequest) {
         ai_handled: true,
         model: draft.model,
         cost_usd: draft.costUsd,
+        metadata: isWindDownClose ? { wind_down: "close" } : {},
       })
       .select()
       .single()
@@ -468,7 +475,7 @@ export async function POST(request: NextRequest) {
     await admin
       .from("conversations")
       .update({
-        ai_state: "ai_answered",
+        ai_state: isWindDownClose ? "escalated" : "ai_answered",
         status: "open",
         unread: false,
         last_message_at: outboundMessage.created_at,

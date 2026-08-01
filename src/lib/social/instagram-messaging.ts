@@ -78,6 +78,32 @@ export async function sendInstagramMessage(
   return { messageId: data.message_id ?? null }
 }
 
+/**
+ * Fires Meta's "typing_on" sender action so the customer sees a live
+ * "…typing" indicator while the model drafts a reply (Commander update wave
+ * B2) — POSTs to the same /me/messages endpoint as sendInstagramMessage,
+ * just with `sender_action` instead of `message`. Deliberately best-effort:
+ * callers should fire this without letting a failure affect the real reply
+ * (see src/app/api/webhooks/instagram/route.ts's call site, right before
+ * draftCustomerReply) — it's a cosmetic nicety, never worth failing or
+ * delaying a webhook over.
+ */
+export async function sendInstagramTypingIndicator(accessToken: string, recipientId: string): Promise<void> {
+  const res = await fetch(`${GRAPH_INSTAGRAM_BASE}/${GRAPH_INSTAGRAM_API_VERSION}/me/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ recipient: { id: recipientId }, sender_action: "typing_on" }),
+  })
+
+  if (!res.ok) {
+    console.error("[social/instagram-messaging] typing indicator failed", res.status)
+    throw new InstagramMessagingApiError("typing indicator")
+  }
+}
+
 export interface InstagramSenderProfile {
   username: string | null
   name: string | null

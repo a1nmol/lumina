@@ -308,7 +308,7 @@ export async function POST(request: NextRequest) {
     // unread, so the thread still surfaces under "Needs you".
     const escalationOrgId = resolved.orgId
     const escalationConversationId = conversation.id
-    async function persistEscalationReply(body: string) {
+    async function persistEscalationReply(body: string, extraMetadata?: Record<string, unknown>) {
       await admin
         .from("messages")
         .insert({
@@ -318,7 +318,7 @@ export async function POST(request: NextRequest) {
           kind: "message",
           body,
           ai_handled: true,
-          metadata: { handoff: true },
+          metadata: { handoff: true, ...extraMetadata },
         })
       await admin
         .from("conversations")
@@ -359,7 +359,7 @@ export async function POST(request: NextRequest) {
       // The AI's own handoff line (e.g. "I couldn't answer this — flagging
       // for the team") is what the customer saw, so it's persisted too;
       // unread stays true so the thread surfaces under "Needs you".
-      await persistEscalationReply(draft.reply)
+      await persistEscalationReply(draft.reply, draft.windDown === "close" ? { wind_down: "close" } : undefined)
       return NextResponse.json({ reply: draft.reply, ai: true, escalated: true })
     }
 
@@ -416,6 +416,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // A wind-down "close" reply (Commander update wave B2) still answers the
+    // widget for real — it's the AI's warm sign-off — but flips ai_state to
+    // 'escalated' instead of 'ai_answered' and tags the message so
+    // draftCustomerReply's own dedupe skips a repeat sign-off next time.
+    const isWindDownClose = draft.windDown === "close"
+
     const { data: outboundMessage, error: outboundError } = await admin
       .from("messages")
       .insert({
@@ -427,6 +433,7 @@ export async function POST(request: NextRequest) {
         ai_handled: true,
         model: draft.model,
         cost_usd: draft.costUsd,
+        metadata: isWindDownClose ? { wind_down: "close" } : {},
       })
       .select()
       .single()
@@ -438,7 +445,7 @@ export async function POST(request: NextRequest) {
     await admin
       .from("conversations")
       .update({
-        ai_state: "ai_answered",
+        ai_state: isWindDownClose ? "escalated" : "ai_answered",
         status: "open",
         unread: false,
         last_message_at: outboundMessage.created_at,
