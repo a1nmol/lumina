@@ -14,7 +14,7 @@ import "server-only"
 //
 // See supabase/migrations/0017_watchdog.sql for the dedupe ledger
 // (watchdog_alerts) and src/app/api/cron/watchdog/route.ts for the scheduled
-// entry point (every 6h, see vercel.json).
+// entry point (daily on Hobby, 13:00 UTC; bump frequency on Pro, see vercel.json).
 
 import { getAdminEmailAllowlist } from "@/lib/admin"
 import { sendWatchdogAlertEmail } from "@/lib/email"

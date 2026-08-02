@@ -1,5 +1,5 @@
 // Never-go-dark ops watchdog — scheduled entry point (see vercel.json's
-// "crons" array, every 6h). Vercel Cron invokes this with
+// "crons" array, daily on Hobby, 13:00 UTC; bump frequency on Pro). Vercel Cron invokes this with
 // `Authorization: Bearer $CRON_SECRET` when CRON_SECRET is set in the
 // project's env — see https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs.
 // All the actual checking/alerting logic lives in src/lib/watchdog.ts (kept
