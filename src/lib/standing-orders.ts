@@ -62,7 +62,7 @@ export function renderStandingOrdersBlock(orders: Pick<StandingOrder, "instructi
     .map((order, index) => `${index + 1}) ${order.instruction.trim().slice(0, MAX_INSTRUCTION_PROMPT_CHARS)}`)
     .join(" ")
 
-  return `The owner's current standing instructions — follow these while they're active: ${numbered}`
+  return `The owner's current standing instructions (follow while active): ${numbered}`
 }
 
 // ---------------------------------------------------------------------------

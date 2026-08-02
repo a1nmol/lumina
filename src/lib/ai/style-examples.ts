@@ -103,9 +103,9 @@ export function renderStyleExamplesBlock(pairs: StyleExamplePair[]): string {
     .map((pair) => {
       const ai = pair.aiDraft.slice(0, MAX_RENDER_CHARS_PER_SIDE)
       const owner = pair.ownerText.slice(0, MAX_RENDER_CHARS_PER_SIDE)
-      return `AI version: "${ai}" -> what the owner really sent: "${owner}"`
+      return `AI: "${ai}" -> owner: "${owner}"`
     })
     .join(" | ")
 
-  return `How the owner actually texts — learn from these past corrections (AI version -> what the owner really sent instead), and let that shape your own phrasing; don't copy any of them verbatim: ${rendered}`
+  return `Style guidance — learn from these past corrections (AI draft -> what the owner actually sent), don't copy verbatim: ${rendered}`
 }

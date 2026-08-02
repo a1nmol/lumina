@@ -166,10 +166,10 @@ function buildSuggestionsSystemPrompt(
   standingOrdersBlock: string
 ): string {
   const intro = brain?.business_name
-    ? `You are helping the front-desk team at ${brain.business_name}${
+    ? `Help the front-desk team at ${brain.business_name}${
         brain.category ? `, a ${brain.category}` : ""
       } draft quick reply options for a customer message (chat, SMS, DM, or email).`
-    : "You are helping the front-desk team at a local small business draft quick reply options for a customer message (chat, SMS, DM, or email)."
+    : "Help the front-desk team at a local small business draft quick reply options for a customer message (chat, SMS, DM, or email)."
 
   const lines = [
     intro,
@@ -180,7 +180,7 @@ function buildSuggestionsSystemPrompt(
     ...(standingOrdersBlock ? [standingOrdersBlock] : []),
     STYLE_GUIDE,
     ...summarizeBusinessBrainForPrompt(brain),
-    "Produce exactly 3 short alternative replies to the customer's most recent message: one that directly answers it, one that asks a clarifying question, and one that gives a warm redirect (for example offering to check and follow up, or pointing them to book or call). Each of the 3 must take a genuinely different approach, not just reworded versions of the same reply.",
+    "Produce exactly 3 alternative replies to the customer's latest message: one direct answer, one clarifying question, one warm redirect (e.g. offer to check back, or point to booking/calling). Each must take a genuinely different approach, not reworded versions of the same reply.",
     `Each reply must be ${MAX_SUGGESTION_LENGTH} characters or less.`,
     ...buildMemoryPromptLines(memory, messages),
     ...(personMemory ? [formatPersonMemoryForPrompt(personMemory)].filter(Boolean) : []),
@@ -188,9 +188,7 @@ function buildSuggestionsSystemPrompt(
 
   if (voiceAnchors.length > 0) {
     lines.push(
-      `Here is how this business's owner actually writes when replying in their own voice — match this style closely: ${voiceAnchors
-        .map((anchor) => `"${anchor}"`)
-        .join(" / ")}`
+      `How this owner actually writes in their own voice — match closely: ${voiceAnchors.map((anchor) => `"${anchor}"`).join(" / ")}`
     )
   }
 
@@ -321,20 +319,19 @@ export interface RewrittenDraft {
 }
 
 const REWRITE_MODE_INSTRUCTIONS: Record<RewriteMode, string> = {
-  friendlier: "Rewrite the draft below to sound warmer and friendlier, while keeping the same meaning and roughly the same length.",
-  shorter: "Rewrite the draft below to be noticeably shorter and more to the point, while keeping the core meaning.",
-  more_formal:
-    "Rewrite the draft below to sound a bit more formal and professional, while staying natural — not stiff or corporate.",
+  friendlier: "Rewrite the draft to sound warmer and friendlier — same meaning, roughly the same length.",
+  shorter: "Rewrite the draft to be noticeably shorter and more to the point — keep the core meaning.",
+  more_formal: "Rewrite the draft to sound a bit more formal and professional — natural, not stiff or corporate.",
   translate_es:
-    "Translate the draft below into natural, conversational Spanish appropriate for texting a customer. Return ONLY the Spanish version, not the English original.",
+    "Translate the draft into natural, conversational Spanish for texting a customer. Return ONLY the Spanish version, not the English original.",
 }
 
 function buildRewriteSystemPrompt(brain: BusinessBrain | null): string {
   const lines = [
-    "You are helping rewrite a local small business's draft reply to a customer before it gets sent.",
+    "Rewrite a local business's draft reply to a customer before it's sent.",
     STYLE_GUIDE,
     brain?.tone ? `Brand voice: ${brain.tone}.` : null,
-    'You will be given an instruction and a draft reply. Apply the instruction and respond with ONLY the rewritten reply text — no surrounding quotes, no labels like "Rewritten reply:", no explanation, no markdown.',
+    'Apply the instruction to the draft below and respond with ONLY the rewritten text — no surrounding quotes, no labels like "Rewritten reply:", no explanation, no markdown.',
   ].filter((line): line is string => Boolean(line))
 
   return lines.join(" ")

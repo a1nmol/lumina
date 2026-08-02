@@ -17,6 +17,7 @@ import "server-only"
 // entry point (daily on Hobby, 13:00 UTC; bump frequency on Pro, see vercel.json).
 
 import { getAdminEmailAllowlist } from "@/lib/admin"
+import { fetchOpenRouterRemainingCredits } from "@/lib/ai/wallet-status"
 import { sendWatchdogAlertEmail } from "@/lib/email"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { getAiRepliesUsageFraction } from "@/lib/usage"
@@ -174,44 +175,13 @@ export function trafficLookbackWindow(silenceWindowStart: Date): { from: Date; t
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
-const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
-
-interface OpenRouterCreditsResponse {
-  data?: { total_credits?: number; total_usage?: number }
-}
-
-/**
- * Fetches the OpenRouter account's remaining credits. Defensive by design
- * (per spec): any network/parse failure just logs and returns null — this
- * check alerts on a LOW/EMPTY balance it successfully read, never on its own
- * inability to check, so a transient OpenRouter API hiccup can't page anyone.
- */
-export async function fetchOpenRouterRemainingCredits(): Promise<number | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) return null
-
-  try {
-    const res = await fetch(OPENROUTER_CREDITS_URL, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    })
-    if (!res.ok) {
-      console.error(`[watchdog] OpenRouter credits fetch failed (${res.status})`)
-      return null
-    }
-    const json = (await res.json()) as OpenRouterCreditsResponse
-    const totalCredits = json.data?.total_credits
-    const totalUsage = json.data?.total_usage
-    if (typeof totalCredits !== "number" || typeof totalUsage !== "number") {
-      console.error("[watchdog] OpenRouter credits response missing expected fields")
-      return null
-    }
-    return totalCredits - totalUsage
-  } catch (error) {
-    console.error("[watchdog] OpenRouter credits fetch threw", error)
-    return null
-  }
-}
+// fetchOpenRouterRemainingCredits used to be defined here directly. It now
+// lives in src/lib/ai/wallet-status.ts (Outlast wave — wallet-aware
+// wind-down hotfix, 2026-08-02), unchanged in behavior, so the reply-drafting
+// hot path can share the exact same implementation (behind its own 10-minute
+// cache) instead of this cron duplicating it. Re-exported here so nothing
+// importing it from "@/lib/watchdog" needs to change.
+export { fetchOpenRouterRemainingCredits }
 
 /**
  * Pragmatic dedupe anchor for platform-level findings: watchdog_alerts.org_id

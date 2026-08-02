@@ -147,7 +147,7 @@ export function formatMemoryForPrompt(memory: ConversationMemory): string {
   ].filter((part): part is string => Boolean(part))
 
   if (parts.length === 0) return ""
-  return `What you remember from earlier with this person: ${parts.join("; ")}.`
+  return `Memory of this person: ${parts.join("; ")}.`
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ export function formatPersonMemoryForPrompt(memory: PersonMemory): string {
   ].filter((part): part is string => Boolean(part))
 
   if (parts.length === 0) return ""
-  return `What you know about this person from past conversations: ${parts.join("; ")}.`
+  return `Known about this person: ${parts.join("; ")}.`
 }
 
 /** The most recent AI-sent outbound message's timestamp (ms), or null when there isn't one. Mirrors src/lib/ai/intro.ts's own gap-detection logic, kept separate since this is a distinct "re-engage" concern, not the intro's "disclose once" concern. */

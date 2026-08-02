@@ -150,7 +150,7 @@ describe("capConversationMemory", () => {
 describe("formatMemoryForPrompt", () => {
   it("formats all four fields into one compact block", () => {
     const block = formatMemoryForPrompt(FULL_MEMORY)
-    expect(block).toContain("What you remember from earlier with this person:")
+    expect(block).toContain("Memory of this person:")
     expect(block).toContain("facts: wants a custom birthday cake; picking up Saturday")
     expect(block).toContain("unresolved: waiting on a flavor decision")
     expect(block).toContain("vibe: friendly regular, casual texter")
@@ -172,7 +172,7 @@ describe("formatMemoryForPrompt", () => {
       updated_at: "",
       message_count: 1,
     })
-    expect(block).toBe("What you remember from earlier with this person: story so far: Just said hi so far..")
+    expect(block).toBe("Memory of this person: story so far: Just said hi so far..")
   })
 })
 
@@ -214,7 +214,7 @@ describe("buildMemoryPromptLines", () => {
     const messages = [{ direction: "outbound" as const, ai_handled: true, created_at: "2026-08-01T11:00:00.000Z" }] // 1h ago
     const lines = buildMemoryPromptLines(FULL_MEMORY, messages, now)
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain("What you remember from earlier with this person:")
+    expect(lines[0]).toContain("Memory of this person:")
   })
 
   it("adds the re-engage line when the last AI reply is older than the 2-hour freshness window", () => {
@@ -333,7 +333,7 @@ describe("capPersonMemory", () => {
 describe("formatPersonMemoryForPrompt", () => {
   it("formats all three fields into one compact block", () => {
     const block = formatPersonMemoryForPrompt(FULL_PERSON_MEMORY)
-    expect(block).toContain("What you know about this person from past conversations:")
+    expect(block).toContain("Known about this person:")
     expect(block).toContain("facts: runs a small dog-walking business; has a daughter named Mia")
     expect(block).toContain("relationship: regular customer, orders birthday cakes every year")
     expect(block).toContain("running topics: birthday cakes; dog treats")
@@ -350,7 +350,7 @@ describe("formatPersonMemoryForPrompt", () => {
       topics: [],
       updated_at: "",
     })
-    expect(block).toBe("What you know about this person from past conversations: relationship: brand new lead.")
+    expect(block).toBe("Known about this person: relationship: brand new lead.")
   })
 })
 

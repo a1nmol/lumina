@@ -25,8 +25,9 @@ import "server-only"
 
 import { parseConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
-import { draftFollowUpMessage, windDownStage } from "@/lib/ai/frontdesk-reply"
+import { draftFollowUpMessage, maxWindDownStage, windDownStage } from "@/lib/ai/frontdesk-reply"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
+import { getWalletRemainingUsd, walletWindDownStage } from "@/lib/ai/wallet-status"
 import { fetchActiveStandingOrders } from "@/lib/standing-orders"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { getAiRepliesUsageFraction } from "@/lib/usage"
@@ -369,7 +370,16 @@ async function runFollowUpScanForOrg(admin: AdminClient, orgId: string, now: Dat
     console.error(`[follow-ups] usage-fraction lookup failed for org ${orgId}`, error)
     return { eligible: false, created: 0 }
   }
-  if (windDownStage(fraction) !== "none") return { eligible: false, created: 0 }
+
+  // Wallet-aware skip (Outlast hotfix, 2026-08-02 outage) — mirrors
+  // draftCustomerReply's own composition: an unprompted follow-up nudge is
+  // exactly the kind of AI-initiated spend that should NOT go out while the
+  // account wallet itself is winding down, even if this org's own allowance
+  // is nowhere near its limit. getWalletRemainingUsd is cached (10-minute
+  // TTL), so this costs ~nothing extra on a once-a-day scan.
+  const walletRemaining = await getWalletRemainingUsd()
+  const stage = maxWindDownStage(windDownStage(fraction), walletWindDownStage(walletRemaining))
+  if (stage !== "none") return { eligible: false, created: 0 }
 
   if (await isFollowUpsPausedForOrg(orgId, now)) return { eligible: false, created: 0 }
 

@@ -5,6 +5,7 @@ import type { Message } from "@/lib/types"
 import {
   attachmentToPromptContent,
   extractBannedOpeners,
+  maxWindDownStage,
   messageToPromptContent,
   windDownStage,
   type StoredAttachmentMetadata,
@@ -114,6 +115,30 @@ describe("windDownStage", () => {
     expect(windDownStage(0.99)).toBe("close")
     expect(windDownStage(1)).toBe("close")
     expect(windDownStage(1.5)).toBe("close")
+  })
+})
+
+// Wallet-aware wind-down composition (Outlast hotfix, 2026-08-02 outage) —
+// locks in that the MORE URGENT of the two independent stages always wins,
+// in both directions, and that equal stages are stable.
+describe("maxWindDownStage", () => {
+  it("returns 'none' when both inputs are 'none'", () => {
+    expect(maxWindDownStage("none", "none")).toBe("none")
+  })
+
+  it("returns the org stage when it's more urgent than the wallet stage", () => {
+    expect(maxWindDownStage("close", "none")).toBe("close")
+    expect(maxWindDownStage("heads_up", "seed")).toBe("heads_up")
+  })
+
+  it("returns the wallet stage when it's more urgent than the org stage", () => {
+    expect(maxWindDownStage("none", "close")).toBe("close")
+    expect(maxWindDownStage("seed", "heads_up")).toBe("heads_up")
+  })
+
+  it("is stable when both stages match", () => {
+    expect(maxWindDownStage("seed", "seed")).toBe("seed")
+    expect(maxWindDownStage("close", "close")).toBe("close")
   })
 })
 

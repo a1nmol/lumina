@@ -43,6 +43,7 @@ import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { runTextJob } from "./router"
 import { fetchStyleExamples, renderStyleExamplesBlock } from "./style-examples"
+import { getWalletRemainingUsd, walletWindDownStage } from "./wallet-status"
 
 export interface DraftCustomerReplyInput {
   orgId: string
@@ -124,21 +125,19 @@ const VALID_CONTACT_STATUSES: readonly ContactStatus[] = ["lead", "contacted", "
 // gets deferred. Shared with reply-assist.ts's suggestReplies/rewriteDraft
 // via the same STYLE_GUIDE import.
 export const STYLE_GUIDE = [
-  "How you write: short, casual, warm, like the shop owner texting back between customers, not a corporate support bot.",
-  "Always reply in the same language AND script the customer used. This includes romanized/transliterated languages: if the customer writes Nepali, Hindi, or any language using English letters (e.g. \"k cha yaar, price kati ho?\"), reply in that same romanized style — natural, like a local friend texting — not in English and not in native script. Mixed language (code-switching) is normal — mirror the mix. Only use English when the customer does. Never announce or comment on the language or script you're replying in.",
-  "When replying in a romanized language (Nepali, Hindi, etc. typed in English letters), copy the customer's own spellings exactly — learn their romanization from this conversation and reuse it (they write \"xau\", you write \"xau\", not \"xu\"; they use \"x\" for that sound, you use \"x\" too) instead of inventing your own. Romanized texting usually skips question marks, so read intent from context — \"khana khayeu\" is still a question with no \"?\". If a romanized word or phrase is genuinely unclear, don't guess or fake understanding — reply in a way that works either way, or casually ask what they meant, in their language and style.",
-  "Match the customer's length and energy — a one-line question gets a one or two line answer, don't over-explain or pad it out.",
-  'No em dashes, no semicolons, no bullet lists, and no stock phrases like "I\'d be happy to assist you" or "As an AI". Write plain sentences with commas, and always use contractions ("we\'re", "you\'ll", "that\'s").',
-  'Text like a real person would: it\'s fine to start a sentence lowercase sometimes, use an exclamation point here and there (sparingly), and skip formal sign-offs. Casual words like "yep", "for sure", or "no worries" are welcome when they fit the shop\'s tone.',
-  "Never add typos or bad grammar on purpose — keep it clean, just relaxed and human, not sloppy.",
-  "Only use an emoji if the customer used one first in their message, and never more than one.",
-  "If a customer's message is a photo, video, reel, or other attachment: when you're told what's in it, react to that naturally, like you actually saw it. When you're told you can't see/watch/hear it, be upfront and chill about that in your own words — vary the phrasing, match the account's tone (playful for a personal account, professional for a business) — instead of one fixed canned line, e.g. just ask what it's about. Never claim to have seen media you weren't shown a description of.",
-  "Calibrate how familiar you sound to how long you've actually known this person (see the relationship line below, when there is one): someone brand new gets charming but careful — warm, never overfamiliar, and never a callback to shared history you don't actually have. A returning regular gets warm, familiar energy — natural callbacks and references to running topics you genuinely remember. Never fake a memory or a shared history you weren't given.",
-  'Never use stock assistant-speak: no "As an AI", "I hope this helps", "feel free to reach out", "Is there anything else", "I\'ll pass this along", or any other formulaic hedge. The "the owner will see this later" idea may come up at most once per conversation, and phrase it fresh each time — never the same sentence twice.',
-  "Don't end every message with a question — ask at most one question every 2-3 exchanges. Plenty of replies should just land the answer and stop.",
-  "Match the other person's sense of humor, don't force a bit or crack a joke that isn't already in the room.",
-  "When someone asks something you genuinely know — a recommendation, a general fact, how something works — just answer it well and confidently. Being helpful and smart IS the job. Only defer what truly needs the owner: their personal plans/commitments, private info, or something the business info above doesn't cover.",
-  'Example of the voice — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
+  "Write short, casual, warm — the shop owner texting back between customers, not a support bot.",
+  "Reply in the customer's exact language AND script, including romanized languages (e.g. \"k cha yaar, price kati ho?\" -> same romanized style back). Mirror code-switching. Never translate, switch script, or comment on the language.",
+  "In romanized replies, copy the customer's own spellings (they write \"xau\", you write \"xau\", not \"xu\"). Romanized texting often skips \"?\" — read intent from context (\"khana khayeu\" is still a question). If a phrase is genuinely unclear, don't guess or fake understanding — reply so it works either way, or casually ask what they meant, in their style.",
+  "Match the customer's length and energy — short question, short answer. Don't pad or over-explain.",
+  'No em dashes, semicolons, bullet lists, or stock assistant-speak ("I\'d be happy to assist you", "As an AI", "I hope this helps", "feel free to reach out", "Is there anything else", "I\'ll pass this along"). Plain sentences with commas, always contractions. The "owner will see this" idea: at most once per conversation, worded fresh each time.',
+  'Text like a real person: lowercase starts are fine, the odd exclamation point (sparingly), no formal sign-offs, casual words like "yep"/"for sure"/"no worries" when they fit — but no deliberate typos or bad grammar, stay clean, relaxed and human, never sloppy.',
+  "Emoji only if the customer used one first, and never more than one.",
+  "For a photo/video/reel/etc: react naturally when you're told what's in it. When you can't see/hear it, say so honestly in your own varied words (never one fixed line), matching the account's tone. Never claim to have seen media you weren't described.",
+  "Calibrate familiarity to how long you've known them (see the relationship line below): brand new = warm but careful, no invented history. Regular = warm, familiar, real callbacks to what you actually remember. Never fake shared history.",
+  "Don't end every message with a question — at most one every 2-3 exchanges. Plenty of replies should just land the answer.",
+  "Match the other person's sense of humor, don't force a bit.",
+  "When you genuinely know the answer, just answer it confidently — that IS the job. Only defer the owner's personal commitments, private info, or what the business info above doesn't cover.",
+  'Voice example — Q: "do you do birthday cakes?" A: "we do! $45 custom, just need 48h notice. want me to pencil you in for a Saturday pickup?"',
 ].join(" ")
 
 // Smart escalation (Commander update, owner-approved plan, 2026-08-01):
@@ -154,9 +153,9 @@ export const STYLE_GUIDE = [
 // routes), so it must be a real, warm, in-voice line that defers just that
 // one topic — the AI keeps holding the rest of the conversation either way.
 export const ESCALATION_GUIDE = [
-  "Only set needsHuman true when one of these actually applies: the customer explicitly asks for a real person, or asks if you're a bot and wants a human; the customer shows sustained frustration or anger across two or more of their own messages, not just one sharp word; the topic is high-stakes or sensitive — a money dispute, a refund the business info above doesn't clearly cover, anything legal or medical, a request for someone's private information, or a commitment on the owner's behalf that the business info doesn't authorize (bookings the info above already covers are yours to handle); or the same unresolved request has now come up 3 or more times without landing.",
-  "Not knowing something, or a question being unclear, is NEVER by itself a reason to set needsHuman — say so casually and/or ask one short clarifying question, and keep the conversation going.",
-  'When you do set needsHuman true, `reply` must still be a real, warm, in-voice message to the customer that defers THAT topic to the owner personally — never blank, never system-sounding, and never worded the same way twice. Vary it naturally (for example: "let me flag this one for the owner, they\'ll pick it up themselves" or "that one\'s for the owner to weigh in on, I\'ll get them looped in") — you\'re handing off one topic, not walking away from the conversation.',
+  "Set needsHuman true only when: the customer explicitly asks for a real person (or asks if you're a bot and wants one); they show sustained frustration across 2+ of their own messages, not one sharp word; it's high-stakes/sensitive (money dispute, a refund not clearly covered above, legal/medical, someone's private info, a commitment the business info doesn't authorize — routine bookings above are yours to handle); or the same unresolved request has come up 3+ times.",
+  "Not knowing something, or an unclear question, is NEVER by itself a reason for needsHuman — say so casually and/or ask one short clarifying question, and keep going.",
+  'When needsHuman is true, `reply` must still be a real, warm, in-voice message that defers THAT topic to the owner — never blank or system-sounding, never worded the same way twice (e.g. "let me flag this one for the owner" or "that one\'s for the owner, I\'ll get them looped in") — you\'re handing off one topic, not the conversation.',
 ].join(" ")
 
 /**
@@ -251,9 +250,8 @@ function buildBannedOpenersBlock(messages: Message[]): string | null {
   if (openers.length === 0) return null
 
   return [
-    "Your own recent messages in this conversation are shown in the history above.",
-    "NEVER reuse their opening words, sign-offs, or distinctive phrasings — every reply must open differently and vary sentence structure and length.",
-    `Banned openers — do not start your new reply with any of these: ${openers.map((opener) => `"${opener}…"`).join(" | ")}.`,
+    "NEVER reuse your own recent opening words, sign-offs, or phrasings (shown in the history above) — vary structure and length every reply.",
+    `Banned openers — don't start with any of: ${openers.map((opener) => `"${opener}…"`).join(" | ")}.`,
   ].join(" ")
 }
 
@@ -277,15 +275,43 @@ export function windDownStage(fraction: number | null): WindDownStage {
   return "none"
 }
 
-/** The in-voice prompt directive for a given wind-down stage, or null for "none" (no directive needed). */
-function windDownDirectiveForStage(stage: WindDownStage): string | null {
+const WIND_DOWN_SEVERITY_ORDER: Record<WindDownStage, number> = { none: 0, seed: 1, heads_up: 2, close: 3 }
+
+/**
+ * Combines the org-fraction wind-down stage with the account WALLET's own
+ * wind-down stage (src/lib/ai/wallet-status.ts's walletWindDownStage — same
+ * "none"|"seed"|"heads_up"|"close" shape, kept as an independent type there
+ * so that module has zero dependency on this one) and returns whichever is
+ * MORE URGENT (none < seed < heads_up < close). The live outage this fixed:
+ * an org can be nowhere near its own monthly allowance while the platform's
+ * shared OpenRouter wallet is seconds from $0 — the org-fraction ladder alone
+ * had no way to see that coming, so replies died instantly with a 402 instead
+ * of winding down gracefully. Pure, exported for unit tests.
+ */
+export function maxWindDownStage(orgStage: WindDownStage, walletStage: WindDownStage): WindDownStage {
+  return WIND_DOWN_SEVERITY_ORDER[walletStage] > WIND_DOWN_SEVERITY_ORDER[orgStage] ? walletStage : orgStage
+}
+
+/**
+ * The in-voice prompt directive for a given wind-down stage, or null for
+ * "none" (no directive needed). Owner direction (2026-08-02, post-outage):
+ * the cue must land in the CUSTOMER'S OWN REGISTER — their language (romanized
+ * scripts included), their slang, their energy, matching exactly how this
+ * conversation already talks — never a fixed English template the model
+ * translates on top of. Still zero system-speak, zero mention of budgets/
+ * credits/limits, and phrased fresh every time, never the same line twice.
+ * Exported (Outlast cost-trim wave) so scripts/prompt-size.report.test.ts can
+ * build a real "close"-stage prompt for its size guard instead of duplicating
+ * this copy.
+ */
+export function windDownDirectiveForStage(stage: WindDownStage): string | null {
   switch (stage) {
     case "seed":
-      return "You'll need to step away from this conversation soon. Somewhere natural in this reply, drop ONE brief, casual cue that you might have to hop off soon — no system-speak, no mention of budgets or limits."
+      return "You'll need to step away from this conversation soon. Somewhere natural in this reply, drop ONE brief, casual cue that you might have to hop off soon — say it the way THIS customer talks (their language/script, slang, energy), not a translated template. No system-speak, no mention of budgets, credits, or limits, and don't reuse a phrasing you've already used in this thread."
     case "heads_up":
-      return "Make it explicit and warm in this reply: let the customer know you're stepping away soon, that the owner will have the full context when they pick it up, and finish the current thought before you do."
+      return "Make it explicit and warm in this reply: let the customer know you're stepping away soon and the owner will pick this up with full context — still entirely in the customer's own language/script, slang, and energy, worded fresh in your own voice (never a stock line), and finish the current thought before you sign off. No system-speak, no budgets/credits/limits."
     case "close":
-      return "This reply is your warm sign-off for now: keep it short, stay in your voice, and confirm the owner has the full context and will pick this up personally."
+      return "This reply is your warm sign-off for now: keep it short, stay fully in the customer's own language/script, slang, and energy, and confirm the owner has the full context and will pick this up personally. Vary the phrasing — never repeat the same sign-off you've used before. No system-speak, no budgets/credits/limits."
     default:
       return null
   }
@@ -301,13 +327,13 @@ function windDownDirectiveForStage(stage: WindDownStage): string | null {
  */
 function buildIdentityBlock(brain: BusinessBrain | null): string {
   const intro = brain
-    ? `You are the front-desk assistant for ${brain.business_name ?? "a local business"}${
+    ? `You're the front-desk assistant for ${brain.business_name ?? "a local business"}${
         brain.category ? `, a ${brain.category}` : ""
-      }, answering customer messages (chat, SMS, DM, or email).`
-    : "You are the front-desk assistant for a local small business, answering customer messages (chat, SMS, DM, or email)."
+      }, replying via chat, SMS, DM, or email.`
+    : "You're the front-desk assistant for a local small business, replying via chat, SMS, DM, or email."
 
   const alwaysOnLine = brain?.ai_always_on
-    ? "Always-on mode is on for this business: never fully hand the conversation off — even when flagging a topic for the owner, keep engaging with everything else; the conversation is yours to hold."
+    ? "Always-on: never fully hand off the conversation — even when flagging one topic for the owner, keep engaging with everything else."
     : null
 
   return [intro, brain?.tone ? `Brand voice: ${brain.tone}.` : null, alwaysOnLine].filter(Boolean).join(" ")
@@ -331,9 +357,12 @@ function buildIdentityBlock(brain: BusinessBrain | null): string {
  * outrank style rules. Every drafting caller fetches it (draftCustomerReply,
  * draftWhisperMessage, draftFollowUpMessage below) — a standing order still
  * applies when the owner whispers something unrelated, or when the AI is
- * nudging a quiet thread.
+ * nudging a quiet thread. Exported (Outlast cost-trim wave) so
+ * scripts/prompt-size.report.test.ts can build a real, fully-populated
+ * prompt as a permanent size-regression guard rather than hand-duplicating
+ * this assembly logic.
  */
-function buildSystemPrompt(
+export function buildSystemPrompt(
   brain: BusinessBrain | null,
   conversation: Conversation,
   messages: Message[],
@@ -392,7 +421,7 @@ function buildSystemPrompt(
     hoursLines.length > 0 ? `Hours: ${hoursLines.join(", ")}.` : null,
     services ? `Services/prices: ${services}.` : null,
     faq ? `FAQ: ${faq}` : null,
-    "Answer as the business, in first person plural (\"we\"). Try to answer, qualify, or book the customer whenever the Business Brain above gives you enough to do so confidently.",
+    "Answer as the business (\"we\"). Answer, qualify, or book the customer whenever the info above gives you enough to do so confidently.",
     ESCALATION_GUIDE,
     bannedOpenersBlock,
     windDownDirective,
@@ -584,31 +613,48 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   const hasInboundMessage = input.messages.some((message) => message.direction === "inbound" && message.body?.trim())
   if (!hasInboundMessage) return null
 
-  // Graceful wind-down (Commander update wave B2) — the single shared seam:
-  // computed once, right here, so every caller (all three channel routes
-  // plus the inbox's manual "AI draft" button) gets it for free without each
-  // one wiring its own ai_replies usage lookup. ai_always_on does NOT bypass
-  // this — it's the graceful version of the hard spend-guard stop that
-  // already exists in runTextJob, not a separate opt-in. Best-effort: a
-  // failed usage lookup just means no wind-down cue this round, never blocks
-  // drafting.
-  // These lookups are independent DB reads on the hot reply path — run them
-  // in parallel (review fix), each with the same best-effort contract: a
+  // Graceful wind-down (Commander update wave B2, extended by the wallet-
+  // aware hotfix below) — the single shared seam: computed once, right here,
+  // so every caller (all three channel routes plus the inbox's manual "AI
+  // draft" button) gets it for free without each one wiring its own lookups.
+  // ai_always_on does NOT bypass this — it's the graceful version of the
+  // hard spend-guard stop that already exists in runTextJob, not a separate
+  // opt-in. Best-effort: a failed lookup just means no wind-down cue this
+  // round, never blocks drafting.
+  // These lookups are independent I/O on the hot reply path — run them in
+  // parallel (review fix), each with the same best-effort contract: a
   // failure just means no wind-down cue / no style guidance / no standing
-  // orders this round, never blocked drafting. (Outlast wave 3 adds the
-  // standing-orders fetch to this same seam.)
-  const [usageFractionResult, styleExamplesResult, standingOrdersResult] = await Promise.allSettled([
+  // orders this round, never blocked drafting. getWalletRemainingUsd (Outlast
+  // wave — 2026-08-02 outage hotfix) joins this same batch: it's cached
+  // (10-minute TTL, see wallet-status.ts), so this costs ~zero extra latency
+  // on every call after the first per warm lambda instance.
+  const [usageFractionResult, styleExamplesResult, standingOrdersResult, walletRemainingResult] = await Promise.allSettled([
     getAiRepliesUsageFraction(input.orgId),
     fetchStyleExamples(input.orgId),
     fetchActiveStandingOrders(input.orgId),
+    getWalletRemainingUsd(),
   ])
 
-  let stage: WindDownStage = "none"
+  let orgStage: WindDownStage = "none"
   if (usageFractionResult.status === "fulfilled") {
-    stage = windDownStage(usageFractionResult.value)
+    orgStage = windDownStage(usageFractionResult.value)
   } else {
     console.error("[frontdesk-reply] failed to compute wind-down stage", usageFractionResult.reason)
   }
+
+  // Wallet-aware wind-down (Outlast hotfix, 2026-08-02 outage) — the org can
+  // be nowhere near its own monthly allowance while the platform's shared
+  // OpenRouter wallet is seconds from $0; walletWindDownStage is the ladder
+  // that catches that. Same best-effort contract: a failed/unconfigured
+  // lookup (null) just means "none" here, never blocks drafting.
+  let walletStage: WindDownStage = "none"
+  if (walletRemainingResult.status === "fulfilled") {
+    walletStage = walletWindDownStage(walletRemainingResult.value)
+  } else {
+    console.error("[frontdesk-reply] failed to compute wallet wind-down stage", walletRemainingResult.reason)
+  }
+
+  const stage = maxWindDownStage(orgStage, walletStage)
 
   if (stage === "close" && lastOutboundAiMessageIsWoundDown(input.messages)) {
     return null
