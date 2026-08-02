@@ -397,6 +397,15 @@ export type SocialConnection = {
   updated_at: string
 }
 
+/** Mirrors supabase/migrations/0017_watchdog.sql — dedupe ledger for the ops watchdog cron (src/lib/watchdog.ts). */
+export type WatchdogAlert = {
+  id: string
+  org_id: string
+  kind: string
+  detail: string | null
+  sent_at: string
+}
+
 /**
  * Composed (non-table) analytics shapes returned by src/lib/analytics.ts and
  * mirrored by the DEMO_* fallbacks in src/lib/demo.ts — kept here (rather
@@ -623,6 +632,12 @@ export interface Database {
         Row: OrgPhoneNumber
         Insert: Partial<OrgPhoneNumber> & Pick<OrgPhoneNumber, "org_id" | "phone_number">
         Update: Partial<OrgPhoneNumber>
+        Relationships: []
+      }
+      watchdog_alerts: {
+        Row: WatchdogAlert
+        Insert: Partial<WatchdogAlert> & Pick<WatchdogAlert, "org_id" | "kind">
+        Update: Partial<WatchdogAlert>
         Relationships: []
       }
     }

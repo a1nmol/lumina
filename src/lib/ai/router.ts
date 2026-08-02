@@ -11,6 +11,7 @@ import "server-only"
 // module falls through to the next candidate, so it fails safe either way.
 
 import { checkAllowance, recordUsage } from "@/lib/usage"
+import { notifyOpenRouterOutOfCredits } from "@/lib/watchdog"
 import type { UsageFeature } from "@/lib/types"
 
 import { AllowanceDeniedError } from "./errors"
@@ -162,6 +163,13 @@ export async function runTextJob(input: RunTextJobInput): Promise<RunTextJobResu
       // fail gracefully on AllowanceDeniedError (silent escalate, no
       // typing-then-ghosting, honest "out of quota" states in the UI).
       if (error instanceof OpenRouterRequestError && error.status === 402) {
+        // Never-go-dark watchdog (2026-08-02 outage): fire the SAME
+        // dedupe-guarded admin email the 6h cron sends, but instantly — the
+        // owner hears about a real failure within seconds, not at the next
+        // tick. Fire-and-forget: must never delay or fail this throw.
+        void notifyOpenRouterOutOfCredits().catch((notifyError) =>
+          console.error("[router] failed to notify admin of OpenRouter 402", notifyError)
+        )
         throw new AllowanceDeniedError(feature, "OpenRouter account is out of credits — top up at openrouter.ai/settings/credits.")
       }
       lastError = error

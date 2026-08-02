@@ -221,6 +221,131 @@ export async function sendLeadAlertEmail(input: LeadAlertInput): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Watchdog alert (never-go-dark ops wave, migration 0017 watchdog_alerts)
+// ---------------------------------------------------------------------------
+
+const WATCHDOG_KIND_LABELS: Record<string, string> = {
+  openrouter_credits_low: "OpenRouter credits running low",
+  openrouter_credits_empty: "OpenRouter credits are out",
+  usage_80: "Approaching monthly AI reply limit",
+  usage_95: "Nearly out of AI replies this month",
+  token_expiring: "A connected channel's token is expiring soon",
+  token_expired: "A connected channel's token has expired",
+  webhook_silent: "Instagram webhooks have gone quiet",
+}
+
+const WATCHDOG_FIX_IT_LINES: Record<string, string> = {
+  openrouter_credits_low: "Top up at openrouter.ai/settings/credits before the balance hits zero.",
+  openrouter_credits_empty: "Top up now at openrouter.ai/settings/credits — the AI cannot reply to anyone until this is fixed.",
+  usage_80: "Review usage in /admin, or raise this org's ai_replies limit before it runs out.",
+  usage_95: "Raise this org's ai_replies limit now, or the AI will stop replying once the limit is hit.",
+  token_expiring: "Reconnect the channel from Settings → Channels before it expires.",
+  token_expired: "Reconnect the channel from Settings → Channels — it can no longer send or receive.",
+  webhook_silent: "Check the Instagram webhook subscription in the Meta App Dashboard — deliveries appear to have stopped.",
+}
+
+export interface WatchdogAlertEmailFinding {
+  kind: string
+  severity: "warning" | "critical"
+  detail: string
+}
+
+export interface WatchdogAlertEmailInput {
+  /** Org the findings are attached to (used for the default owner-resolution recipient, and shown for context). */
+  orgId: string
+  findings: WatchdogAlertEmailFinding[]
+  /**
+   * When set, sends to exactly these addresses instead of resolving the org
+   * owner — used for platform-level findings (OpenRouter credits,
+   * webhook_silent) which must reach ADMIN_EMAILS only, never a tenant
+   * owner. When omitted, the recipient is resolved via resolveOrgOwnerEmail
+   * above — the SAME function sendLeadAlertEmail/sendVipAlertEmail use, so
+   * org-level findings (usage burn, token expiry) reach the same inbox every
+   * other Lumina alert already reaches.
+   */
+  recipients?: string[]
+}
+
+function summarizeWatchdogFindings(findings: WatchdogAlertEmailFinding[]): string {
+  if (findings.length === 1) {
+    return WATCHDOG_KIND_LABELS[findings[0].kind] ?? findings[0].kind
+  }
+  const criticalCount = findings.filter((finding) => finding.severity === "critical").length
+  return criticalCount > 0
+    ? `${findings.length} issues need attention (${criticalCount} urgent)`
+    : `${findings.length} issues need attention`
+}
+
+/**
+ * Sends the ops watchdog's bundled health alert (one email per org per cron
+ * run, covering everything that fired for that org) — modeled on
+ * sendLeadAlertEmail/sendVipAlertEmail's delivery mechanics (fire-and-forget
+ * by convention at call sites, best-effort, shared-sender constraint), but
+ * this alert bundles N findings instead of describing one event. See
+ * src/lib/watchdog.ts for what triggers each `kind` and how dedupe (one send
+ * per org+kind per quiet period) is enforced before this is ever called.
+ */
+export async function sendWatchdogAlertEmail(input: WatchdogAlertEmailInput): Promise<void> {
+  if (!isEmailConfigured()) return
+  if (input.findings.length === 0) return
+
+  const recipients =
+    input.recipients && input.recipients.length > 0
+      ? input.recipients
+      : ([await resolveOrgOwnerEmail(input.orgId)].filter((email): email is string => Boolean(email)))
+
+  if (recipients.length === 0) return
+
+  const summary = summarizeWatchdogFindings(input.findings)
+  const subject = `Lumina health: ${summary}`
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  const adminUrl = `${appUrl}/admin`
+
+  const textLines = input.findings.map((finding) => {
+    const label = WATCHDOG_KIND_LABELS[finding.kind] ?? finding.kind
+    const fixIt = WATCHDOG_FIX_IT_LINES[finding.kind]
+    return [`${finding.severity === "critical" ? "URGENT" : "Warning"}: ${label}`, finding.detail, fixIt]
+      .filter(Boolean)
+      .join(" — ")
+  })
+
+  const text = [
+    "Lumina's ops watchdog found something that needs your attention:",
+    ...textLines,
+    `Open the admin panel: ${adminUrl}`,
+  ].join("\n\n")
+
+  const htmlItems = input.findings
+    .map((finding) => {
+      const label = WATCHDOG_KIND_LABELS[finding.kind] ?? finding.kind
+      const fixIt = WATCHDOG_FIX_IT_LINES[finding.kind]
+      const accentColor = finding.severity === "critical" ? "#c0392b" : "#b4551f"
+      return `
+        <div style="margin: 0 0 16px; padding: 12px 16px; background: #f6f2ee; border-left: 3px solid ${accentColor};">
+          <p style="font-size: 13px; font-weight: 600; margin: 0 0 4px; color: ${accentColor};">${escapeHtml(label)}</p>
+          <p style="font-size: 14px; line-height: 1.5; margin: 0 0 6px; color: #333333;">${escapeHtml(finding.detail)}</p>
+          ${fixIt ? `<p style="font-size: 13px; line-height: 1.5; margin: 0; color: #666666;">${escapeHtml(fixIt)}</p>` : ""}
+        </div>
+      `
+    })
+    .join("")
+
+  // Plain, system-font inline styles — matches sendLeadAlertEmail's html above.
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+      <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #b4551f; font-weight: 600; margin: 0 0 8px;">Lumina health check</p>
+      <h1 style="font-size: 20px; margin: 0 0 16px;">${escapeHtml(summary)}</h1>
+      ${htmlItems}
+      <a href="${adminUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Open admin panel</a>
+      <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; automated health check, runs every 6 hours</p>
+    </div>
+  `.trim()
+
+  await Promise.all(recipients.map((to) => sendEmail({ to, subject, html, text })))
+}
+
+// ---------------------------------------------------------------------------
 // VIP alert (Commander update wave B1, migration 0016 contacts.is_vip)
 // ---------------------------------------------------------------------------
 
