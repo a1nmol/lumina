@@ -57,10 +57,20 @@ const PRO_LIMITS: PlanLimits = {
   spend_cap_usd: 80,
 }
 
+/**
+ * The known, explicit FeatureFlags keys (FeatureFlags also has a
+ * `[flag: string]` index signature for forward-compat, same reasoning as
+ * PlanLimitKey above). `remove_branding` (Outlast wave 4) is the first flag
+ * actually wired to a live behavior — see src/lib/ai/intro.ts's
+ * `appendLuminaSignature`, called from the three FrontDesk channel routes.
+ */
+export type FeatureFlagKey = "remove_branding" | "white_label_reports" | "voice" | "video"
+
 const BASE_FLAGS: FeatureFlags = {
   voice: false,
   video: false,
   white_label_reports: false,
+  remove_branding: false,
 }
 
 export const PLAN_CATALOG: Record<PlanId, PlanCatalogEntry> = {
@@ -78,7 +88,7 @@ export const PLAN_CATALOG: Record<PlanId, PlanCatalogEntry> = {
     monthly_price_cents: 2900,
     tagline: "A single location getting content + FrontDesk off the ground.",
     limits: STARTER_LIMITS,
-    featureFlags: { ...BASE_FLAGS },
+    featureFlags: { ...BASE_FLAGS, remove_branding: true },
   },
   pro: {
     id: "pro",
@@ -86,7 +96,7 @@ export const PLAN_CATALOG: Record<PlanId, PlanCatalogEntry> = {
     monthly_price_cents: 7900,
     tagline: "Busier locations that want higher ceilings and video content.",
     limits: PRO_LIMITS,
-    featureFlags: { ...BASE_FLAGS, video: true, white_label_reports: true },
+    featureFlags: { ...BASE_FLAGS, video: true, white_label_reports: true, remove_branding: true },
   },
 }
 
@@ -106,3 +116,32 @@ export const PLAN_LIMIT_LABELS: Record<PlanLimitKey, string> = {
   ai_replies: "AI replies",
   spend_cap_usd: "Spend cap",
 }
+
+/** Ordered PlanLimits keys — drives the admin caps section row order. */
+export const PLAN_LIMIT_KEYS: PlanLimitKey[] = [
+  "content_generations",
+  "images",
+  "slideshows",
+  "ai_replies",
+  "spend_cap_usd",
+]
+
+/** Human labels for the FeatureFlags keys shown in the admin entitlements section. */
+export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
+  remove_branding: "Remove “via Lumina” branding",
+  white_label_reports: "White-label reports",
+  voice: "Voice (FrontDesk phone calls)",
+  video: "Video content generation",
+}
+
+/**
+ * Grouped display order for the admin Entitlements section (Design Brief,
+ * Outlast wave 4): "Branding & reports" then "Channels & capabilities".
+ */
+export const FEATURE_FLAG_GROUPS: { label: string; flags: FeatureFlagKey[] }[] = [
+  { label: "Branding & reports", flags: ["remove_branding", "white_label_reports"] },
+  { label: "Channels & capabilities", flags: ["voice", "video"] },
+]
+
+/** Flat ordered list of every known flag key, derived from the groups above. */
+export const FEATURE_FLAG_KEYS: FeatureFlagKey[] = FEATURE_FLAG_GROUPS.flatMap((group) => group.flags)

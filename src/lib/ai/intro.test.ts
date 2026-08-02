@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { INTRO_SESSION_GAP_MS, getIntroToSend, shouldSendIntro, type IntroGateMessage } from "./intro"
+import {
+  appendLuminaSignature,
+  INTRO_SESSION_GAP_MS,
+  getIntroToSend,
+  shouldSendIntro,
+  type IntroGateMessage,
+} from "./intro"
 
 const NOW = new Date("2026-07-30T12:00:00.000Z").getTime()
 
@@ -156,5 +162,24 @@ describe("getIntroToSend", () => {
         now: NOW,
       })
     ).toBeNull()
+  })
+})
+
+describe("appendLuminaSignature", () => {
+  it("appends the fallback signature on a new line when branding isn't removed", () => {
+    expect(appendLuminaSignature("hey it's an AI answering right now", false)).toBe(
+      "hey it's an AI answering right now\n— sent via ✦ Lumina"
+    )
+  })
+
+  it("returns the intro text verbatim when the org's plan/override removes branding", () => {
+    expect(appendLuminaSignature("hey it's an AI answering right now", true)).toBe(
+      "hey it's an AI answering right now"
+    )
+  })
+
+  it("never modifies the owner's original text beyond appending", () => {
+    const original = "  you're talking to an AI right now  "
+    expect(appendLuminaSignature(original, false).startsWith(original)).toBe(true)
   })
 })

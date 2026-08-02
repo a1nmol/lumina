@@ -21,10 +21,11 @@ import { NextResponse, type NextRequest } from "next/server"
 import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
-import { getIntroToSend } from "@/lib/ai/intro"
+import { appendLuminaSignature, getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
 import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
+import { getEntitlements } from "@/lib/entitlements"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Contact, Conversation, ConversationAiMode, Message } from "@/lib/types"
 
@@ -399,6 +400,20 @@ export async function POST(request: NextRequest) {
       aiIntroText: resolved.brain?.ai_intro_text,
       priorMessages,
     })
+
+    // Free-tier fallback branding (src/lib/plans.ts's `remove_branding`) —
+    // appended to the intro text ONLY, never the real reply below.
+    if (introToSend) {
+      try {
+        const entitlements = await getEntitlements(resolved.orgId)
+        introToSend = appendLuminaSignature(introToSend, Boolean(entitlements.featureFlags.remove_branding))
+      } catch (entitlementsError) {
+        // Branding is cosmetic; the reply is not (review-caught): an
+        // entitlements blip must never drop the customer's answer. Send the
+        // intro unbranded and move on.
+        console.error("[frontdesk/chat] failed to resolve entitlements for intro branding, sending unbranded", entitlementsError)
+      }
+    }
 
     if (introToSend) {
       const { error: introInsertError } = await admin.from("messages").insert({

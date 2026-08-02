@@ -9,13 +9,17 @@ import "server-only"
 // usage_events once and aggregates per-org in memory rather than issuing N
 // grouped queries — simplest correct approach at current scale.
 
-import { prettifyPlanId } from "@/lib/entitlements"
+import { FREE_TEST_LIMITS, prettifyPlanId } from "@/lib/entitlements"
+import { PLAN_CATALOG, type PlanId } from "@/lib/plans"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
+import type { ConnectedChannels, PlanLimits } from "@/lib/types"
 
 export interface AdminAccountRow {
   id: string
   name: string
   slug: string
+  /** Raw plan id (e.g. `starter`) — the row's Sheet trigger + the org-detail Sheet's Actions menu both need this, not just the display name. */
+  planId: string
   planName: string
   /** Most recent usage_events.created_at for this org, null if it has none. */
   lastActivityAt: string | null
@@ -23,6 +27,9 @@ export interface AdminAccountRow {
   eventCount: number
   /** True if any usage_event landed in the last 7 days. */
   isActiveThisWeek: boolean
+  /** This month's spend as a percent of the org's effective spend cap (plan default, or override if set). Null when the plan has no spend cap. */
+  usagePercent: number | null
+  connectedChannels: ConnectedChannels
 }
 
 export interface AdminStats {
@@ -70,11 +77,13 @@ export async function getAdminStats(): Promise<AdminStats> {
     { data: entitlementsRows, error: entitlementsError },
     { data: plans, error: plansError },
     { data: usageRows, error: usageError },
+    { data: brainRows, error: brainError },
   ] = await Promise.all([
     supabase.from("orgs").select("id, name, slug, created_at").order("created_at", { ascending: true }),
-    supabase.from("entitlements").select("org_id, plan_id"),
-    supabase.from("plans").select("id, name"),
+    supabase.from("entitlements").select("org_id, plan_id, overrides"),
+    supabase.from("plans").select("id, name, limits"),
     supabase.from("usage_events").select("org_id, cost_usd, created_at"),
+    supabase.from("business_brain").select("org_id, connected_channels"),
   ])
 
   if (orgsError) throw new Error(`getAdminStats: failed to load orgs: ${orgsError.message}`)
@@ -83,9 +92,14 @@ export async function getAdminStats(): Promise<AdminStats> {
   }
   if (plansError) throw new Error(`getAdminStats: failed to load plans: ${plansError.message}`)
   if (usageError) throw new Error(`getAdminStats: failed to load usage_events: ${usageError.message}`)
+  if (brainError) throw new Error(`getAdminStats: failed to load business_brain: ${brainError.message}`)
 
   const planNameById = new Map((plans ?? []).map((plan) => [plan.id, plan.name]))
-  const planIdByOrg = new Map((entitlementsRows ?? []).map((row) => [row.org_id, row.plan_id]))
+  const planLimitsById = new Map((plans ?? []).map((plan) => [plan.id, plan.limits as PlanLimits]))
+  const entitlementsByOrg = new Map((entitlementsRows ?? []).map((row) => [row.org_id, row]))
+  const channelsByOrg = new Map(
+    (brainRows ?? []).map((row) => [row.org_id, (row.connected_channels as ConnectedChannels | null) ?? {}])
+  )
 
   const usageByOrg = new Map<string, OrgUsageAgg>()
   const sevenDaysAgo = sevenDaysAgoIso()
@@ -107,18 +121,29 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const accounts: AdminAccountRow[] = (orgs ?? []).map((org) => {
     const agg = usageByOrg.get(org.id) ?? null
-    const planId = planIdByOrg.get(org.id) ?? "free_test"
+    const entitlementsRow = entitlementsByOrg.get(org.id)
+    const planId = entitlementsRow?.plan_id ?? "free_test"
     const isActiveThisWeek = Boolean(agg?.lastActivityAt && agg.lastActivityAt >= sevenDaysAgo)
+
+    const planLimits =
+      planLimitsById.get(planId) ?? (PLAN_CATALOG[planId as PlanId] ?? PLAN_CATALOG.free_test).limits ?? FREE_TEST_LIMITS
+    const overrideSpendCap = (entitlementsRow?.overrides as Partial<PlanLimits> | undefined)?.spend_cap_usd
+    const spendCapUsd = overrideSpendCap ?? planLimits.spend_cap_usd ?? null
+    const usagePercent =
+      spendCapUsd && spendCapUsd > 0 ? Math.min(100, ((agg?.spendUsd ?? 0) / spendCapUsd) * 100) : null
 
     return {
       id: org.id,
       name: org.name,
       slug: org.slug,
+      planId,
       planName: planNameById.get(planId) ?? prettifyPlanId(planId),
       lastActivityAt: agg?.lastActivityAt ?? null,
       spendUsd: agg?.spendUsd ?? 0,
       eventCount: agg?.eventCount ?? 0,
       isActiveThisWeek,
+      usagePercent,
+      connectedChannels: channelsByOrg.get(org.id) ?? {},
     }
   })
 

@@ -1,28 +1,38 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import { Activity, CircleDollarSign, Gauge, Info, Users } from "lucide-react"
+import { Activity, CircleDollarSign, Gauge, ShieldAlert, Info, Users } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { relativeTime } from "@/app/(app)/contacts/utils"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { isPlatformAdmin } from "@/lib/admin"
-import { getAdminStats } from "@/lib/admin-stats"
+import { getAdminStats, type AdminAccountRow } from "@/lib/admin-stats"
 import { DEMO_ORG } from "@/lib/demo"
 import { formatMonthlyPrice, PLAN_CATALOG, PLAN_LIMIT_LABELS, PLAN_ORDER } from "@/lib/plans"
 import { isSupabaseConfigured } from "@/lib/supabase/admin"
 
+import { AccountsTable } from "./accounts-table"
+
 export const metadata: Metadata = { title: "Admin" }
+
+const DEMO_ACCOUNTS: AdminAccountRow[] = [
+  {
+    id: DEMO_ORG.id,
+    name: DEMO_ORG.name,
+    slug: DEMO_ORG.slug,
+    planId: "free_test",
+    planName: "Free test",
+    lastActivityAt: null,
+    spendUsd: 0,
+    eventCount: 0,
+    isActiveThisWeek: true,
+    usagePercent: 0,
+    connectedChannels: {},
+  },
+]
 
 const DEMO_STATS = [
   {
@@ -84,6 +94,11 @@ export default async function AdminPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
+      <div className="-mt-1 flex items-center gap-1.5 border-b border-warning/40 pb-3 text-xs text-muted-foreground">
+        <ShieldAlert aria-hidden="true" className="size-3.5 text-warning" />
+        Platform admin — changes affect live tenant accounts.
+      </div>
+
       <PageHeader
         title="Admin"
         description="Per-account usage, spend, and plan status across every business on Lumina."
@@ -99,66 +114,12 @@ export default async function AdminPage() {
         <CardHeader>
           <CardTitle>Accounts</CardTitle>
           <CardDescription>
-            Every business currently on Lumina, invite-only test phase.
+            Every business currently on Lumina, invite-only test phase. Click a row to manage its plan,
+            entitlements, and usage caps.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Business</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Last activity</TableHead>
-                <TableHead>Spend</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {stats ? (
-                stats.accounts.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No accounts yet.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  stats.accounts.map((account) => (
-                    <TableRow key={account.id}>
-                      <TableCell className="font-medium text-foreground">{account.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{account.planName}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {account.lastActivityAt ? relativeTime(account.lastActivityAt) : "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{formatUsd(account.spendUsd)}</TableCell>
-                      <TableCell>
-                        {account.isActiveThisWeek ? (
-                          <Badge variant="secondary" className="bg-success/10 text-success">
-                            Active
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-muted text-muted-foreground">
-                            Quiet
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )
-              ) : (
-                <TableRow>
-                  <TableCell className="font-medium text-foreground">{DEMO_ORG.name}</TableCell>
-                  <TableCell className="text-muted-foreground">Free test</TableCell>
-                  <TableCell className="text-muted-foreground">—</TableCell>
-                  <TableCell className="text-muted-foreground">$0.00</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="bg-success/10 text-success">
-                      Active
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <AccountsTable accounts={stats ? stats.accounts : DEMO_ACCOUNTS} />
         </CardContent>
       </Card>
 

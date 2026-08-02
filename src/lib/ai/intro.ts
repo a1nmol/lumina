@@ -91,3 +91,20 @@ export function getIntroToSend(input: ShouldSendIntroInput): string | null {
   if (!shouldSendIntro(input)) return null
   return (input.aiIntroText as string).trim()
 }
+
+/**
+ * Free-tier fallback branding (MASTER_PLAN.md §4.G entitlements; Outlast
+ * wave 4 admin panel wires `remove_branding` per org/plan — see
+ * src/lib/plans.ts's `FEATURE_FLAG_LABELS` and src/lib/entitlements.ts's
+ * `planDefaultFlags`). Appends a one-line "sent via Lumina" signature to the
+ * honest-AI INTRO message only — never to normal replies, which would read
+ * as spammy watermarking. Orgs whose effective flags include
+ * `remove_branding` (paid tiers) get the owner's intro text back verbatim.
+ * The full Generic-Template branded card is a later wave; this is the
+ * researched fallback tier: cheap, textual, and only shown once per
+ * conversation since it rides on the existing intro gating in this file.
+ */
+export function appendLuminaSignature(introText: string, removeBranding: boolean): string {
+  if (removeBranding) return introText
+  return `${introText}\n— sent via ✦ Lumina`
+}

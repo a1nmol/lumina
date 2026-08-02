@@ -58,9 +58,10 @@ import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory }
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { describeImageAttachment } from "@/lib/ai/describe-image"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
-import { getIntroToSend } from "@/lib/ai/intro"
+import { appendLuminaSignature, getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
+import { getEntitlements } from "@/lib/entitlements"
 import {
   attachmentPlaceholderBody,
   normalizeInstagramAttachments,
@@ -683,11 +684,25 @@ async function handleMessagingEvent(
   // is logged and swallowed — it must never block the real reply below.
   // -----------------------------------------------------------------
   const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
-  const introToSend = getIntroToSend({
+  let introToSend = getIntroToSend({
     aiIntroEnabled: brain?.ai_intro_enabled ?? false,
     aiIntroText: brain?.ai_intro_text,
     priorMessages,
   })
+
+  // Free-tier fallback branding (src/lib/plans.ts's `remove_branding`) —
+  // appended to the intro text ONLY, never the real reply below.
+  if (introToSend) {
+    try {
+      const entitlements = await getEntitlements(orgId)
+      introToSend = appendLuminaSignature(introToSend, Boolean(entitlements.featureFlags.remove_branding))
+    } catch (entitlementsError) {
+      // Branding is cosmetic; the reply is not (review-caught): an
+      // entitlements blip must never drop the customer's answer. Send the
+      // intro unbranded and move on.
+      console.error("[webhooks/instagram] failed to resolve entitlements for intro branding, sending unbranded", entitlementsError)
+    }
+  }
 
   if (introToSend) {
     try {

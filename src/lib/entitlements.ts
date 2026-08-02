@@ -7,6 +7,8 @@ import "server-only"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import type { FeatureFlags, PlanLimits } from "@/lib/types"
 
+import { PLAN_CATALOG, type PlanId } from "@/lib/plans"
+
 /** Mirrors the 'free_test' plan seeded in supabase/migrations/0001_foundation.sql. */
 export const FREE_TEST_LIMITS: PlanLimits = {
   content_generations: 200,
@@ -25,11 +27,22 @@ export interface ResolvedEntitlements {
   featureFlags: FeatureFlags
 }
 
+/**
+ * The catalog's indicative feature flags for a plan id, falling back to
+ * free_test's (all-false, `BASE_FLAGS`) for an unknown plan id. Public so the
+ * admin panel (src/app/(app)/admin/actions.ts) can sync `entitlements.
+ * feature_flags` to the new plan's defaults on a plan change, and can render
+ * "Plan default (Pro)" captions for un-overridden entitlement rows.
+ */
+export function planDefaultFlags(planId: string): FeatureFlags {
+  return { ...(PLAN_CATALOG[planId as PlanId]?.featureFlags ?? PLAN_CATALOG.free_test.featureFlags) }
+}
+
 const DEMO_ENTITLEMENTS = (orgId: string): ResolvedEntitlements => ({
   orgId,
   planId: "free_test",
   limits: { ...FREE_TEST_LIMITS },
-  featureFlags: {},
+  featureFlags: planDefaultFlags("free_test"),
 })
 
 /**
@@ -72,11 +85,24 @@ export async function getEntitlements(orgId: string): Promise<ResolvedEntitlemen
   const planLimits = plan?.limits ?? FREE_TEST_LIMITS
   const { feature_flags: overrideFlags, ...limitOverrides } = data.overrides
 
+  // Effective flags = plan catalog defaults, then the org's own
+  // `feature_flags` column (legacy/manual per-org base, normally kept in
+  // sync with the plan by src/app/(app)/admin/actions.ts#setOrgPlan), then
+  // per-org overrides on top — highest priority last. This is the "plan-level
+  // flag inheritance" the plans.ts catalog comment anticipated; the admin
+  // panel (Outlast wave 4) is what actually writes overrides now.
+  //
+  // DRIFT TRAP (review-noted): the DB column outranks the catalog layer, and
+  // only setOrgPlan/resetOrgToPlanDefaults re-sync it. If a plan's catalog
+  // default for an EXISTING flag ever changes in code, orgs already on that
+  // plan keep their stale snapshot until an admin re-runs "Change plan" or
+  // "Reset to defaults" on them — there is no bulk resync today. Adding a
+  // NEW flag is safe (catalog layer supplies it).
   return {
     orgId: data.org_id,
     planId: data.plan_id,
     limits: { ...planLimits, ...limitOverrides },
-    featureFlags: { ...data.feature_flags, ...(overrideFlags ?? {}) },
+    featureFlags: { ...planDefaultFlags(data.plan_id), ...data.feature_flags, ...(overrideFlags ?? {}) },
   }
 }
 
