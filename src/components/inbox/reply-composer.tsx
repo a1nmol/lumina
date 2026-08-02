@@ -81,6 +81,15 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMountedRef = useRef(true)
+  // Edit-learning (Outlast wave 2, Part A): the AI-drafted text that most
+  // recently prefilled the composer verbatim — either from "AI draft"
+  // (requestDraft) or a clicked suggestion chip (handleSelectSuggestion).
+  // Compared against what actually gets sent (handleSend) so sendReply can
+  // capture the pair as a style exemplar when the owner edited it. Cleared
+  // whenever the box is emptied by hand (see the Textarea onChange below) —
+  // clearing and typing a reply from scratch must never be attributed to a
+  // draft that's no longer even in the box.
+  const originalAiDraftRef = useRef<string | null>(null)
 
   const [mode, setMode] = useState<ComposerMode>("reply")
   const [text, setText] = useState("")
@@ -111,6 +120,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     setSuggestions([])
     setIsSuggesting(false)
     setIsRewriting(false)
+    originalAiDraftRef.current = null
   }, [conversationId])
 
   useEffect(() => {
@@ -190,6 +200,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setText(result.draft)
       setIsDraftPending(true)
       setDraftMeta({ model: result.model, costUsd: result.costUsd })
+      originalAiDraftRef.current = result.draft
       setAnnouncement("AI draft ready")
     } catch {
       if (!isMountedRef.current || requestConversationId !== conversationId) return
@@ -204,6 +215,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     setText("")
     setIsDraftPending(false)
     setDraftMeta({})
+    originalAiDraftRef.current = null
     textareaRef.current?.focus()
   }
 
@@ -235,10 +247,11 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     }
   }
 
-  /** A tapped suggestion chip REPLACES the compose text (never sends) and focuses the box so the human can edit before sending. */
+  /** A tapped suggestion chip REPLACES the compose text (never sends) and focuses the box so the human can edit before sending. Also counts as an "AI draft" for edit-learning purposes (see originalAiDraftRef above). */
   function handleSelectSuggestion(suggestion: string) {
     setText(suggestion)
     setSuggestions([])
+    originalAiDraftRef.current = suggestion
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
@@ -252,6 +265,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     if (!trimmed || isRewriting) return
 
     const previousText = text
+    const previousAiDraft = originalAiDraftRef.current
 
     setIsRewriting(true)
     try {
@@ -268,9 +282,21 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       }
 
       setText(result.text)
+      // Edit-learning integrity (review-caught): the rewrite output is AI
+      // text, not the owner's. The ref must now point at THIS text, so only
+      // true manual keystrokes after the rewrite count as an owner edit —
+      // otherwise "AI draft -> Rewrite -> Send" would store AI-on-AI pairs
+      // as "how the owner really texts" and poison the style corpus.
+      originalAiDraftRef.current = result.text
       requestAnimationFrame(() => textareaRef.current?.focus())
       toast("Rewrote your reply", {
-        action: { label: "Undo", onClick: () => setText(previousText) },
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setText(previousText)
+            originalAiDraftRef.current = previousAiDraft
+          },
+        },
       })
     } catch {
       if (!isMountedRef.current) return
@@ -302,6 +328,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setIsDraftPending(false)
       setDraftMeta({})
       setSuggestions([])
+      originalAiDraftRef.current = null
       setAnnouncement("Whisper delivered")
     } catch (error) {
       if (!isMountedRef.current) return
@@ -344,6 +371,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
         aiHandled,
         model: draftMeta.model ?? null,
         costUsd: draftMeta.costUsd,
+        originalAiDraft: kind === "message" ? (originalAiDraftRef.current ?? undefined) : undefined,
       })
       if (!isMountedRef.current) return
 
@@ -359,6 +387,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       setIsDraftPending(false)
       setDraftMeta({})
       setSuggestions([])
+      originalAiDraftRef.current = null
       setAnnouncement(kind === "note" ? "Note added" : "Reply sent")
     } catch (error) {
       if (!isMountedRef.current) return
@@ -474,7 +503,15 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           id="inbox-composer-textarea"
           ref={textareaRef}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            // Clearing the box back to empty is "starting from scratch" —
+            // whatever gets typed next must never be attributed to a draft
+            // that's no longer even in the composer (see originalAiDraftRef
+            // above).
+            if (nextValue === "") originalAiDraftRef.current = null
+            setText(nextValue)
+          }}
           onKeyDown={handleKeyDown}
           placeholder={
             mode === "note" ? "Add an internal note (not sent to the customer)…" : 'Write a reply… or "@ai " to whisper'

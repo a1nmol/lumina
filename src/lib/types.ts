@@ -407,6 +407,25 @@ export type WatchdogAlert = {
 }
 
 /**
+ * Mirrors supabase/migrations/0018_style_examples.sql — edit-learning
+ * exemplar pairs: what the AI drafted vs. what the owner actually sent,
+ * captured whenever the owner edits an AI draft before sending (see
+ * sendReply in src/app/(app)/inbox/actions.ts). Read by
+ * src/lib/ai/style-examples.ts and injected into the reply-drafting prompts
+ * as style guidance so replies converge on the owner's real texting
+ * fingerprint over time.
+ */
+export type AiStyleExample = {
+  id: string
+  org_id: string
+  conversation_id: string | null
+  channel: string | null
+  ai_draft: string
+  owner_text: string
+  created_at: string
+}
+
+/**
  * Composed (non-table) analytics shapes returned by src/lib/analytics.ts and
  * mirrored by the DEMO_* fallbacks in src/lib/demo.ts — kept here (rather
  * than as local interfaces in analytics.ts) so demo.ts can type its exports
@@ -638,6 +657,12 @@ export interface Database {
         Row: WatchdogAlert
         Insert: Partial<WatchdogAlert> & Pick<WatchdogAlert, "org_id" | "kind">
         Update: Partial<WatchdogAlert>
+        Relationships: []
+      }
+      ai_style_examples: {
+        Row: AiStyleExample
+        Insert: Partial<AiStyleExample> & Pick<AiStyleExample, "org_id" | "ai_draft" | "owner_text">
+        Update: Partial<AiStyleExample>
         Relationships: []
       }
     }

@@ -38,6 +38,7 @@ import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { STYLE_GUIDE, messageToPromptContent } from "./frontdesk-reply"
 import { runTextJob } from "./router"
+import { fetchStyleExamples, renderStyleExamplesBlock } from "./style-examples"
 
 const MAX_HISTORY_MESSAGES = 10
 const MAX_VOICE_ANCHORS = 3
@@ -159,7 +160,8 @@ function buildSuggestionsSystemPrompt(
   voiceAnchors: string[],
   memory: ConversationMemory | null,
   personMemory: PersonMemory | null,
-  messages: Message[]
+  messages: Message[],
+  styleExamplesBlock: string
 ): string {
   const intro = brain?.business_name
     ? `You are helping the front-desk team at ${brain.business_name}${
@@ -183,6 +185,10 @@ function buildSuggestionsSystemPrompt(
         .map((anchor) => `"${anchor}"`)
         .join(" / ")}`
     )
+  }
+
+  if (styleExamplesBlock) {
+    lines.push(styleExamplesBlock)
   }
 
   lines.push(
@@ -250,14 +256,26 @@ export async function suggestReplies(input: SuggestRepliesInput): Promise<Sugges
   )
   if (!hasInboundMessage) return null
 
-  const [businessBrain, voiceAnchors] = await Promise.all([getBusinessBrain(), fetchVoiceAnchors(input.orgId)])
+  const [businessBrain, voiceAnchors, styleExamplePairs] = await Promise.all([
+    getBusinessBrain(),
+    fetchVoiceAnchors(input.orgId),
+    fetchStyleExamples(input.orgId),
+  ])
   const memory = parseConversationMemory(conversation.ai_memory)
   const personMemory = conversation.contact ? parsePersonMemory(conversation.contact.ai_memory) : null
+  const styleExamplesBlock = renderStyleExamplesBlock(styleExamplePairs)
 
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildSuggestionsSystemPrompt(businessBrain, voiceAnchors, memory, personMemory, conversation.messages),
+      content: buildSuggestionsSystemPrompt(
+        businessBrain,
+        voiceAnchors,
+        memory,
+        personMemory,
+        conversation.messages,
+        styleExamplesBlock
+      ),
     },
     ...formatHistory(conversation.messages),
     buildSuggestInstructionMessage(conversation.contact, conversation.channel),

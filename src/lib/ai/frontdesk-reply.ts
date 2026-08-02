@@ -41,6 +41,7 @@ import {
 import type { ChatMessage } from "./openrouter"
 import { isOpenRouterConfigured } from "./openrouter"
 import { runTextJob } from "./router"
+import { fetchStyleExamples, renderStyleExamplesBlock } from "./style-examples"
 
 export interface DraftCustomerReplyInput {
   orgId: string
@@ -319,14 +320,19 @@ function buildIdentityBlock(brain: BusinessBrain | null): string {
  * anti-repetition + wind-down + memory context (see buildIdentityBlock's own
  * comment for why persona-first matters). `windDownDirective` is computed by
  * the caller (draftCustomerReply) since it requires an async usage lookup
- * this function can't perform itself.
+ * this function can't perform itself. `styleExamplesBlock` (Outlast wave 2
+ * edit-learning, see ./style-examples.ts) is likewise computed by the caller
+ * — draftCustomerReply fetches it, draftWhisperMessage doesn't (a whisper is
+ * the owner's own words being composed, not a reply the AI is drafting
+ * unattended, so it's not part of that scope) and simply omits it.
  */
 function buildSystemPrompt(
   brain: BusinessBrain | null,
   conversation: Conversation,
   messages: Message[],
   contact: Contact | null,
-  windDownDirective: string | null = null
+  windDownDirective: string | null = null,
+  styleExamplesBlock: string | null = null
 ): string {
   const identityBlock = buildIdentityBlock(brain)
   const bannedOpenersBlock = buildBannedOpenersBlock(messages)
@@ -336,6 +342,7 @@ function buildSystemPrompt(
     return [
       identityBlock,
       STYLE_GUIDE,
+      styleExamplesBlock,
       ESCALATION_GUIDE,
       "Try to answer, qualify, or book the customer whenever you reasonably can.",
       bannedOpenersBlock,
@@ -370,6 +377,7 @@ function buildSystemPrompt(
   const lines = [
     identityBlock,
     STYLE_GUIDE,
+    styleExamplesBlock,
     description ? `About the business: ${description}` : null,
     hoursLines.length > 0 ? `Hours: ${hoursLines.join(", ")}.` : null,
     services ? `Services/prices: ${services}.` : null,
@@ -574,11 +582,20 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   // already exists in runTextJob, not a separate opt-in. Best-effort: a
   // failed usage lookup just means no wind-down cue this round, never blocks
   // drafting.
+  // Both lookups are independent DB reads on the hot reply path — run them
+  // in parallel (review fix), each with the same best-effort contract: a
+  // failure just means no wind-down cue / no style guidance this round,
+  // never blocked drafting.
+  const [usageFractionResult, styleExamplesResult] = await Promise.allSettled([
+    getAiRepliesUsageFraction(input.orgId),
+    fetchStyleExamples(input.orgId),
+  ])
+
   let stage: WindDownStage = "none"
-  try {
-    stage = windDownStage(await getAiRepliesUsageFraction(input.orgId))
-  } catch (error) {
-    console.error("[frontdesk-reply] failed to compute wind-down stage", error)
+  if (usageFractionResult.status === "fulfilled") {
+    stage = windDownStage(usageFractionResult.value)
+  } else {
+    console.error("[frontdesk-reply] failed to compute wind-down stage", usageFractionResult.reason)
   }
 
   if (stage === "close" && lastOutboundAiMessageIsWoundDown(input.messages)) {
@@ -587,10 +604,27 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
 
   const windDownDirective = windDownDirectiveForStage(stage)
 
+  // Edit-learning (Outlast wave 2) — same best-effort contract
+  // (fetchStyleExamples itself already never throws, but this stays
+  // defensive against a future change there).
+  let styleExamplesBlock: string | null = null
+  try {
+    styleExamplesBlock = styleExamplesResult.status === "fulfilled" ? renderStyleExamplesBlock(styleExamplesResult.value) || null : null
+  } catch (error) {
+    console.error("[frontdesk-reply] failed to fetch style examples", error)
+  }
+
   const baseMessages: ChatMessage[] = [
     {
       role: "system",
-      content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact, windDownDirective),
+      content: buildSystemPrompt(
+        input.businessBrain,
+        input.conversation,
+        input.messages,
+        input.contact,
+        windDownDirective,
+        styleExamplesBlock
+      ),
     },
     ...formatHistory(input.messages),
     buildInstructionMessage(input.contact, input.conversation.channel),

@@ -19,6 +19,7 @@ import {
   suggestReplies as suggestRepliesInternal,
   type RewriteMode,
 } from "@/lib/ai/reply-assist"
+import { shouldCaptureStyleExample } from "@/lib/ai/style-examples"
 import { DEMO_APPOINTMENTS, DEMO_CONVERSATIONS, DEMO_ORG, type DemoConversationDetail } from "@/lib/demo"
 import {
   getContactWithTimeline,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/frontdesk"
 import { getCurrentOrgId } from "@/lib/org"
 import { sendInstagramMessage } from "@/lib/social/instagram-messaging"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { createClient } from "@/lib/supabase/server"
 import { isTwilioConfigured, sendSms } from "@/lib/twilio"
@@ -551,6 +553,97 @@ export interface SendReplyInput {
   aiHandled?: boolean
   model?: string | null
   costUsd?: number
+  /**
+   * The AI-drafted text that originally prefilled the composer (from
+   * draftReply or a clicked suggestion chip — see ReplyComposer's
+   * originalAiDraftRef) BEFORE any owner edits. Only ever set for kind
+   * "message" (never for notes/whispers, which have their own paths). When
+   * present and it differs from the body actually sent, sendReply captures
+   * the pair as an edit-learning exemplar (migration 0018
+   * ai_style_examples) — see captureStyleExampleIfEdited below.
+   */
+  originalAiDraft?: string
+}
+
+// ---------------------------------------------------------------------------
+// Edit-learning capture (Outlast wave 2, Part A) — every time the owner sends
+// something meaningfully different from the AI draft that prefilled the
+// composer, that pair is free training signal for src/lib/ai/style-examples.ts.
+// ---------------------------------------------------------------------------
+
+const MAX_STYLE_EXAMPLE_TEXT_LENGTH = 1000
+/** Keep only the newest N rows per org — a rolling window is plenty of signal, and this keeps the table (and every fetchStyleExamples query) cheap forever. */
+const STYLE_EXAMPLES_KEEP_COUNT = 50
+
+/**
+ * Fire-and-forget capture of one edit-learning exemplar. Captures NOTHING
+ * (no row) when the trimmed draft and trimmed sent text are identical — an
+ * unedited send has nothing to learn from — or when originalAiDraft is blank
+ * (a from-scratch reply, or a suggestion that was never actually used).
+ * Best-effort throughout: any query failure here is logged and swallowed,
+ * never surfaced to the caller — see sendReply's void call site, which never
+ * awaits this.
+ */
+async function captureStyleExampleIfEdited(
+  orgId: string,
+  conversationId: string,
+  originalAiDraft: string,
+  sentBody: string
+): Promise<void> {
+  if (!shouldCaptureStyleExample(originalAiDraft, sentBody)) return
+  const trimmedDraft = originalAiDraft.trim()
+  const trimmedSent = sentBody.trim()
+
+  const supabase = await createClient()
+
+  const { data: conversationRow } = await supabase
+    .from("conversations")
+    .select("channel")
+    .eq("org_id", orgId)
+    .eq("id", conversationId)
+    .maybeSingle()
+
+  const { error: insertError } = await supabase.from("ai_style_examples").insert({
+    org_id: orgId,
+    conversation_id: conversationId,
+    channel: conversationRow?.channel ?? null,
+    ai_draft: trimmedDraft.slice(0, MAX_STYLE_EXAMPLE_TEXT_LENGTH),
+    owner_text: trimmedSent.slice(0, MAX_STYLE_EXAMPLE_TEXT_LENGTH),
+  })
+
+  if (insertError) {
+    console.error("[inbox/actions] failed to capture style example", insertError.message)
+    return
+  }
+
+  // Cap table growth: prune everything past the newest STYLE_EXAMPLES_KEEP_COUNT
+  // rows for this org. Uses the service-role admin client, not the RLS-scoped
+  // client above — migration 0018 only grants org members SELECT/INSERT on
+  // this table, no DELETE policy, so a delete via the user-scoped client
+  // would be silently blocked by RLS and never actually prune anything.
+  // Best-effort — a failed prune just means the table grows a bit more than
+  // intended, never worth failing the capture over.
+  const admin = createAdminClient()
+  const { data: staleRows, error: staleError } = await admin
+    .from("ai_style_examples")
+    .select("id")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    // Secondary key: identical created_at values (fast concurrent inserts)
+    // must rank stably across executions, or the keep/prune boundary drifts.
+    .order("id", { ascending: false })
+    .range(STYLE_EXAMPLES_KEEP_COUNT, STYLE_EXAMPLES_KEEP_COUNT + 200)
+
+  if (staleError || !staleRows || staleRows.length === 0) return
+
+  const { error: deleteError } = await admin
+    .from("ai_style_examples")
+    .delete()
+    .in("id", staleRows.map((row) => row.id))
+
+  if (deleteError) {
+    console.error("[inbox/actions] failed to prune ai_style_examples", deleteError.message)
+  }
 }
 
 /**
@@ -596,7 +689,7 @@ export async function sendReply(input: SendReplyInput): Promise<Message | null> 
     })
   }
 
-  return await deliverAndPersistReply({
+  const message = await deliverAndPersistReply({
     orgId,
     conversationId: input.conversationId,
     body: trimmed,
@@ -604,6 +697,14 @@ export async function sendReply(input: SendReplyInput): Promise<Message | null> 
     model: input.model,
     costUsd: input.costUsd,
   })
+
+  if (message && input.originalAiDraft?.trim()) {
+    void captureStyleExampleIfEdited(orgId, input.conversationId, input.originalAiDraft, trimmed).catch((error) => {
+      console.error("[inbox/actions] style-example capture threw", error)
+    })
+  }
+
+  return message
 }
 
 // ---------------------------------------------------------------------------

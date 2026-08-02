@@ -33,6 +33,14 @@ export type WatchdogAlertKind =
   | "token_expiring"
   | "token_expired"
   | "webhook_silent"
+  /**
+   * Not a health finding — the daily morning-brief email (Outlast wave 2,
+   * Part B, see src/lib/morning-brief.ts + src/app/api/cron/morning-brief/route.ts)
+   * reuses this same dedupe ledger/table (rather than a new one) so a
+   * manual cron poke can't double-send the same day's brief. See
+   * getLastAlertSentAt/recordAlertSent below, exported for that route.
+   */
+  | "morning_brief"
 
 export type WatchdogSeverity = "warning" | "critical"
 
@@ -106,9 +114,10 @@ export function classifyTokenExpiry(
 
 // --- Alert dedupe -------------------------------------------------------------
 
-const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
 
-/** How long a (org_id, kind) pair stays deduped after a successful send. token_expiring gets a longer window since "7 days left" doesn't meaningfully change hour to hour. */
+/** How long a (org_id, kind) pair stays deduped after a successful send. token_expiring gets a longer window since "7 days left" doesn't meaningfully change hour to hour. morning_brief gets a sub-day window (20h, not 24h) so a slightly-early or slightly-late cron tick the next day still fires — a hard 24h window risks the next day's brief getting silently skipped by a few minutes of drift. */
 export const WATCHDOG_DEDUPE_WINDOW_MS: Record<WatchdogAlertKind, number> = {
   openrouter_credits_low: DAY_MS,
   openrouter_credits_empty: DAY_MS,
@@ -117,6 +126,7 @@ export const WATCHDOG_DEDUPE_WINDOW_MS: Record<WatchdogAlertKind, number> = {
   token_expiring: 2 * DAY_MS,
   token_expired: DAY_MS,
   webhook_silent: DAY_MS,
+  morning_brief: 20 * HOUR_MS,
 }
 
 /** True iff a fresh alert should be sent, given when (if ever) the same (org, kind) last sent. */
@@ -220,7 +230,8 @@ export async function resolveAdminAnchorOrgId(admin: AdminClient): Promise<strin
   return data?.id ?? null
 }
 
-async function getLastAlertSentAt(admin: AdminClient, orgId: string, kind: WatchdogAlertKind): Promise<Date | null> {
+/** Exported (Outlast wave 2) so src/app/api/cron/morning-brief/route.ts can reuse this same dedupe ledger for the "morning_brief" kind — see WatchdogAlertKind's doc comment. */
+export async function getLastAlertSentAt(admin: AdminClient, orgId: string, kind: WatchdogAlertKind): Promise<Date | null> {
   const { data, error } = await admin
     .from("watchdog_alerts")
     .select("sent_at")
@@ -237,7 +248,8 @@ async function getLastAlertSentAt(admin: AdminClient, orgId: string, kind: Watch
   return data ? new Date(data.sent_at) : null
 }
 
-async function recordAlertSent(admin: AdminClient, orgId: string, kind: WatchdogAlertKind, detail: string): Promise<void> {
+/** Exported (Outlast wave 2) alongside getLastAlertSentAt — same reuse. */
+export async function recordAlertSent(admin: AdminClient, orgId: string, kind: WatchdogAlertKind, detail: string): Promise<void> {
   const { error } = await admin.from("watchdog_alerts").insert({ org_id: orgId, kind, detail })
   if (error) console.error("[watchdog] failed to record watchdog_alerts row", error.message)
 }

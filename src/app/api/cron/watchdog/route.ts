@@ -3,30 +3,22 @@
 // `Authorization: Bearer $CRON_SECRET` when CRON_SECRET is set in the
 // project's env — see https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs.
 // All the actual checking/alerting logic lives in src/lib/watchdog.ts (kept
-// out of the route so it stays unit-testable without a request object).
-
-import { timingSafeEqual } from "node:crypto"
+// out of the route so it stays unit-testable without a request object). The
+// bearer-auth gate itself lives in src/lib/cron-auth.ts, shared with every
+// other /api/cron/* route (see src/app/api/cron/morning-brief/route.ts).
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { isAuthorizedCronRequest } from "@/lib/cron-auth"
 import { runWatchdog } from "@/lib/watchdog"
 
 // Explicit ceiling so a slow run (many orgs, slow queries) degrades to
 // "finishes late" on Fluid Compute rather than inheriting a surprise default.
 export const maxDuration = 60
 
-/** Timing-safe bearer comparison — house style for secret checks (see src/app/api/webhooks/instagram/route.ts's isValidSignature). */
-function isAuthorized(authHeader: string | null, cronSecret: string): boolean {
-  if (!authHeader) return false
-  const expected = Buffer.from(`Bearer ${cronSecret}`)
-  const provided = Buffer.from(authHeader)
-  if (expected.length !== provided.length) return false
-  return timingSafeEqual(expected, provided)
-}
-
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && !isAuthorized(request.headers.get("authorization"), cronSecret)) {
+  if (cronSecret && !isAuthorizedCronRequest(request.headers.get("authorization"), cronSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   // CRON_SECRET unset (local/demo dev) — allow through, matching the rest of

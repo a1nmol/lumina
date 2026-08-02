@@ -15,6 +15,7 @@ import "server-only"
 // Once a domain is verified, swap RESEND_FROM below (or promote it to an env
 // var) — no call site needs to change.
 
+import { deriveBriefLines, formatBriefSubject, type MorningBriefData } from "@/lib/morning-brief"
 import { createAdminClient, isSupabaseConfigured as isAdminConfigured } from "@/lib/supabase/admin"
 import type { ConversationChannel } from "@/lib/types"
 
@@ -422,6 +423,85 @@ export async function sendVipAlertEmail(input: VipAlertInput): Promise<void> {
       }
       <a href="${inboxUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Reply in Inbox</a>
       <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; sent to the org owner</p>
+    </div>
+  `.trim()
+
+  await sendEmail({ to: ownerEmail, subject, html, text })
+}
+
+// ---------------------------------------------------------------------------
+// Morning brief (Outlast wave 2, Part B) — the daily "what happened
+// overnight" digest. Formatting (subject + body lines) is computed by the
+// pure helpers in src/lib/morning-brief.ts; this function only turns those
+// lines into a warm, scannable email and delivers it. See
+// src/app/api/cron/morning-brief/route.ts for the scheduled entry point and
+// the skip/dedupe rules (no email on a silent day; deduped via the SAME
+// watchdog_alerts ledger sendWatchdogAlertEmail's caller uses, kind
+// "morning_brief").
+// ---------------------------------------------------------------------------
+
+export interface MorningBriefEmailInput {
+  orgId: string
+  data: MorningBriefData
+}
+
+/** Renders one of the brief's 0-3 sections as an HTML list — "" when there's nothing in it, so the caller can just concatenate every section unconditionally. */
+function renderBriefSectionHtml(title: string, lines: string[], accentColor: string): string {
+  if (lines.length === 0) return ""
+  const items = lines.map((line) => `<li style="margin: 0 0 6px; line-height: 1.5;">${escapeHtml(line)}</li>`).join("")
+  return `
+      <div style="margin: 0 0 20px;">
+        <p style="font-size: 13px; font-weight: 600; margin: 0 0 8px; color: ${accentColor};">${escapeHtml(title)}</p>
+        <ul style="margin: 0; padding-left: 18px; font-size: 14px; color: #333333;">${items}</ul>
+      </div>
+    `
+}
+
+/**
+ * Sends the daily morning-brief email to the org owner: a plain-language
+ * recap of the last 24h (what the AI handled, who needs the owner
+ * personally, VIPs who messaged, and a couple of open threads worth a
+ * follow-up). No-ops quietly when email isn't configured or the owner's
+ * email can't be resolved — same best-effort contract as every other email
+ * in this module. The caller (the morning-brief cron route) is responsible
+ * for the skip-when-silent and dedupe rules; this function always sends
+ * given a MorningBriefData.
+ */
+export async function sendMorningBriefEmail(input: MorningBriefEmailInput): Promise<void> {
+  if (!isEmailConfigured()) return
+
+  const ownerEmail = await resolveOrgOwnerEmail(input.orgId)
+  if (!ownerEmail) return
+
+  const subject = formatBriefSubject(input.data.counts, input.data.needsOwner.length)
+  const { summaryLine, needsYouLines, vipLines, openThreadLines } = deriveBriefLines(input.data)
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  const inboxUrl = `${appUrl}/inbox`
+
+  const text = [
+    summaryLine,
+    needsYouLines.length > 0 ? `Who needs you:\n${needsYouLines.map((line) => `- ${line}`).join("\n")}` : null,
+    vipLines.length > 0 ? `VIPs who messaged:\n${vipLines.map((line) => `- ${line}`).join("\n")}` : null,
+    openThreadLines.length > 0
+      ? `Open threads worth a follow-up:\n${openThreadLines.map((line) => `- ${line}`).join("\n")}`
+      : null,
+    `Open the inbox: ${inboxUrl}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n\n")
+
+  // Plain, system-font inline styles — matches every other email in this
+  // module; email clients don't load app CSS/design tokens.
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+      <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #b4551f; font-weight: 600; margin: 0 0 8px;">Your Lumina brief</p>
+      <h1 style="font-size: 20px; margin: 0 0 16px;">${escapeHtml(summaryLine)}</h1>
+      ${renderBriefSectionHtml("Who needs you", needsYouLines, "#c0392b")}
+      ${renderBriefSectionHtml("VIPs who messaged", vipLines, "#b4551f")}
+      ${renderBriefSectionHtml("Open threads worth a follow-up", openThreadLines, "#b4551f")}
+      <a href="${inboxUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Open Inbox</a>
+      <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; your daily brief, sent every morning</p>
     </div>
   `.trim()
 
