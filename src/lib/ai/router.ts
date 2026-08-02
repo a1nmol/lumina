@@ -14,7 +14,7 @@ import { checkAllowance, recordUsage } from "@/lib/usage"
 import type { UsageFeature } from "@/lib/types"
 
 import { AllowanceDeniedError } from "./errors"
-import { chatComplete, type ChatMessage } from "./openrouter"
+import { OpenRouterRequestError, chatComplete, type ChatMessage } from "./openrouter"
 
 export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning" | "vision_describe" | "conversation_memory"
 
@@ -154,6 +154,16 @@ export async function runTextJob(input: RunTextJobInput): Promise<RunTextJobResu
 
       return { text: result.text, model: servedModel, costUsd }
     } catch (error) {
+      // 402 = the OpenRouter ACCOUNT is out of credits (discovered live
+      // 2026-08-02: replies died mid-conversation with a generic throw, so
+      // routes crash-logged instead of soft-escalating). It's account-wide —
+      // no other candidate can succeed either — so surface it as the same
+      // typed error the spend guard uses: every caller already knows how to
+      // fail gracefully on AllowanceDeniedError (silent escalate, no
+      // typing-then-ghosting, honest "out of quota" states in the UI).
+      if (error instanceof OpenRouterRequestError && error.status === 402) {
+        throw new AllowanceDeniedError(feature, "OpenRouter account is out of credits — top up at openrouter.ai/settings/credits.")
+      }
       lastError = error
       // Try the next candidate on any failure (network, 4xx/5xx, bad model id).
       continue

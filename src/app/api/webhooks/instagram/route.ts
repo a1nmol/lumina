@@ -33,6 +33,18 @@
 // (and can eventually disable) a webhook subscription that returns
 // non-2xx responses.
 //
+// Echo events (bug fix, 2026-08-01): `message.is_echo` is Meta's copy-back of
+// an OUTBOUND message the CONNECTED ACCOUNT itself sent — either (a) our own
+// Graph API send (already persisted at send time; see the mid capture at
+// every sendInstagramMessage call site below and in
+// src/app/(app)/inbox/actions.ts#deliverAndPersistReply — never
+// double-insert) or (b) the owner replying directly from the Instagram app,
+// which Lumina has otherwise never seen and previously silently dropped.
+// Routed to handleEchoMessagingEvent below (skips rate limiting — echoes
+// aren't customer traffic — and NEVER drafts/sends an AI reply), which flips
+// the usual sender/recipient id roles: for an echo, sender.id is OUR account
+// and recipient.id is the customer's IGSID.
+//
 // VIP gate (Commander update wave B1, migration 0016 contacts.is_vip): a VIP
 // contact never gets an AI auto-reply, checked BEFORE drafting even starts
 // (unlike the ai_mode 'off' branch below, which drafts first and discards) —
@@ -55,6 +67,7 @@ import {
   type NormalizedInstagramAttachment,
   type RawInstagramAttachment,
 } from "@/lib/social/instagram-attachments"
+import { isDuplicateOfRecentSend, RECENT_SEND_DEDUPE_WINDOW_MS, type DedupeCandidateMessage } from "@/lib/social/instagram-echo"
 import {
   fetchInstagramSenderProfile,
   sendInstagramMessage,
@@ -219,7 +232,11 @@ export async function POST(request: NextRequest) {
     }
     for (const event of messagingEvents) {
       try {
-        await handleMessagingEvent(admin, entry, event)
+        if (event.message?.is_echo) {
+          await handleEchoMessagingEvent(admin, entry, event)
+        } else {
+          await handleMessagingEvent(admin, entry, event)
+        }
       } catch (error) {
         // Never let one bad event fail the whole delivery / surface a 5xx to
         // Meta — log and keep going.
@@ -244,8 +261,9 @@ async function handleMessagingEvent(
   const message = event.message
   if (!senderId || !message) return
 
-  // Our own sends, echoed back by Meta — never re-ingest or reply to these.
-  if (message.is_echo) return
+  // Echo events (message.is_echo) are routed to handleEchoMessagingEvent by
+  // the caller and never reach here — this is a genuine inbound customer
+  // message from this point on.
 
   if (!checkRateLimit(`instagram:${senderId}`)) return
 
@@ -673,7 +691,7 @@ async function handleMessagingEvent(
 
   if (introToSend) {
     try {
-      await sendInstagramMessage(accessToken, senderId, introToSend)
+      const introSendResult = await sendInstagramMessage(accessToken, senderId, introToSend)
       const { error: introInsertError } = await admin.from("messages").insert({
         org_id: orgId,
         conversation_id: conversation.id,
@@ -681,7 +699,11 @@ async function handleMessagingEvent(
         kind: "message",
         body: introToSend,
         ai_handled: true,
-        metadata: { intro: true },
+        // instagram_mid — same key the inbound/echo dedupe matches on
+        // (see message.mid handling above and handleEchoMessagingEvent
+        // below) — so Meta's echo of THIS send is recognized as our own
+        // and never double-recorded.
+        metadata: { intro: true, ...(introSendResult.messageId ? { instagram_mid: introSendResult.messageId } : {}) },
       })
       if (introInsertError) {
         // The DM was already sent — the transcript is now missing a message
@@ -700,8 +722,9 @@ async function handleMessagingEvent(
     // ai_mode gate and the intro block (review fix): the owner's 'off'
     // toggle applies, and a deferral that happens to be the first AI
     // message still carries the honest-AI disclosure.
+    let deferralSendResult: Awaited<ReturnType<typeof sendInstagramMessage>>
     try {
-      await sendInstagramMessage(accessToken, senderId, draft.reply)
+      deferralSendResult = await sendInstagramMessage(accessToken, senderId, draft.reply)
     } catch (sendError) {
       console.error("[webhooks/instagram] failed to send deferral DM", sendError)
       await admin
@@ -723,7 +746,10 @@ async function handleMessagingEvent(
         ai_handled: true,
         model: draft.model,
         cost_usd: draft.costUsd,
-        metadata: draft.windDown === "close" ? { handoff: true, wind_down: "close" } : { handoff: true },
+        metadata: {
+          ...(draft.windDown === "close" ? { handoff: true, wind_down: "close" } : { handoff: true }),
+          ...(deferralSendResult.messageId ? { instagram_mid: deferralSendResult.messageId } : {}),
+        },
       })
       .select()
       .single()
@@ -749,8 +775,9 @@ async function handleMessagingEvent(
   // thread up) and tags the message so draftCustomerReply's own dedupe skips
   // drafting a repeat sign-off on the next inbound message.
   // -----------------------------------------------------------------
+  let replySendResult: Awaited<ReturnType<typeof sendInstagramMessage>>
   try {
-    await sendInstagramMessage(accessToken, senderId, draft.reply)
+    replySendResult = await sendInstagramMessage(accessToken, senderId, draft.reply)
   } catch (sendError) {
     console.error("[webhooks/instagram] failed to send DM reply", sendError)
     await admin
@@ -774,7 +801,10 @@ async function handleMessagingEvent(
       ai_handled: true,
       model: draft.model,
       cost_usd: draft.costUsd,
-      metadata: isWindDownClose ? { wind_down: "close" } : {},
+      metadata: {
+        ...(isWindDownClose ? { wind_down: "close" } : {}),
+        ...(replySendResult.messageId ? { instagram_mid: replySendResult.messageId } : {}),
+      },
     })
     .select()
     .single()
@@ -793,4 +823,242 @@ async function handleMessagingEvent(
     })
     .eq("id", conversation.id)
     .eq("org_id", orgId)
+}
+
+// ---------------------------------------------------------------------------
+// Echo events — the owner replying to a customer from the Instagram app
+// itself (or Meta's copy-back of our own API sends). See the module header
+// for the bug-fix context. NEVER drafts or sends an AI reply; only persists
+// and (for a genuinely new owner-typed message) triggers memory learning.
+// ---------------------------------------------------------------------------
+
+function isUniqueViolation(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "23505"
+}
+
+async function handleEchoMessagingEvent(
+  admin: AdminClient,
+  entry: InstagramEntry,
+  event: InstagramMessagingEvent
+): Promise<void> {
+  // ID roles flip for an echo vs. a normal inbound event: sender.id is OUR
+  // OWN connected account (used for org resolution, below) and recipient.id
+  // is the CUSTOMER's IGSID (used for the contact lookup).
+  const ourAccountId = event.sender?.id?.trim()
+  const customerIgsid = event.recipient?.id?.trim()
+  const message = event.message
+  if (!ourAccountId || !customerIgsid || !message) return
+
+  const hasText = typeof message.text === "string" && message.text.trim().length > 0
+  const attachments: NormalizedInstagramAttachment[] = normalizeInstagramAttachments(message.attachments)
+  const hasAttachments = attachments.length > 0
+  if (!hasText && !hasAttachments) return // nothing worth recording
+
+  const text = hasText ? (message.text as string).trim().slice(0, MAX_MESSAGE_TEXT_LENGTH) : null
+  const storedBody = text ?? attachmentPlaceholderBody(attachments[0].kind)
+
+  // Org resolution — same candidate-id lookup as the normal path, seeded
+  // from OUR account (sender.id/entry.id) instead of the customer's id.
+  const candidateAccountIds = Array.from(
+    new Set([ourAccountId, entry.id?.trim()].filter((id): id is string => Boolean(id)))
+  )
+  if (candidateAccountIds.length === 0) return
+
+  let connection: SocialConnection | null = null
+  for (const accountId of candidateAccountIds) {
+    const { data, error } = await admin
+      .from("social_connections")
+      .select()
+      .or(`ig_user_id.eq.${accountId},page_id.eq.${accountId}`)
+      .limit(1)
+
+    if (error) {
+      console.error("[webhooks/instagram] echo org lookup failed", error.message)
+      return
+    }
+    if (data && data.length > 0) {
+      connection = data[0] as SocialConnection
+      break
+    }
+  }
+  if (!connection) return // no org has this account connected — stray/stale webhook.
+
+  const orgId = connection.org_id
+
+  // Contact lookup — recipient.id (the CUSTOMER's IGSID) for an echo.
+  const { data: existingContact, error: contactLookupError } = await admin
+    .from("contacts")
+    .select()
+    .eq("org_id", orgId)
+    .eq("source", "instagram")
+    .contains("custom", { instagram_igsid: customerIgsid })
+    .maybeSingle()
+
+  if (contactLookupError) {
+    console.error("[webhooks/instagram] echo contact lookup failed", contactLookupError.message)
+    return
+  }
+  // An echo for a customer Lumina has never seen inbound from has nothing to
+  // attach to — silently return rather than fabricate a contact/conversation
+  // from a one-sided echo.
+  if (!existingContact) return
+  const contact = existingContact as Contact
+
+  const { data: existingConversation, error: conversationLookupError } = await admin
+    .from("conversations")
+    .select()
+    .eq("org_id", orgId)
+    .eq("contact_id", contact.id)
+    .eq("channel", "instagram")
+    .maybeSingle()
+
+  if (conversationLookupError) {
+    console.error("[webhooks/instagram] echo conversation lookup failed", conversationLookupError.message)
+    return
+  }
+  if (!existingConversation) return // no thread to resolve this echo against.
+  const conversation = existingConversation as Conversation
+
+  const mid = message.mid?.trim() || null
+
+  // Dedupe layer 1 — mid match: catches our own already-persisted API sends
+  // (every sendInstagramMessage call site now stores the send's message_id
+  // as metadata.instagram_mid, same key inbound dedupe uses) and any Meta
+  // redelivery of the same echo event.
+  if (mid) {
+    const { data: existingByMid, error: midDedupeError } = await admin
+      .from("messages")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("conversation_id", conversation.id)
+      .contains("metadata", { instagram_mid: mid })
+      .maybeSingle()
+
+    if (midDedupeError) {
+      console.error("[webhooks/instagram] echo mid dedupe lookup failed", midDedupeError.message)
+      return
+    }
+    if (existingByMid) return // already recorded.
+  }
+
+  // Dedupe layer 2 — recent-send race: the echo can arrive before our own
+  // API-send insert has committed, so the mid isn't on any row yet. Look at
+  // this thread's outbound messages from the last
+  // RECENT_SEND_DEDUPE_WINDOW_MS; an exact body match with no mid yet is
+  // backfilled with this echo's mid instead of inserted as a new row.
+  const recentSince = new Date(Date.now() - RECENT_SEND_DEDUPE_WINDOW_MS).toISOString()
+  const { data: recentOutbound, error: recentOutboundError } = await admin
+    .from("messages")
+    .select("id, direction, kind, body, created_at, metadata")
+    .eq("org_id", orgId)
+    .eq("conversation_id", conversation.id)
+    .eq("direction", "outbound")
+    // kind gate (review-caught): internal notes are also direction "outbound";
+    // matching a same-text note would drop the genuine echo AND mislabel the
+    // note as a delivered DM. Enforced in isDuplicateOfRecentSend too.
+    .eq("kind", "message")
+    .gte("created_at", recentSince)
+    .order("created_at", { ascending: false })
+
+  if (recentOutboundError) {
+    console.error("[webhooks/instagram] echo recent-send lookup failed", recentOutboundError.message)
+    return
+  }
+
+  const raceDuplicate = isDuplicateOfRecentSend(
+    (recentOutbound ?? []) as DedupeCandidateMessage[],
+    storedBody,
+    Date.now()
+  )
+
+  if (raceDuplicate) {
+    if (mid) {
+      const currentMetadata = (raceDuplicate.metadata ?? {}) as Record<string, unknown>
+      const { error: backfillError } = await admin
+        .from("messages")
+        .update({ metadata: { ...currentMetadata, instagram_mid: mid } })
+        .eq("id", raceDuplicate.id)
+        .eq("org_id", orgId)
+
+      // A failed backfill is survivable: the body is already recorded by the
+      // original send, so nothing is lost. The residual risk is a late Meta
+      // redelivery of this echo AFTER the 120s window (layer 2 won't match,
+      // no mid on the row for layer 1/3) inserting a lookalike row — that
+      // needs a transient DB error AND a delayed redelivery to line up, so
+      // we log loudly instead of retrying.
+      if (backfillError) console.error("[webhooks/instagram] echo mid backfill failed", backfillError.message)
+    }
+    return
+  }
+
+  // Not a duplicate of anything already known — a genuine owner reply typed
+  // directly in the Instagram app. Persist as a real outbound human message
+  // so the transcript is complete and memory learns it.
+  const attachmentMetadata: Record<string, unknown> = hasAttachments
+    ? {
+        attachment: { type: attachments[0].kind, url: attachments[0].url, title: attachments[0].title },
+        ...(attachments.length > 1
+          ? { attachments: attachments.map((attachment) => ({ type: attachment.kind, url: attachment.url, title: attachment.title })) }
+          : {}),
+      }
+    : {}
+
+  const { data: insertedMessage, error: insertError } = await admin
+    .from("messages")
+    .insert({
+      org_id: orgId,
+      conversation_id: conversation.id,
+      direction: "outbound",
+      kind: "message",
+      body: storedBody,
+      ai_handled: false,
+      metadata: { ...(mid ? { instagram_mid: mid } : {}), echo: true, ...attachmentMetadata },
+    })
+    .select()
+    .single()
+
+  if (insertError) {
+    // migration 0014's unique partial index on metadata->>'instagram_mid'
+    // makes a genuinely concurrent duplicate insert error here rather than
+    // slip past the select-based dedupe above — that's already deduped, not
+    // a real failure, so it's logged quietly and never thrown.
+    if (isUniqueViolation(insertError)) {
+      console.debug("[webhooks/instagram] echo insert deduped by unique index", insertError.message)
+      return
+    }
+    console.error("[webhooks/instagram] failed to persist echo message", insertError.message)
+    return
+  }
+  if (!insertedMessage) return
+
+  // The owner just replied themselves — the thread does NOT become newly
+  // unread (unlike a real inbound message), and ai_state/unread are
+  // otherwise left exactly as they were.
+  await admin
+    .from("conversations")
+    .update({ last_message_at: insertedMessage.created_at })
+    .eq("id", conversation.id)
+    .eq("org_id", orgId)
+
+  // Fire-and-forget conversation memory, same trigger the normal inbound
+  // path uses — so the AI learns what the owner said manually, even though
+  // it never sends anything from this path.
+  const { data: history, error: historyError } = await admin
+    .from("messages")
+    .select()
+    .eq("org_id", orgId)
+    .eq("conversation_id", conversation.id)
+    .order("created_at", { ascending: true })
+
+  if (historyError) {
+    console.error("[webhooks/instagram] echo memory history lookup failed", historyError.message)
+    return
+  }
+
+  const messagesSoFar = ((history ?? []) as Message[]).filter((historyMessage) => historyMessage.kind === "message")
+  if (shouldUpdateMemory(parseConversationMemory(conversation.ai_memory), messagesSoFar.length)) {
+    void updateConversationMemory({ orgId, conversationId: conversation.id }).catch((error) =>
+      console.error("[webhooks/instagram] failed to update conversation memory (echo)", error)
+    )
+  }
 }

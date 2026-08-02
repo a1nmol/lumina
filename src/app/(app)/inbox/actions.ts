@@ -401,7 +401,8 @@ const INSTAGRAM_HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
  * failure past 7 days (or if the customer never messaged in) — there is no
  * way to deliver, so this never fakes success.
  */
-async function deliverInstagramReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+/** Returns the Instagram send's `message_id`, when returned — stored by callers as metadata.instagram_mid so the echo handler recognizes this as our own send (see src/app/api/webhooks/instagram/route.ts#handleEchoMessagingEvent). */
+async function deliverInstagramReply(orgId: string, conversation: ConversationDetail, body: string): Promise<string | null> {
   const igsid =
     typeof conversation.contact?.custom?.instagram_igsid === "string"
       ? (conversation.contact.custom.instagram_igsid as string)
@@ -430,12 +431,13 @@ async function deliverInstagramReply(orgId: string, conversation: ConversationDe
   }
 
   try {
-    await sendInstagramMessage(
+    const result = await sendInstagramMessage(
       connection.access_token,
       igsid,
       body,
       ageMs >= INSTAGRAM_STANDARD_WINDOW_MS ? "HUMAN_AGENT" : undefined
     )
+    return result.messageId
   } catch {
     // The underlying call already logs the HTTP status (never the token) —
     // see src/lib/social/instagram-messaging.ts. Nothing more to log here.
@@ -443,8 +445,8 @@ async function deliverInstagramReply(orgId: string, conversation: ConversationDe
   }
 }
 
-/** Sends via Twilio's SMS REST API, using the org's provisioned number as the "From". */
-async function deliverSmsReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+/** Sends via Twilio's SMS REST API, using the org's provisioned number as the "From". Returns null (SMS has no analogous mid to capture here). */
+async function deliverSmsReply(orgId: string, conversation: ConversationDetail, body: string): Promise<null> {
   if (!isTwilioConfigured()) {
     throw new Error("SMS sending isn't configured yet.")
   }
@@ -475,6 +477,8 @@ async function deliverSmsReply(orgId: string, conversation: ConversationDetail, 
     console.error("[inbox/actions] failed to send SMS reply", sendError)
     throw new Error("Couldn't deliver the text message — try again.")
   }
+
+  return null
 }
 
 /**
@@ -483,15 +487,20 @@ async function deliverSmsReply(orgId: string, conversation: ConversationDetail, 
  * is a deliberate no-op — the widget conversation is request/response over
  * the browser tab that's already open, so there's no separate channel to
  * push a reply to, and the existing persist-only behavior is correct.
+ *
+ * Returns the channel's send id when one exists (Instagram's message_id) so
+ * the caller can stamp it onto the persisted message's metadata as
+ * instagram_mid — the same key the inbound/echo webhook dedupe matches on,
+ * so an echo of THIS send is recognized as our own and never double-recorded.
  */
-async function deliverReply(orgId: string, conversation: ConversationDetail, body: string): Promise<void> {
+async function deliverReply(orgId: string, conversation: ConversationDetail, body: string): Promise<string | null> {
   switch (conversation.channel) {
     case "instagram":
       return deliverInstagramReply(orgId, conversation, body)
     case "sms":
       return deliverSmsReply(orgId, conversation, body)
     default:
-      return
+      return null
   }
 }
 
@@ -522,7 +531,7 @@ async function deliverAndPersistReply(input: DeliverAndPersistReplyInput): Promi
   if (!conversation) {
     throw new Error("This conversation could not be found.")
   }
-  await deliverReply(input.orgId, conversation, input.body)
+  const sendId = await deliverReply(input.orgId, conversation, input.body)
 
   return await sendMessage(input.orgId, input.conversationId, {
     body: input.body,
@@ -530,7 +539,7 @@ async function deliverAndPersistReply(input: DeliverAndPersistReplyInput): Promi
     aiHandled: input.aiHandled,
     model: input.model,
     costUsd: input.costUsd,
-    metadata: input.metadata,
+    metadata: sendId ? { ...input.metadata, instagram_mid: sendId } : input.metadata,
   })
 }
 
