@@ -7,11 +7,21 @@
 // "morning_brief", see src/lib/watchdog.ts's WatchdogAlertKind) so a manual
 // poke of this route can't double-send the same day's brief. Auth gate is
 // shared with the watchdog route — see src/lib/cron-auth.ts.
+//
+// Outlast wave 3, Part B: AFTER briefs send, this same invocation also runs
+// the proactive follow-up scan (src/lib/follow-ups.ts's runFollowUpScan) —
+// Vercel's Hobby plan caps a project at 2 cron jobs, and watchdog +
+// morning-brief already use both slots (see vercel.json), so follow-ups get
+// no cron entry of their own and instead ride this daily invocation. The two
+// stay decoupled in code (runFollowUpScan is a self-contained module); only
+// the schedule is shared. A crash in the follow-up scan is caught separately
+// and never fails the brief-sending response above it.
 
 import { NextResponse, type NextRequest } from "next/server"
 
 import { isAuthorizedCronRequest } from "@/lib/cron-auth"
 import { sendMorningBriefEmail } from "@/lib/email"
+import { runFollowUpScan } from "@/lib/follow-ups"
 import { briefHasActivity, buildMorningBrief } from "@/lib/morning-brief"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import { getLastAlertSentAt, recordAlertSent, shouldSendWatchdogAlert, type WatchdogAlertKind } from "@/lib/watchdog"
@@ -75,7 +85,21 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true, sent, skipped })
+    // Follow-up scan (Outlast wave 3, Part B) — runs AFTER briefs send, in
+    // this same invocation (see the module header). Its own findings surface
+    // in the Inbox immediately and in TOMORROW's brief (via
+    // gatherSuggestedFollowUps' 24h window) — never in today's, since briefs
+    // for this run were already built above. Isolated in its own try/catch:
+    // a crash here must never turn an otherwise-successful brief-sending run
+    // into a 500.
+    let followUps = { created: 0, scannedOrgs: 0 }
+    try {
+      followUps = await runFollowUpScan(now)
+    } catch (followUpError) {
+      console.error("[cron/morning-brief] follow-up scan failed", followUpError)
+    }
+
+    return NextResponse.json({ ok: true, sent, skipped, followUps })
   } catch (error) {
     console.error("[cron/morning-brief] run failed", error)
     return NextResponse.json({ ok: false, error: "morning brief run failed" }, { status: 500 })

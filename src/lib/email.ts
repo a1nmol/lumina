@@ -474,7 +474,7 @@ export async function sendMorningBriefEmail(input: MorningBriefEmailInput): Prom
   if (!ownerEmail) return
 
   const subject = formatBriefSubject(input.data.counts, input.data.needsOwner.length)
-  const { summaryLine, needsYouLines, vipLines, openThreadLines } = deriveBriefLines(input.data)
+  const { summaryLine, needsYouLines, vipLines, openThreadLines, suggestedFollowUpLines } = deriveBriefLines(input.data)
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
   const inboxUrl = `${appUrl}/inbox`
@@ -485,6 +485,9 @@ export async function sendMorningBriefEmail(input: MorningBriefEmailInput): Prom
     vipLines.length > 0 ? `VIPs who messaged:\n${vipLines.map((line) => `- ${line}`).join("\n")}` : null,
     openThreadLines.length > 0
       ? `Open threads worth a follow-up:\n${openThreadLines.map((line) => `- ${line}`).join("\n")}`
+      : null,
+    suggestedFollowUpLines.length > 0
+      ? `Suggested follow-ups (drafted, not sent — review in the Inbox):\n${suggestedFollowUpLines.map((line) => `- ${line}`).join("\n")}`
       : null,
     `Open the inbox: ${inboxUrl}`,
   ]
@@ -500,6 +503,7 @@ export async function sendMorningBriefEmail(input: MorningBriefEmailInput): Prom
       ${renderBriefSectionHtml("Who needs you", needsYouLines, "#c0392b")}
       ${renderBriefSectionHtml("VIPs who messaged", vipLines, "#b4551f")}
       ${renderBriefSectionHtml("Open threads worth a follow-up", openThreadLines, "#b4551f")}
+      ${renderBriefSectionHtml("Suggested follow-ups (drafted, not sent)", suggestedFollowUpLines, "#b4551f")}
       <a href="${inboxUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Open Inbox</a>
       <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; your daily brief, sent every morning</p>
     </div>

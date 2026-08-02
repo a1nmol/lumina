@@ -9,6 +9,8 @@ import { BrainSummaryCard } from "./brain-summary-card"
 import { ChannelsCard } from "./channels-card"
 import { FaqCard } from "./faq-card"
 import { FrontdeskAutoReplyCard } from "./frontdesk-auto-reply-card"
+import { listStandingOrders } from "./standing-orders-actions"
+import { StandingOrdersCard } from "./standing-orders-card"
 import { UsageCard } from "./usage-card"
 
 export const metadata: Metadata = { title: "Settings & Brain" }
@@ -29,6 +31,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const params = await searchParams
   const brain = await getBusinessBrain()
   const completeness = computeBrainCompleteness(brain)
+  const { orders: standingOrders, isLive: standingOrdersLive } = await listStandingOrders()
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -45,6 +48,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         initialAlwaysOn={brain.ai_always_on}
         isLive={isSupabaseConfigured()}
       />
+      <StandingOrdersCard initialOrders={standingOrders} isLive={standingOrdersLive} />
       <ChannelsCard
         connectedParam={firstParam(params.connected)}
         errorParam={firstParam(params.metaError)}

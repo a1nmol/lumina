@@ -20,6 +20,7 @@ import "server-only"
 // "out of quota" state instead of silently drafting nothing.
 
 import { ATTACHMENT_PLACEHOLDER_BY_KIND } from "@/lib/social/instagram-attachments"
+import { fetchActiveStandingOrders, renderStandingOrdersBlock } from "@/lib/standing-orders"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { getAiRepliesUsageFraction } from "@/lib/usage"
 import type {
@@ -325,6 +326,12 @@ function buildIdentityBlock(brain: BusinessBrain | null): string {
  * — draftCustomerReply fetches it, draftWhisperMessage doesn't (a whisper is
  * the owner's own words being composed, not a reply the AI is drafting
  * unattended, so it's not part of that scope) and simply omits it.
+ * `standingOrdersBlock` (Outlast wave 3, see ../standing-orders.ts) sits
+ * right after the identity block, ahead of STYLE_GUIDE — owner directives
+ * outrank style rules. Every drafting caller fetches it (draftCustomerReply,
+ * draftWhisperMessage, draftFollowUpMessage below) — a standing order still
+ * applies when the owner whispers something unrelated, or when the AI is
+ * nudging a quiet thread.
  */
 function buildSystemPrompt(
   brain: BusinessBrain | null,
@@ -332,7 +339,8 @@ function buildSystemPrompt(
   messages: Message[],
   contact: Contact | null,
   windDownDirective: string | null = null,
-  styleExamplesBlock: string | null = null
+  styleExamplesBlock: string | null = null,
+  standingOrdersBlock: string | null = null
 ): string {
   const identityBlock = buildIdentityBlock(brain)
   const bannedOpenersBlock = buildBannedOpenersBlock(messages)
@@ -341,6 +349,7 @@ function buildSystemPrompt(
   if (!brain) {
     return [
       identityBlock,
+      standingOrdersBlock,
       STYLE_GUIDE,
       styleExamplesBlock,
       ESCALATION_GUIDE,
@@ -376,6 +385,7 @@ function buildSystemPrompt(
 
   const lines = [
     identityBlock,
+    standingOrdersBlock,
     STYLE_GUIDE,
     styleExamplesBlock,
     description ? `About the business: ${description}` : null,
@@ -582,13 +592,15 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   // already exists in runTextJob, not a separate opt-in. Best-effort: a
   // failed usage lookup just means no wind-down cue this round, never blocks
   // drafting.
-  // Both lookups are independent DB reads on the hot reply path — run them
+  // These lookups are independent DB reads on the hot reply path — run them
   // in parallel (review fix), each with the same best-effort contract: a
-  // failure just means no wind-down cue / no style guidance this round,
-  // never blocked drafting.
-  const [usageFractionResult, styleExamplesResult] = await Promise.allSettled([
+  // failure just means no wind-down cue / no style guidance / no standing
+  // orders this round, never blocked drafting. (Outlast wave 3 adds the
+  // standing-orders fetch to this same seam.)
+  const [usageFractionResult, styleExamplesResult, standingOrdersResult] = await Promise.allSettled([
     getAiRepliesUsageFraction(input.orgId),
     fetchStyleExamples(input.orgId),
+    fetchActiveStandingOrders(input.orgId),
   ])
 
   let stage: WindDownStage = "none"
@@ -614,6 +626,15 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
     console.error("[frontdesk-reply] failed to fetch style examples", error)
   }
 
+  // Standing orders (Outlast wave 3) — same best-effort contract.
+  let standingOrdersBlock: string | null = null
+  try {
+    standingOrdersBlock =
+      standingOrdersResult.status === "fulfilled" ? renderStandingOrdersBlock(standingOrdersResult.value) || null : null
+  } catch (error) {
+    console.error("[frontdesk-reply] failed to fetch standing orders", error)
+  }
+
   const baseMessages: ChatMessage[] = [
     {
       role: "system",
@@ -623,7 +644,8 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
         input.messages,
         input.contact,
         windDownDirective,
-        styleExamplesBlock
+        styleExamplesBlock,
+        standingOrdersBlock
       ),
     },
     ...formatHistory(input.messages),
@@ -654,6 +676,24 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
   }
 
   return null
+}
+
+/**
+ * Best-effort standing-orders fetch + render, shared by draftWhisperMessage
+ * and draftFollowUpMessage below — the callers that fetch it as a single
+ * plain await rather than draftCustomerReply's parallel Promise.allSettled
+ * (which already runs alongside a usage-fraction lookup on the hot reply
+ * path). Never throws; a failure just means no standing-orders cue this
+ * round, matching every other best-effort fetch in this file.
+ */
+async function fetchStandingOrdersBlockBestEffort(orgId: string): Promise<string | null> {
+  try {
+    const orders = await fetchActiveStandingOrders(orgId)
+    return renderStandingOrdersBlock(orders) || null
+  } catch (error) {
+    console.error("[frontdesk-reply] failed to fetch standing orders", error)
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -743,8 +783,24 @@ export async function draftWhisperMessage(input: DraftWhisperMessageInput): Prom
   const instruction = input.instruction.trim().slice(0, MAX_WHISPER_INSTRUCTION_LENGTH)
   if (!instruction) return null
 
+  // Standing orders (Outlast wave 3) — a standing order still applies when
+  // the owner whispers something unrelated. Best-effort: same contract as
+  // draftCustomerReply's own fetch.
+  const standingOrdersBlock = await fetchStandingOrdersBlockBestEffort(input.orgId)
+
   const baseMessages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(input.businessBrain, input.conversation, input.messages, input.contact) },
+    {
+      role: "system",
+      content: buildSystemPrompt(
+        input.businessBrain,
+        input.conversation,
+        input.messages,
+        input.contact,
+        null,
+        null,
+        standingOrdersBlock
+      ),
+    },
     ...formatHistory(input.messages),
     buildWhisperInstructionMessage(instruction, input.conversation.channel),
   ]
@@ -764,6 +820,108 @@ export async function draftWhisperMessage(input: DraftWhisperMessageInput): Prom
       messages,
       maxTokens: 300,
       temperature: 0.6,
+    })
+
+    const parsed = parseWhisperReplyJson(result.text)
+    if (parsed) {
+      return { reply: parsed.reply, model: result.model, costUsd: result.costUsd }
+    }
+  }
+
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Proactive follow-ups (Outlast wave 3, Part B) — a short, draft-first nudge
+// for a conversation that's gone quiet after the business answered (see
+// src/lib/follow-ups.ts for the candidate-selection logic; this is only the
+// drafting half). Shares the exact same persona/context build as
+// draftCustomerReply and draftWhisperMessage (buildSystemPrompt — Brain,
+// memories, relationship, standing orders, STYLE_GUIDE, banned openers), so
+// the nudge reads like any other message in the thread. Routed through the
+// SAME PII-safe "customer_reply" job — real customer content either way.
+// Reuses parseWhisperReplyJson (identical `{"reply": string}` output shape).
+// ---------------------------------------------------------------------------
+
+export interface DraftFollowUpMessageInput {
+  orgId: string
+  businessBrain: BusinessBrain | null
+  conversation: Conversation
+  messages: Message[]
+  contact: Contact | null
+}
+
+export interface DraftedFollowUpMessage {
+  reply: string
+  model: string
+  costUsd: number
+}
+
+function buildFollowUpInstructionMessage(contact: Contact | null, channel: Conversation["channel"]): ChatMessage {
+  const contactLine = contact
+    ? `Customer on file: ${contact.name ?? "unknown name"}${contact.phone ? `, phone ${contact.phone}` : ""}${
+        contact.email ? `, email ${contact.email}` : ""
+      }, pipeline status "${contact.status}".`
+    : "No contact record on file yet for this customer."
+
+  return {
+    role: "user",
+    content: [
+      `Channel: ${channel}. ${contactLine}`,
+      "It's been a few days of silence. Write ONE short, casual, zero-pressure check-in that picks up the most promising open thread — reference it naturally (\"did you end up deciding about X?\"). Never guilt-trip, never salesy pressure, never mention being an AI reminder.",
+      "Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape:",
+      '{"reply": string}',
+    ].join("\n"),
+  }
+}
+
+/**
+ * Drafts a short proactive follow-up nudge for a conversation the business
+ * answered and the customer went quiet on, via the "customer_reply" router
+ * job. Returns null when not configured or the model can't produce usable
+ * JSON after one retry — the caller (src/lib/follow-ups.ts) simply skips
+ * that candidate rather than failing the whole scan. Throws
+ * AllowanceDeniedError when the org is out of `ai_replies` quota, exactly
+ * like draftCustomerReply — callers should let that abort the run for that
+ * org (the same allowance that gates real replies gates these nudges).
+ */
+export async function draftFollowUpMessage(input: DraftFollowUpMessageInput): Promise<DraftedFollowUpMessage | null> {
+  if (!isOpenRouterConfigured() || !isSupabaseConfigured()) return null
+
+  const standingOrdersBlock = await fetchStandingOrdersBlockBestEffort(input.orgId)
+
+  const baseMessages: ChatMessage[] = [
+    {
+      role: "system",
+      content: buildSystemPrompt(
+        input.businessBrain,
+        input.conversation,
+        input.messages,
+        input.contact,
+        null,
+        null,
+        standingOrdersBlock
+      ),
+    },
+    ...formatHistory(input.messages),
+    buildFollowUpInstructionMessage(input.contact, input.conversation.channel),
+  ]
+
+  const retryMessage: ChatMessage = {
+    role: "user",
+    content:
+      "Your last reply was not valid JSON matching the requested shape. Respond again with ONLY the strict JSON object — nothing else.",
+  }
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const messages = attempt === 0 ? baseMessages : [...baseMessages, retryMessage]
+
+    const result = await runTextJob({
+      orgId: input.orgId,
+      job: "customer_reply",
+      messages,
+      maxTokens: 200,
+      temperature: 0.7,
     })
 
     const parsed = parseWhisperReplyJson(result.text)

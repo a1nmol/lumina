@@ -12,6 +12,7 @@ const EMPTY_DATA: MorningBriefData = {
   needsOwner: [],
   vipMessages: [],
   openThreads: [],
+  suggestedFollowUps: [],
 }
 
 // -----------------------------------------------------------------------------
@@ -110,10 +111,25 @@ describe("deriveBriefLines", () => {
     expect(openThreadLines).toEqual(["Priya Patel — still deciding between the two packages"])
   })
 
+  it("renders a suggested-follow-up line per item, with a plain fallback when there's no contact name", () => {
+    const { suggestedFollowUpLines } = deriveBriefLines({
+      ...EMPTY_DATA,
+      suggestedFollowUps: [
+        { conversationId: "c1", contactName: "Grace Kim", draft: "did you end up deciding on the Saturday slot?" },
+        { conversationId: "c2", contactName: null, draft: "just checking in on that order!" },
+      ],
+    })
+    expect(suggestedFollowUpLines).toEqual([
+      'Grace Kim — "did you end up deciding on the Saturday slot?"',
+      'A contact — "just checking in on that order!"',
+    ])
+  })
+
   it("returns empty arrays for every section when there's nothing to report", () => {
     const sections = deriveBriefLines(EMPTY_DATA)
     expect(sections.needsYouLines).toEqual([])
     expect(sections.vipLines).toEqual([])
     expect(sections.openThreadLines).toEqual([])
+    expect(sections.suggestedFollowUpLines).toEqual([])
   })
 })

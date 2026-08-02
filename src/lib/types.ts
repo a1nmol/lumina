@@ -249,6 +249,8 @@ export type Conversation = {
   updated_at: string
   /** Rolling structured conversation memory (migration 0015) — see src/lib/ai/conversation-memory.ts. */
   ai_memory: Record<string, unknown> | null
+  /** When the proactive follow-up scan last drafted a nudge for this thread (migration 0019) — see src/lib/follow-ups.ts. Null until the first nudge. */
+  last_follow_up_at: string | null
 }
 
 export type ConversationAiMode = "auto" | "off"
@@ -404,6 +406,23 @@ export type WatchdogAlert = {
   kind: string
   detail: string | null
   sent_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0019_standing_orders_followups.sql —
+ * persistent owner instructions the AI weaves into every reply while
+ * active (see src/lib/standing-orders.ts). Unlike a whisper (one-shot, one
+ * thread), these are org-wide and expire on their own via `expires_at`
+ * (null = no expiry). Never hard-deleted — the owner "removes" one by
+ * setting `active` false.
+ */
+export type StandingOrder = {
+  id: string
+  org_id: string
+  instruction: string
+  expires_at: string | null
+  active: boolean
+  created_at: string
 }
 
 /**
@@ -663,6 +682,12 @@ export interface Database {
         Row: AiStyleExample
         Insert: Partial<AiStyleExample> & Pick<AiStyleExample, "org_id" | "ai_draft" | "owner_text">
         Update: Partial<AiStyleExample>
+        Relationships: []
+      }
+      standing_orders: {
+        Row: StandingOrder
+        Insert: Partial<StandingOrder> & Pick<StandingOrder, "org_id" | "instruction">
+        Update: Partial<StandingOrder>
         Relationships: []
       }
     }

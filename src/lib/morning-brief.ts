@@ -26,6 +26,8 @@ const MAX_OPEN_THREADS = 3
 /** How many of the org's most-recently-active conversations to scan for a usable open_thread before giving up — most won't have one, so this is scanned, not all returned. */
 const OPEN_THREAD_CANDIDATE_LIMIT = 25
 const MAX_PREVIEW_LENGTH = 140
+/** Mirrors src/lib/follow-ups.ts's MAX_FOLLOW_UPS_PER_ORG_PER_RUN (3/day) — 5 leaves headroom without ever truncating a real day's output. */
+const MAX_SUGGESTED_FOLLOW_UPS = 5
 
 export interface MorningBriefCounts {
   inboundCount: number
@@ -55,11 +57,19 @@ export interface MorningBriefOpenThread {
   thread: string
 }
 
+/** One proactive follow-up nudge src/lib/follow-ups.ts drafted (and persisted as an internal note, metadata.follow_up_suggestion) in the last 24h — surfaced here so the owner sees exactly what the AI is proposing to say, even before they open the Inbox. */
+export interface MorningBriefSuggestedFollowUp {
+  conversationId: string
+  contactName: string | null
+  draft: string
+}
+
 export interface MorningBriefData {
   counts: MorningBriefCounts
   needsOwner: MorningBriefNeedsOwnerItem[]
   vipMessages: MorningBriefVipItem[]
   openThreads: MorningBriefOpenThread[]
+  suggestedFollowUps: MorningBriefSuggestedFollowUp[]
 }
 
 export const EMPTY_MORNING_BRIEF: MorningBriefData = {
@@ -67,6 +77,7 @@ export const EMPTY_MORNING_BRIEF: MorningBriefData = {
   needsOwner: [],
   vipMessages: [],
   openThreads: [],
+  suggestedFollowUps: [],
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +108,7 @@ export interface FormattedBriefSections {
   needsYouLines: string[]
   vipLines: string[]
   openThreadLines: string[]
+  suggestedFollowUpLines: string[]
 }
 
 /** Turns a MorningBriefData into plain-language lines for the email body. Pure, no I/O. */
@@ -120,7 +132,11 @@ export function deriveBriefLines(data: MorningBriefData): FormattedBriefSections
     (item) => `${item.contactName?.trim() || "Someone"} — ${item.thread}`
   )
 
-  return { summaryLine, needsYouLines, vipLines, openThreadLines }
+  const suggestedFollowUpLines = data.suggestedFollowUps.map(
+    (item) => `${item.contactName?.trim() || "A contact"} — "${item.draft}"`
+  )
+
+  return { summaryLine, needsYouLines, vipLines, openThreadLines, suggestedFollowUpLines }
 }
 
 // ---------------------------------------------------------------------------
@@ -279,12 +295,67 @@ async function gatherOpenThreads(admin: AdminClient, orgId: string): Promise<Mor
 }
 
 /**
+ * Suggested follow-ups (Outlast wave 3, Part B) — proactive nudges
+ * src/lib/follow-ups.ts drafted in the window, persisted as internal notes
+ * with `metadata.follow_up_suggestion: true` (see that module's
+ * draftFollowUpForConversation). Reads the note's own `metadata.draft` field
+ * rather than re-parsing the "Suggested follow-up: ..." body prefix, so a
+ * copy change to that prefix can never desync the two.
+ */
+async function gatherSuggestedFollowUps(
+  admin: AdminClient,
+  orgId: string,
+  from: Date,
+  to: Date
+): Promise<MorningBriefSuggestedFollowUp[]> {
+  const { data, error } = await admin
+    .from("messages")
+    .select("conversation_id, metadata")
+    .eq("org_id", orgId)
+    .eq("kind", "note")
+    .contains("metadata", { follow_up_suggestion: true })
+    .gte("created_at", from.toISOString())
+    .lt("created_at", to.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(MAX_SUGGESTED_FOLLOW_UPS)
+
+  if (error || !data || data.length === 0) return []
+
+  const conversationIds = Array.from(new Set(data.map((row) => row.conversation_id)))
+  const { data: conversations } = await admin
+    .from("conversations")
+    .select("id, contact_id")
+    .eq("org_id", orgId)
+    .in("id", conversationIds)
+
+  const contactIdByConversation = new Map((conversations ?? []).map((row) => [row.id, row.contact_id]))
+  const contactIds = Array.from(
+    new Set(Array.from(contactIdByConversation.values()).filter((id): id is string => Boolean(id)))
+  )
+  const namesById = await fetchContactNames(admin, orgId, contactIds)
+
+  return data
+    .map((row) => {
+      const metadata = row.metadata as { draft?: unknown } | null
+      const draft = typeof metadata?.draft === "string" ? metadata.draft.trim() : ""
+      const contactId = contactIdByConversation.get(row.conversation_id) ?? null
+      return {
+        conversationId: row.conversation_id,
+        contactName: contactId ? (namesById.get(contactId) ?? null) : null,
+        draft,
+      }
+    })
+    .filter((item) => item.draft.length > 0)
+}
+
+/**
  * Gathers the last 24h of activity for one org: message counts (in/out/AI-
- * handled), conversations needing the owner, VIP contact messages, and up to
- * 3 open threads pulled from conversations.ai_memory.open_threads. Best-
- * effort per section (Promise.allSettled) — one section's query failing
- * degrades that section to empty rather than failing the whole brief.
- * Returns EMPTY_MORNING_BRIEF when Supabase isn't configured.
+ * handled), conversations needing the owner, VIP contact messages, up to 3
+ * open threads pulled from conversations.ai_memory.open_threads, and any
+ * proactive follow-up nudges drafted in the window. Best-effort per section
+ * (Promise.allSettled) — one section's query failing degrades that section
+ * to empty rather than failing the whole brief. Returns EMPTY_MORNING_BRIEF
+ * when Supabase isn't configured.
  */
 export async function buildMorningBrief(orgId: string, now: Date): Promise<MorningBriefData> {
   if (!isSupabaseConfigured()) return EMPTY_MORNING_BRIEF
@@ -297,19 +368,23 @@ export async function buildMorningBrief(orgId: string, now: Date): Promise<Morni
     gatherNeedsOwner(admin, orgId),
     gatherVipMessages(admin, orgId, from, now),
     gatherOpenThreads(admin, orgId),
+    gatherSuggestedFollowUps(admin, orgId, from, now),
   ])
 
-  const [countsResult, needsOwnerResult, vipResult, openThreadsResult] = settled
+  const [countsResult, needsOwnerResult, vipResult, openThreadsResult, suggestedFollowUpsResult] = settled
 
   if (countsResult.status === "rejected") console.error("[morning-brief] counts query crashed", countsResult.reason)
   if (needsOwnerResult.status === "rejected") console.error("[morning-brief] needs-owner query crashed", needsOwnerResult.reason)
   if (vipResult.status === "rejected") console.error("[morning-brief] VIP query crashed", vipResult.reason)
   if (openThreadsResult.status === "rejected") console.error("[morning-brief] open-threads query crashed", openThreadsResult.reason)
+  if (suggestedFollowUpsResult.status === "rejected")
+    console.error("[morning-brief] suggested-follow-ups query crashed", suggestedFollowUpsResult.reason)
 
   return {
     counts: countsResult.status === "fulfilled" ? countsResult.value : EMPTY_MORNING_BRIEF.counts,
     needsOwner: needsOwnerResult.status === "fulfilled" ? needsOwnerResult.value : [],
     vipMessages: vipResult.status === "fulfilled" ? vipResult.value : [],
     openThreads: openThreadsResult.status === "fulfilled" ? openThreadsResult.value : [],
+    suggestedFollowUps: suggestedFollowUpsResult.status === "fulfilled" ? suggestedFollowUpsResult.value : [],
   }
 }

@@ -19,6 +19,7 @@ import "server-only"
 // it propagates through runTextJob so the caller can surface a real
 // "out of quota" state, matching draftCustomerReply.
 
+import { fetchActiveStandingOrders, renderStandingOrdersBlock } from "@/lib/standing-orders"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { createClient } from "@/lib/supabase/server"
 import { getConversation } from "@/lib/frontdesk"
@@ -161,7 +162,8 @@ function buildSuggestionsSystemPrompt(
   memory: ConversationMemory | null,
   personMemory: PersonMemory | null,
   messages: Message[],
-  styleExamplesBlock: string
+  styleExamplesBlock: string,
+  standingOrdersBlock: string
 ): string {
   const intro = brain?.business_name
     ? `You are helping the front-desk team at ${brain.business_name}${
@@ -171,6 +173,11 @@ function buildSuggestionsSystemPrompt(
 
   const lines = [
     intro,
+    // Standing orders (Outlast wave 3, see src/lib/standing-orders.ts) sit
+    // right after the identity intro, ahead of STYLE_GUIDE — owner
+    // directives outrank style rules, matching src/lib/ai/frontdesk-reply.ts's
+    // buildSystemPrompt ordering.
+    ...(standingOrdersBlock ? [standingOrdersBlock] : []),
     STYLE_GUIDE,
     ...summarizeBusinessBrainForPrompt(brain),
     "Produce exactly 3 short alternative replies to the customer's most recent message: one that directly answers it, one that asks a clarifying question, and one that gives a warm redirect (for example offering to check and follow up, or pointing them to book or call). Each of the 3 must take a genuinely different approach, not just reworded versions of the same reply.",
@@ -256,14 +263,16 @@ export async function suggestReplies(input: SuggestRepliesInput): Promise<Sugges
   )
   if (!hasInboundMessage) return null
 
-  const [businessBrain, voiceAnchors, styleExamplePairs] = await Promise.all([
+  const [businessBrain, voiceAnchors, styleExamplePairs, standingOrders] = await Promise.all([
     getBusinessBrain(),
     fetchVoiceAnchors(input.orgId),
     fetchStyleExamples(input.orgId),
+    fetchActiveStandingOrders(input.orgId),
   ])
   const memory = parseConversationMemory(conversation.ai_memory)
   const personMemory = conversation.contact ? parsePersonMemory(conversation.contact.ai_memory) : null
   const styleExamplesBlock = renderStyleExamplesBlock(styleExamplePairs)
+  const standingOrdersBlock = renderStandingOrdersBlock(standingOrders)
 
   const messages: ChatMessage[] = [
     {
@@ -274,7 +283,8 @@ export async function suggestReplies(input: SuggestRepliesInput): Promise<Sugges
         memory,
         personMemory,
         conversation.messages,
-        styleExamplesBlock
+        styleExamplesBlock,
+        standingOrdersBlock
       ),
     },
     ...formatHistory(conversation.messages),
