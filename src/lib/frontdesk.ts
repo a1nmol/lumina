@@ -343,9 +343,9 @@ export interface ListContactsFilter {
   status?: ContactStatus
 }
 
-/** Escapes ILIKE wildcards in a user-supplied search term before interpolating it into a `.or()` filter string. */
+/** Escapes ILIKE wildcards in a user-supplied search term before interpolating it into a `.or()` filter string. Parens too — PostgREST's .or() grammar treats them as structural (same fix as src/lib/memory-search.ts's sanitizeIlikeTerm). */
 function escapeIlikeTerm(term: string): string {
-  return term.replace(/[%_,]/g, (match) => `\\${match}`)
+  return term.replace(/[%_,()]/g, (match) => `\\${match}`)
 }
 
 /** Lists an org's contacts, most recently created first, with optional free-text search + status filter. */

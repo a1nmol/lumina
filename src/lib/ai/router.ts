@@ -17,7 +17,14 @@ import type { UsageFeature } from "@/lib/types"
 import { AllowanceDeniedError } from "./errors"
 import { OpenRouterRequestError, chatComplete, type ChatMessage } from "./openrouter"
 
-export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning" | "vision_describe" | "conversation_memory"
+export type AiJob =
+  | "classify"
+  | "content_gen"
+  | "customer_reply"
+  | "reasoning"
+  | "vision_describe"
+  | "conversation_memory"
+  | "memory_search"
 
 /**
  * Ordered candidate model ids per job. runTextJob tries them in order,
@@ -45,6 +52,12 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
   // paid model already proven reliable at strict-JSON summarization tasks,
   // falling back to the DeepSeek/Haiku pair the other jobs already trust.
   conversation_memory: ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
+  // Natural-language memory search ("who asked about haircut prices last
+  // month?") — the candidate context it grades is built from real customer
+  // message snippets + conversation memories, the same PII the
+  // conversation_memory job summarizes, so this mirrors that chain exactly
+  // (cheapest-effective paid model first, never a free tier).
+  memory_search: ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
 }
 
 /**
@@ -61,7 +74,9 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
  * bucket instead. conversation_memory (Commander update) is the same call:
  * it only ever runs as a byproduct of answering/holding a FrontDesk
  * conversation, so it meters under ai_replies too rather than minting a new
- * PlanLimits key.
+ * PlanLimits key. memory_search (Outlast wave 5) is the same story — an
+ * owner-triggered convenience search over the same inbox content, not a
+ * distinct product surface, so it shares ai_replies too.
  */
 const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   classify: "ai_replies",
@@ -70,6 +85,7 @@ const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   reasoning: "ai_replies",
   vision_describe: "ai_replies",
   conversation_memory: "ai_replies",
+  memory_search: "ai_replies",
 }
 
 /** $/1M tokens (input, output). Estimates — verify against provider pricing pages before scale. */

@@ -33,6 +33,7 @@ import {
   updateContactStatus,
   upsertContact,
 } from "@/lib/frontdesk"
+import { answerSearch, extractSearchTerms, type MemorySearchCandidate } from "@/lib/memory-search"
 import { getCurrentOrgId } from "@/lib/org"
 import { sendInstagramMessage } from "@/lib/social/instagram-messaging"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -45,6 +46,7 @@ import type {
   ContactStatus,
   ConversationAiMode,
   ConversationAiState,
+  ConversationChannel,
   ConversationDetail,
   ConversationStatus,
   ConversationWithContact,
@@ -917,5 +919,124 @@ export async function markRead(conversationId: string): Promise<ActionResult> {
     return { ok: true }
   } catch {
     return { ok: false }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Natural-language memory search (Outlast wave 5, Part A) — see
+// src/lib/memory-search.ts for the keyword-prefilter + "memory_search" model
+// pass this wraps.
+// ---------------------------------------------------------------------------
+
+const MIN_SEARCH_QUERY_LENGTH = 2
+const MAX_SEARCH_QUERY_LENGTH = 200
+const MAX_DEMO_SEARCH_RESULTS = 10
+const SNIPPET_PREVIEW_LENGTH = 140
+const DEMO_SEARCH_ANSWER_SUFFIX = " (Demo mode — connect Supabase for real AI search.)"
+
+export interface InboxSearchResultRow {
+  conversationId: string
+  contactName: string | null
+  channel: ConversationChannel
+  snippet: string
+}
+
+export type SearchInboxResult =
+  | { answer: string | null; results: InboxSearchResultRow[] }
+  | { error: "allowance"; message: string }
+  | { error: "invalid"; message: string }
+
+function candidateToResultRow(candidate: MemorySearchCandidate): InboxSearchResultRow {
+  const snippet = candidate.snippets[0]?.body || candidate.memorySummary || ""
+  return {
+    conversationId: candidate.conversationId,
+    contactName: candidate.contactName,
+    channel: candidate.channel,
+    snippet: snippet.slice(0, SNIPPET_PREVIEW_LENGTH),
+  }
+}
+
+/**
+ * Demo-mode search: plain keyword matching over DEMO_CONVERSATIONS, no
+ * model call — a matched contact name OR a matched message body counts.
+ * `answer` is a short, deterministic, canned line (never model-generated)
+ * naming the top match, or null when nothing matched.
+ */
+function demoSearchInbox(terms: string[]): { answer: string | null; results: InboxSearchResultRow[] } {
+  const results: InboxSearchResultRow[] = []
+
+  for (const conversation of DEMO_CONVERSATIONS) {
+    const contactName = conversation.contact?.name ?? conversation.contact_name
+    const matchedMessage = conversation.messages.find(
+      (message) => message.body && terms.some((term) => message.body!.toLowerCase().includes(term))
+    )
+    const nameMatched = Boolean(contactName) && terms.some((term) => contactName!.toLowerCase().includes(term))
+
+    if (!matchedMessage && !nameMatched) continue
+
+    results.push({
+      conversationId: conversation.id,
+      contactName: contactName ?? null,
+      channel: conversation.channel,
+      snippet: (matchedMessage?.body ?? `via ${conversation.channel}`).slice(0, SNIPPET_PREVIEW_LENGTH),
+    })
+    if (results.length >= MAX_DEMO_SEARCH_RESULTS) break
+  }
+
+  if (results.length === 0) return { answer: null, results: [] }
+
+  const first = results[0]
+  const answer = `${first.contactName ?? "Someone"} has a conversation mentioning that${
+    results.length > 1 ? ` (and ${results.length - 1} other conversation${results.length > 2 ? "s" : ""})` : ""
+  }.${DEMO_SEARCH_ANSWER_SUFFIX}`
+
+  return { answer, results }
+}
+
+/**
+ * Searches this org's inbox history in natural language ("who asked about
+ * haircut prices last month?"). Demo mode (Supabase not configured, or no
+ * resolvable org) runs a plain keyword match over DEMO_CONVERSATIONS — no
+ * model call. Configured mode delegates to answerSearch (src/lib/memory-search.ts):
+ * a keyword prefilter always runs and `results` is always populated
+ * (keyword-ranked) from it, even when the model pass is unavailable or fails
+ * to produce a usable answer (`answer` is null in that case, matching
+ * draftReply's "grounded fallback" spirit — real data over nothing).
+ */
+export async function searchInbox(query: string): Promise<SearchInboxResult> {
+  const trimmed = query.trim()
+  if (trimmed.length < MIN_SEARCH_QUERY_LENGTH || trimmed.length > MAX_SEARCH_QUERY_LENGTH) {
+    return { error: "invalid", message: `Search must be between ${MIN_SEARCH_QUERY_LENGTH} and ${MAX_SEARCH_QUERY_LENGTH} characters.` }
+  }
+
+  const terms = extractSearchTerms(trimmed)
+
+  if (!isSupabaseConfigured()) {
+    return demoSearchInbox(terms)
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    return demoSearchInbox(terms)
+  }
+
+  try {
+    const result = await answerSearch(orgId, trimmed)
+    // Surface the model's (hallucination-validated) picks by ranking them
+    // first (review fix) — the answer banner and the rows below it should
+    // agree on what the answer is about.
+    const picked = new Set(result.conversationIds)
+    const ranked =
+      picked.size > 0
+        ? [...result.candidates].sort(
+            (a, b) => Number(picked.has(b.conversationId)) - Number(picked.has(a.conversationId))
+          )
+        : result.candidates
+    return { answer: result.answer, results: ranked.map(candidateToResultRow) }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
   }
 }
