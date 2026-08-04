@@ -102,6 +102,7 @@ const CHANNEL_LABELS: Record<ConversationChannel, string> = {
   facebook: "Facebook",
   google: "Google",
   missed_call: "Missed call",
+  voice: "Phone call",
 }
 
 /**
@@ -233,6 +234,7 @@ const WATCHDOG_KIND_LABELS: Record<string, string> = {
   token_expiring: "A connected channel's token is expiring soon",
   token_expired: "A connected channel's token has expired",
   webhook_silent: "Instagram webhooks have gone quiet",
+  voice_minutes_80: "Approaching monthly voice-minutes cap",
 }
 
 const WATCHDOG_FIX_IT_LINES: Record<string, string> = {
@@ -243,6 +245,7 @@ const WATCHDOG_FIX_IT_LINES: Record<string, string> = {
   token_expiring: "Reconnect the channel from Settings → Channels before it expires.",
   token_expired: "Reconnect the channel from Settings → Channels — it can no longer send or receive.",
   webhook_silent: "Check the Instagram webhook subscription in the Meta App Dashboard — deliveries appear to have stopped.",
+  voice_minutes_80: "Raise this org's monthly voice-minute cap in Settings, or it will auto-disable once the cap is hit.",
 }
 
 export interface WatchdogAlertEmailFinding {
@@ -506,6 +509,59 @@ export async function sendMorningBriefEmail(input: MorningBriefEmailInput): Prom
       ${renderBriefSectionHtml("Suggested follow-ups (drafted, not sent)", suggestedFollowUpLines, "#b4551f")}
       <a href="${inboxUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Open Inbox</a>
       <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; your daily brief, sent every morning</p>
+    </div>
+  `.trim()
+
+  await sendEmail({ to: ownerEmail, subject, html, text })
+}
+
+// ---------------------------------------------------------------------------
+// Voice minutes cap (AI Phone Receptionist pilot, migration 0020) — the
+// safety-valve alert sent when an org's monthly voice-minutes usage hits its
+// configured cap and src/lib/voice/retell.ts#disableVoiceAgent turns the
+// receptionist off automatically (see src/app/api/webhooks/retell/route.ts).
+// Modeled directly on sendLeadAlertEmail's delivery mechanics.
+// ---------------------------------------------------------------------------
+
+export interface VoiceCapEmailInput {
+  orgId: string
+  usedMinutes: number
+  capMinutes: number
+}
+
+/**
+ * Sends the "your AI phone receptionist just turned itself off" email once a
+ * runaway month hits its cap — so the owner finds out immediately, not by
+ * noticing calls stopped being answered. No-ops quietly when email isn't
+ * configured or the owner's email can't be resolved, same best-effort
+ * contract as every other email in this module.
+ */
+export async function sendVoiceCapEmail(input: VoiceCapEmailInput): Promise<void> {
+  if (!isEmailConfigured()) return
+
+  const ownerEmail = await resolveOrgOwnerEmail(input.orgId)
+  if (!ownerEmail) return
+
+  const subject = "Your AI phone receptionist reached its monthly minute cap"
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  const settingsUrl = `${appUrl}/settings`
+
+  const text = [
+    `Your AI phone receptionist used ${input.usedMinutes} of its ${input.capMinutes} monthly minutes and has been turned off automatically to protect your account from overage costs.`,
+    `New calls will no longer be answered by the AI until you raise the cap or the month resets.`,
+    `Manage this in Settings: ${settingsUrl}`,
+  ].join("\n\n")
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+      <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #c0392b; font-weight: 600; margin: 0 0 8px;">Voice receptionist paused</p>
+      <h1 style="font-size: 20px; margin: 0 0 16px;">Monthly minute cap reached</h1>
+      <p style="font-size: 14px; line-height: 1.6; margin: 0 0 12px; color: #444444;">Your AI phone receptionist used ${escapeHtml(
+        String(input.usedMinutes)
+      )} of its ${escapeHtml(String(input.capMinutes))} monthly minutes and has been turned off automatically to protect your account from overage costs.</p>
+      <p style="font-size: 14px; line-height: 1.6; margin: 0 0 20px; color: #444444;">New calls will no longer be answered by the AI until you raise the cap or the month resets.</p>
+      <a href="${settingsUrl}" style="display: inline-block; font-size: 14px; font-weight: 600; color: #ffffff; background: #b4551f; padding: 10px 20px; border-radius: 8px; text-decoration: none;">Open Settings</a>
+      <p style="font-size: 12px; color: #999999; margin-top: 24px;">Lumina &middot; sent to the org owner</p>
     </div>
   `.trim()
 

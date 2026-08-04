@@ -37,6 +37,7 @@ const SOURCES: ContactSource[] = [
   "facebook",
   "google",
   "missed_call",
+  "voice",
 ]
 
 type AddContactDialogProps = {

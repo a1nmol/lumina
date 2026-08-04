@@ -15,6 +15,7 @@ export const FREE_TEST_LIMITS: PlanLimits = {
   images: 100,
   slideshows: 20,
   ai_replies: 500,
+  voice_minutes: 30,
   spend_cap_usd: 10,
 }
 

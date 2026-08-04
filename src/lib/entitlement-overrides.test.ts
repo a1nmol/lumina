@@ -96,7 +96,7 @@ describe("computePlanDiff", () => {
   it("shows every non-overridden cap/flag that differs between free_test and pro", () => {
     const diff = computePlanDiff("free_test", {}, "pro", LABELS)
     expect(diff.capDiffs.map((entry) => entry.key).sort()).toEqual(
-      ["ai_replies", "content_generations", "images", "slideshows", "spend_cap_usd"].sort()
+      ["ai_replies", "content_generations", "images", "slideshows", "spend_cap_usd", "voice_minutes"].sort()
     )
     const spendCap = diff.capDiffs.find((entry) => entry.key === "spend_cap_usd")
     expect(spendCap).toEqual({ key: "spend_cap_usd", label: "Spend cap", from: 10, to: 80 })

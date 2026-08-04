@@ -503,7 +503,15 @@ async function deliverReply(orgId: string, conversation: ConversationDetail, bod
       return deliverInstagramReply(orgId, conversation, body)
     case "sms":
       return deliverSmsReply(orgId, conversation, body)
+    case "voice":
+      // A voice thread is a finished call's transcript — there is no live
+      // channel to deliver text into (review fix: falling through to the
+      // web_chat-style no-op would persist the reply as "sent" when nothing
+      // reached the caller — silent fake success). Notes still work.
+      throw new Error("This is a call transcript — replies can't be delivered to a finished phone call. Add a note, or text them if they have SMS.")
     default:
+      // web_chat and friends: the open widget itself is the delivery
+      // channel — persisting the message IS delivery.
       return null
   }
 }

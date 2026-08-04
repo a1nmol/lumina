@@ -145,6 +145,38 @@ export async function getAiRepliesUsageFraction(orgId: string): Promise<number |
 }
 
 /**
+ * Voice-minutes used/cap fraction (AI Phone Receptionist pilot, migration
+ * 0020) — deliberately NOT sourced from entitlements/PlanLimits like
+ * getAiRepliesUsageFraction above: the cap that's actually enforced at call
+ * time is org_voice_settings.max_minutes_month (a per-org, settings-editable
+ * number — see src/lib/voice/webhook.ts#hasVoiceMinutesRemaining), not the
+ * plan catalog's indicative `voice_minutes` ceiling. Reads that cap directly.
+ * Returns null when Supabase isn't configured, the org has no
+ * org_voice_settings row yet, or its cap is non-positive — all "no burn
+ * signal to report" to the watchdog (src/lib/watchdog.ts).
+ */
+export async function getVoiceMinutesUsageFraction(orgId: string): Promise<number | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const admin = createAdminClient()
+  const { data: settings, error } = await admin
+    .from("org_voice_settings")
+    .select("max_minutes_month")
+    .eq("org_id", orgId)
+    .maybeSingle()
+
+  if (error) {
+    console.error(`[usage] failed to read org_voice_settings for org ${orgId}`, error.message)
+    return null
+  }
+  if (!settings || settings.max_minutes_month <= 0) return null
+
+  const summary = await getUsageSummary(orgId)
+  const used = summary.unitsByFeature.voice_minutes ?? 0
+  return used / settings.max_minutes_month
+}
+
+/**
  * The spend guard + per-feature allowance check. Merges plan limits with
  * per-org overrides, compares against this month's usage, and denies once
  * either the feature-specific limit or the org's spend_cap_usd is hit.

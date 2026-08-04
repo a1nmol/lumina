@@ -4,6 +4,7 @@ import {
   Mail,
   MessageCircle,
   MessageSquareText,
+  Phone,
   PhoneMissed,
   type LucideIcon,
 } from "lucide-react";
@@ -68,7 +69,8 @@ export type Channel =
   | "instagram"
   | "facebook"
   | "google"
-  | "missed_call";
+  | "missed_call"
+  | "voice";
 
 export const CHANNEL_GLYPHS: Record<
   Channel,
@@ -82,6 +84,7 @@ export const CHANNEL_GLYPHS: Record<
   facebook: { icon: FacebookGlyph, label: "Facebook" },
   google: { icon: GoogleGlyph, label: "Google" },
   missed_call: { icon: PhoneMissed, label: "Missed call" },
+  voice: { icon: Phone, label: "Phone call" },
 };
 
 export function ChannelGlyph({

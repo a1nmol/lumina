@@ -188,7 +188,7 @@ export type MediaAsset = {
 // Unified Inbox + FrontDesk + CRM (Phase 2) — mirrors supabase/migrations/0003_frontdesk.sql.
 // ---------------------------------------------------------------------------
 
-/** Where a contact/conversation originated. 'manual' is CRM-only (no conversation carries it). */
+/** Where a contact/conversation originated. 'manual' is CRM-only (no conversation carries it). 'voice' (migration 0020) is a live phone call handled by the AI Phone Receptionist — see src/lib/voice/*. */
 export type ContactSource =
   | "web_chat"
   | "form"
@@ -198,6 +198,7 @@ export type ContactSource =
   | "facebook"
   | "google"
   | "missed_call"
+  | "voice"
   | "manual"
 
 /** The channel a conversation is happening on — ContactSource minus 'manual'. */
@@ -422,6 +423,53 @@ export type StandingOrder = {
   instruction: string
   expires_at: string | null
   active: boolean
+  created_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0020_voice_receptionist.sql — per-org AI Phone
+ * Receptionist config (Retell hosted-agent pilot, owner-approved). One row
+ * per org, created lazily by the settings surface. `voice_id` refers to the
+ * curated stock-voice catalog (src/lib/voice/catalog.ts); `retell_agent_id`
+ * and `phone_number` are provisioned/bound by src/lib/voice/retell.ts when
+ * the org enables voice. Read via RLS (select-only policy); every write goes
+ * through the service-role client via src/app/(app)/settings/voice-actions.ts,
+ * matching entitlements' write convention.
+ */
+export type OrgVoiceSettings = {
+  org_id: string
+  enabled: boolean
+  voice_id: string | null
+  greeting: string | null
+  after_hours_script: string | null
+  transfer_number: string | null
+  max_minutes_month: number
+  retell_agent_id: string | null
+  phone_number: string | null
+  updated_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0020_voice_receptionist.sql — one row per phone
+ * call handled by the AI Phone Receptionist. The metadata spine only; the
+ * actual transcript lives in conversations/messages with channel 'voice'
+ * (see src/app/api/webhooks/retell/route.ts). `retell_call_id` is unique and
+ * is this table's idempotency key against Retell's at-least-once webhook
+ * delivery.
+ */
+export type Call = {
+  id: string
+  org_id: string
+  conversation_id: string | null
+  retell_call_id: string | null
+  from_number: string | null
+  to_number: string | null
+  started_at: string | null
+  ended_at: string | null
+  duration_secs: number | null
+  outcome: string | null
+  summary: string | null
+  cost_usd: number
   created_at: string
 }
 
@@ -688,6 +736,18 @@ export interface Database {
         Row: StandingOrder
         Insert: Partial<StandingOrder> & Pick<StandingOrder, "org_id" | "instruction">
         Update: Partial<StandingOrder>
+        Relationships: []
+      }
+      org_voice_settings: {
+        Row: OrgVoiceSettings
+        Insert: Partial<OrgVoiceSettings> & Pick<OrgVoiceSettings, "org_id">
+        Update: Partial<OrgVoiceSettings>
+        Relationships: []
+      }
+      calls: {
+        Row: Call
+        Insert: Partial<Call> & Pick<Call, "org_id">
+        Update: Partial<Call>
         Relationships: []
       }
     }

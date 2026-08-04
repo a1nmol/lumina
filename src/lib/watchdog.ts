@@ -20,7 +20,7 @@ import { getAdminEmailAllowlist } from "@/lib/admin"
 import { fetchOpenRouterRemainingCredits } from "@/lib/ai/wallet-status"
 import { sendWatchdogAlertEmail } from "@/lib/email"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
-import { getAiRepliesUsageFraction } from "@/lib/usage"
+import { getAiRepliesUsageFraction, getVoiceMinutesUsageFraction } from "@/lib/usage"
 
 // ===========================================================================
 // 1. Pure decision logic
@@ -34,6 +34,14 @@ export type WatchdogAlertKind =
   | "token_expiring"
   | "token_expired"
   | "webhook_silent"
+  /**
+   * AI Phone Receptionist pilot (migration 0020): an org is at/over 80% of
+   * its org_voice_settings.max_minutes_month cap. Unlike usage_80/usage_95
+   * this has no separate "critical" tier — src/lib/voice/retell.ts#disableVoiceAgent
+   * already auto-disables the org at 100%, so this warning's whole job is
+   * to give the owner a heads-up BEFORE that automatic cutoff happens.
+   */
+  | "voice_minutes_80"
   /**
    * Not a health finding — the daily morning-brief email (Outlast wave 2,
    * Part B, see src/lib/morning-brief.ts + src/app/api/cron/morning-brief/route.ts)
@@ -96,6 +104,12 @@ export function classifyUsageBurn(
   return null
 }
 
+/** Classifies a voice_minutes used/cap fraction (from getVoiceMinutesUsageFraction). One threshold only — see WatchdogAlertKind's "voice_minutes_80" doc comment for why there's no critical tier here. */
+export function classifyVoiceMinutesBurn(fraction: number): { kind: "voice_minutes_80"; severity: WatchdogSeverity } | null {
+  if (fraction >= USAGE_WARN_FRACTION) return { kind: "voice_minutes_80", severity: "warning" }
+  return null
+}
+
 // --- Channel token expiry ----------------------------------------------------
 
 export const TOKEN_EXPIRY_WARNING_DAYS = 7
@@ -128,6 +142,7 @@ export const WATCHDOG_DEDUPE_WINDOW_MS: Record<WatchdogAlertKind, number> = {
   token_expired: DAY_MS,
   webhook_silent: DAY_MS,
   morning_brief: 20 * HOUR_MS,
+  voice_minutes_80: DAY_MS,
 }
 
 /** True iff a fresh alert should be sent, given when (if ever) the same (org, kind) last sent. */
@@ -312,6 +327,38 @@ async function checkUsageBurn(orgIds: string[]): Promise<WatchdogFinding[]> {
   return findings
 }
 
+// --- Check 2b: voice-minutes burn (per org, AI Phone Receptionist pilot) ----
+
+async function checkVoiceMinutesBurn(orgIds: string[]): Promise<WatchdogFinding[]> {
+  const findings: WatchdogFinding[] = []
+
+  await Promise.all(
+    orgIds.map(async (orgId) => {
+      let fraction: number | null
+      try {
+        fraction = await getVoiceMinutesUsageFraction(orgId)
+      } catch (error) {
+        console.error(`[watchdog] voice-minutes burn check failed for org ${orgId}`, error)
+        return
+      }
+      if (fraction === null) return
+
+      const classification = classifyVoiceMinutesBurn(fraction)
+      if (!classification) return
+
+      findings.push({
+        orgId,
+        kind: classification.kind,
+        scope: "org",
+        severity: classification.severity,
+        detail: `AI phone receptionist at ${Math.round(fraction * 100)}% of this month's minute cap.`,
+      })
+    })
+  )
+
+  return findings
+}
+
 // --- Check 3: connected-channel token expiry (per org) ----------------------
 
 async function checkTokenExpiry(admin: AdminClient, now: Date): Promise<WatchdogFinding[]> {
@@ -478,6 +525,7 @@ export async function runWatchdog(): Promise<WatchdogRunResult> {
   const settled = await Promise.allSettled([
     checkOpenRouterCredits(admin),
     checkUsageBurn(orgIds),
+    checkVoiceMinutesBurn(orgIds),
     checkTokenExpiry(admin, now),
     checkWebhookLiveness(admin, now),
   ])

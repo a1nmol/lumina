@@ -11,6 +11,7 @@ import {
   classifyOpenRouterCredits,
   classifyTokenExpiry,
   classifyUsageBurn,
+  classifyVoiceMinutesBurn,
   isWebhookSilent,
   shouldSendWatchdogAlert,
   trafficLookbackWindow,
@@ -62,6 +63,22 @@ describe("classifyUsageBurn", () => {
   it("flags usage_95 at and above the critical threshold", () => {
     expect(classifyUsageBurn(USAGE_CRITICAL_FRACTION)).toEqual({ kind: "usage_95", severity: "critical" })
     expect(classifyUsageBurn(1.2)).toEqual({ kind: "usage_95", severity: "critical" }) // can exceed 100% briefly (check-then-act race, see usage.ts)
+  })
+})
+
+// -----------------------------------------------------------------------------
+// classifyVoiceMinutesBurn
+// -----------------------------------------------------------------------------
+
+describe("classifyVoiceMinutesBurn", () => {
+  it("returns null below the warn threshold", () => {
+    expect(classifyVoiceMinutesBurn(0)).toBeNull()
+    expect(classifyVoiceMinutesBurn(USAGE_WARN_FRACTION - 0.01)).toBeNull()
+  })
+
+  it("flags voice_minutes_80 at and above the warn threshold, with no critical tier", () => {
+    expect(classifyVoiceMinutesBurn(USAGE_WARN_FRACTION)).toEqual({ kind: "voice_minutes_80", severity: "warning" })
+    expect(classifyVoiceMinutesBurn(1.5)).toEqual({ kind: "voice_minutes_80", severity: "warning" })
   })
 })
 
