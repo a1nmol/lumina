@@ -12,6 +12,8 @@ import { FrontdeskAutoReplyCard } from "./frontdesk-auto-reply-card"
 import { listStandingOrders } from "./standing-orders-actions"
 import { StandingOrdersCard } from "./standing-orders-card"
 import { UsageCard } from "./usage-card"
+import { getVoiceSettings } from "./voice-actions"
+import { VoiceEntryCard } from "./voice-entry-card"
 
 export const metadata: Metadata = { title: "Settings & Brain" }
 
@@ -32,6 +34,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const brain = await getBusinessBrain()
   const completeness = computeBrainCompleteness(brain)
   const { orders: standingOrders, isLive: standingOrdersLive } = await listStandingOrders()
+  const { settings: voiceSettings, retellConfigured } = await getVoiceSettings()
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -49,6 +52,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         isLive={isSupabaseConfigured()}
       />
       <StandingOrdersCard initialOrders={standingOrders} isLive={standingOrdersLive} />
+      <VoiceEntryCard settings={voiceSettings} retellConfigured={retellConfigured} />
       <ChannelsCard
         connectedParam={firstParam(params.connected)}
         errorParam={firstParam(params.metaError)}

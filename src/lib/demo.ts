@@ -7,6 +7,7 @@ import type {
   AnalyticsOverviewStats,
   Appointment,
   BusinessBrain,
+  Call,
   Contact,
   ConversationDetail,
   LoopPair,
@@ -315,6 +316,24 @@ export const DEMO_CONTACTS: Contact[] = [
     created_at: "2026-07-08T17:45:00.000Z",
     updated_at: "2026-07-08T17:45:00.000Z",
   },
+  {
+    // AI Phone Receptionist demo thread (wave V2) — see demo-conversation-9
+    // below for the call metadata this contact's timeline/inbox thread show.
+    id: "demo-contact-11",
+    org_id: DEMO_ORG.id,
+    name: "Marcus Webb",
+    phone: "+1 (555) 010-1011",
+    email: null,
+    source: "voice",
+    status: "contacted",
+    tags: ["custom-order"],
+    notes: null,
+    custom: {},
+    ai_memory: null,
+    is_vip: false,
+    created_at: "2026-07-08T09:12:00.000Z",
+    updated_at: "2026-07-12T11:04:00.000Z",
+  },
 ]
 
 function demoMessage(input: {
@@ -340,6 +359,34 @@ function demoMessage(input: {
     cost_usd: input.costUsd ?? 0,
     metadata: {},
     created_at: input.createdAt,
+  }
+}
+
+/** AI Phone Receptionist demo call row (wave V2) — mirrors supabase/migrations/0020_voice_receptionist.sql's `calls` table shape. */
+function demoCall(input: {
+  id: string
+  conversationId: string
+  fromNumber: string
+  startedAt: string
+  durationSecs: number
+  outcome: string
+  summary?: string | null
+}): Call {
+  const startedMs = new Date(input.startedAt).getTime()
+  return {
+    id: input.id,
+    org_id: DEMO_ORG.id,
+    conversation_id: input.conversationId,
+    retell_call_id: `retell-${input.id}`,
+    from_number: input.fromNumber,
+    to_number: "+1 (555) 020-2000",
+    started_at: input.startedAt,
+    ended_at: new Date(startedMs + input.durationSecs * 1000).toISOString(),
+    duration_secs: input.durationSecs,
+    outcome: input.outcome,
+    summary: input.summary ?? null,
+    cost_usd: Number(((input.durationSecs / 60) * 0.0785).toFixed(4)),
+    created_at: input.startedAt,
   }
 }
 
@@ -683,6 +730,107 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
         direction: "outbound",
         body: "Hi Tyler, no problem — I've moved your catering pickup to Monday at the same time. See you then!",
         createdAt: "2026-07-09T08:10:00.000Z",
+      }),
+    ],
+  },
+  {
+    // AI Phone Receptionist demo thread (wave V2) — three calls from the
+    // same caller so the Inbox's call-header strip (src/components/inbox/call-header.tsx)
+    // has a real "N calls" case to render in demo mode, not just a single
+    // call. Transcript below reflects the most recent (3rd) call.
+    id: "demo-conversation-9",
+    org_id: DEMO_ORG.id,
+    contact_id: "demo-contact-11",
+    channel: "voice",
+    status: "resolved",
+    ai_state: "ai_answered",
+    ai_mode: "auto",
+    ai_memory: {
+      facts: ["wants a 3-tier custom cake for a 50-person office party", "needs it by the 20th"],
+      open_threads: [],
+      vibe: "practical, calling on a lunch break",
+      summary:
+        "Marcus called about a large custom cake for a 50-person office party on the 20th. First call he hung up before we caught details; second call went to voicemail after hours; third call we got his name, number, and event date and let him know our cake specialist would follow up with pricing.",
+      updated_at: "2026-07-12T11:04:00.000Z",
+      message_count: 4,
+    },
+    last_follow_up_at: null,
+    last_message_at: "2026-07-12T11:04:00.000Z",
+    unread: false,
+    created_at: "2026-07-08T09:12:00.000Z",
+    updated_at: "2026-07-12T11:04:00.000Z",
+    contact_name: "Marcus Webb",
+    contact_phone: "+1 (555) 010-1011",
+    contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[10].is_vip,
+    contact: DEMO_CONTACTS[10],
+    messages: [
+      demoMessage({
+        id: "demo-message-9-1",
+        conversationId: "demo-conversation-9",
+        direction: "outbound",
+        body: "Hi, this is Sunrise Bakery's AI assistant — this call may be recorded. How can I help you today?",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:02:00.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-2",
+        conversationId: "demo-conversation-9",
+        direction: "inbound",
+        body: "Hey, yeah — I need a custom cake for an office party, about 50 people, on the 20th. Do you guys do that?",
+        createdAt: "2026-07-12T11:02:30.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-3",
+        conversationId: "demo-conversation-9",
+        direction: "outbound",
+        body: "We do! A 3-tier custom cake would comfortably serve 50 — can I get your name and a callback number so our cake specialist can follow up with pricing and availability for the 20th?",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:03:10.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-4",
+        conversationId: "demo-conversation-9",
+        direction: "inbound",
+        body: "Sure, Marcus Webb, and this number is fine to call back.",
+        createdAt: "2026-07-12T11:03:45.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-5",
+        conversationId: "demo-conversation-9",
+        kind: "note",
+        direction: "outbound",
+        body: "Call summary: Marcus Webb wants a 3-tier custom cake for a 50-person office party on the 20th. Took his name and callback number for the cake specialist to follow up with pricing.",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:04:00.000Z",
+      }),
+    ],
+    calls: [
+      demoCall({
+        id: "demo-call-9-1",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-08T09:12:00.000Z",
+        durationSecs: 14,
+        outcome: "user_hangup",
+      }),
+      demoCall({
+        id: "demo-call-9-2",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-10T20:47:00.000Z",
+        durationSecs: 38,
+        outcome: "unsuccessful",
+      }),
+      demoCall({
+        id: "demo-call-9-3",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-12T11:02:00.000Z",
+        durationSecs: 124,
+        outcome: "successful",
+        summary:
+          "Marcus Webb wants a 3-tier custom cake for a 50-person office party on the 20th. Took his name and callback number for the cake specialist to follow up with pricing.",
       }),
     ],
   },

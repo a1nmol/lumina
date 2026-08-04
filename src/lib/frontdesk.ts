@@ -25,6 +25,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type {
   Appointment,
   AppointmentStatus,
+  Call,
   Contact,
   ContactSource,
   ContactStatus,
@@ -150,11 +151,55 @@ export async function getConversation(orgId: string, conversationId: string): Pr
 
   const contact = contactResult.data
 
+  // Voice-only: the calls metadata spine (duration/outcome/summary) that
+  // backs the Inbox's call-header strip. Skipped for every other channel —
+  // no calls rows will ever exist for them, so this saves a query on the
+  // overwhelming majority of conversations.
+  const calls = conversation.channel === "voice" ? await getCallsForConversation(orgId, conversationId) : undefined
+
   return {
     ...toConversationWithContact(conversation, contact ?? undefined),
     messages: messagesResult.data ?? [],
     contact: contact ?? null,
+    ...(calls !== undefined ? { calls } : {}),
   }
+}
+
+/** This conversation's `calls` rows (RLS-scoped), most recent first. Empty array (not an error) when the conversation has no calls yet. */
+export async function getCallsForConversation(orgId: string, conversationId: string): Promise<Call[]> {
+  if (!isSupabaseConfigured()) return []
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("calls")
+    .select()
+    .eq("org_id", orgId)
+    .eq("conversation_id", conversationId)
+    .order("started_at", { ascending: false, nullsFirst: false })
+
+  if (error) {
+    throw new Error(`getCallsForConversation: failed to load calls for conversation ${conversationId}: ${error.message}`)
+  }
+
+  return data ?? []
+}
+
+/** Count of this org's calls that started at or after `sinceIso` — used by the "while you were away" digest (src/lib/digest.ts). RLS-scoped, so it only ever sees this org's rows. */
+export async function countCallsSince(orgId: string, sinceIso: string): Promise<number> {
+  if (!isSupabaseConfigured()) return 0
+
+  const supabase = await createClient()
+  const { count, error } = await supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .gte("started_at", sinceIso)
+
+  if (error) {
+    throw new Error(`countCallsSince: failed to count calls for org ${orgId}: ${error.message}`)
+  }
+
+  return count ?? 0
 }
 
 export interface SendMessageInput {
@@ -411,7 +456,7 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     (conversations ?? []).map((conversation) => [conversation.id, conversation.channel])
   )
 
-  const [messagesResult, appointmentsResult] = await Promise.all([
+  const [messagesResult, appointmentsResult, callsResult] = await Promise.all([
     conversationIds.length > 0
       ? supabase
           .from("messages")
@@ -423,6 +468,9 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     supabase.from("appointments").select().eq("org_id", orgId).eq("contact_id", contactId).order("starts_at", {
       ascending: true,
     }),
+    conversationIds.length > 0
+      ? supabase.from("calls").select().eq("org_id", orgId).in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] as Call[], error: null }),
   ])
 
   if (messagesResult.error) {
@@ -434,6 +482,9 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     throw new Error(
       `getContactWithTimeline: failed to load appointments for contact ${contactId}: ${appointmentsResult.error.message}`
     )
+  }
+  if (callsResult.error) {
+    throw new Error(`getContactWithTimeline: failed to load calls for contact ${contactId}: ${callsResult.error.message}`)
   }
 
   const timeline: ContactTimelineEvent[] = []
@@ -450,6 +501,10 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
 
   for (const appointment of appointmentsResult.data ?? []) {
     timeline.push({ type: "appointment", at: appointment.starts_at, appointment })
+  }
+
+  for (const call of callsResult.data ?? []) {
+    timeline.push({ type: "call", at: call.started_at ?? call.created_at, call })
   }
 
   // There is no dedicated status-history table yet (TODO: add one — e.g.

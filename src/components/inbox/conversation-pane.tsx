@@ -24,6 +24,7 @@ import type { InboxConversationDetail } from "@/app/(app)/inbox/actions"
 import { AiMemoryStrip } from "./ai-memory-strip"
 import { AiModeToggle } from "./ai-mode-toggle"
 import { AiStateChip } from "./ai-state-chip"
+import { CallHeader } from "./call-header"
 import { ChannelGlyph, CHANNEL_GLYPHS } from "./channel-glyphs"
 import { initialsFromName } from "./inbox-filters"
 import { MessageBubble } from "./message-bubble"
@@ -172,6 +173,7 @@ export function ConversationPane({
       </div>
 
       <AiMemoryStrip aiMemory={detail.ai_memory} />
+      {detail.channel === "voice" && <CallHeader calls={detail.calls ?? []} />}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
         <AnimatePresence mode="wait">
@@ -199,6 +201,7 @@ export function ConversationPane({
           key={detail.id}
           ref={composerRef}
           conversationId={detail.id}
+          channel={detail.channel}
           onSent={onMessageSent}
           onEscalated={onEscalated}
         />

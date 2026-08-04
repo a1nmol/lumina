@@ -2,11 +2,12 @@
 
 import { useState, type ReactNode } from "react"
 import { motion, useReducedMotion, AnimatePresence } from "framer-motion"
-import { CalendarClock, MessagesSquare, Repeat2 } from "lucide-react"
+import { CalendarClock, MessagesSquare, Phone, Repeat2 } from "lucide-react"
 
 import { ChannelGlyph } from "@/components/inbox/channel-glyphs"
 import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
+import { callOutcomeMeta, formatCallDuration } from "@/lib/voice/call-display"
 import type { ContactTimelineEvent } from "@/lib/types"
 
 import { CONTACT_STATUS_META } from "@/components/inbox/status-pill"
@@ -27,6 +28,7 @@ function snippet(text: string, max = 96): string {
 function eventKey(event: ContactTimelineEvent, index: number): string {
   if (event.type === "message") return `message-${event.message.id}`
   if (event.type === "appointment") return `appointment-${event.appointment.id}`
+  if (event.type === "call") return `call-${event.call.id}`
   return `status-${event.at}-${index}`
 }
 
@@ -139,6 +141,18 @@ function describeEvent(event: ContactTimelineEvent): {
       title: appointment.service ?? "Appointment",
       meta: APPOINTMENT_STATUS_LABEL[appointment.status] ?? appointment.status,
       body: appointment.notes ?? undefined,
+    }
+  }
+
+  if (event.type === "call") {
+    const { call } = event
+    const durationText = formatCallDuration(call.duration_secs)
+    const outcome = callOutcomeMeta(call.outcome)
+    return {
+      icon: <Phone aria-hidden="true" className="size-4" />,
+      title: "Phone call",
+      meta: [durationText, outcome.label].filter(Boolean).join(" · "),
+      body: call.summary ?? undefined,
     }
   }
 

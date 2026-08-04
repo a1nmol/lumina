@@ -578,6 +578,15 @@ export type ConversationWithContact = Conversation & {
 export type ConversationDetail = ConversationWithContact & {
   messages: Message[]
   contact: Contact | null
+  /**
+   * This conversation's `calls` rows (AI Phone Receptionist, migration
+   * 0020), most recent first — only ever populated for `channel === "voice"`
+   * conversations; see src/lib/frontdesk.ts#getConversation. Powers the
+   * Inbox's call-header strip (src/components/inbox/call-header.tsx).
+   * Undefined (not just empty) for every other channel, so callers can tell
+   * "not a voice thread" apart from "a voice thread with no calls yet."
+   */
+  calls?: Call[]
 }
 
 /** One entry in a contact's merged chronological activity timeline. */
@@ -585,6 +594,7 @@ export type ContactTimelineEvent =
   | { type: "message"; at: string; message: Message; conversationId: string; channel: ConversationChannel }
   | { type: "appointment"; at: string; appointment: Appointment }
   | { type: "status_change"; at: string; status: ContactStatus }
+  | { type: "call"; at: string; call: Call }
 
 export type ContactWithTimeline = {
   contact: Contact

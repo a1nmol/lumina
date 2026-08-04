@@ -1,7 +1,7 @@
 "use client"
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react"
-import { Loader2, RefreshCw, Send, Sparkles, Wand2, X } from "lucide-react"
+import { Loader2, PhoneOff, RefreshCw, Send, Sparkles, Wand2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import type { Message, MessageKind } from "@/lib/types"
+import type { ConversationChannel, Message, MessageKind } from "@/lib/types"
 
 import { draftReply, rewriteDraft, sendReply, suggestReplies, whisperToConversation } from "@/app/(app)/inbox/actions"
 
@@ -69,6 +69,16 @@ export type ReplyComposerHandle = {
 
 type ReplyComposerProps = {
   conversationId: string
+  /**
+   * A finished phone call (channel "voice") can't receive a reply — Retell
+   * has no live leg to deliver one to, and sendReply would throw honestly
+   * if forced (see src/app/(app)/inbox/actions.ts#sendReply's voice guard).
+   * This is the honest UI layer for that: voice threads default to and are
+   * locked into Note mode, with the Reply pill hidden rather than shown
+   * disabled-and-confusing. Optional so every other caller/test is
+   * unaffected — undefined behaves exactly like every non-voice channel.
+   */
+  channel?: ConversationChannel
   onSent: (message: Message) => void
   /** Fired when the AI draft flow escalates the thread (needsHuman) — parent flips ai_state locally + persists it for the matching conversation. */
   onEscalated: (conversationId: string, reason: string) => void
@@ -76,9 +86,10 @@ type ReplyComposerProps = {
 }
 
 export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>(function ReplyComposer(
-  { conversationId, onSent, onEscalated, className },
+  { conversationId, channel, onSent, onEscalated, className },
   ref
 ) {
+  const isVoiceConversation = channel === "voice"
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMountedRef = useRef(true)
   // Edit-learning (Outlast wave 2, Part A): the AI-drafted text that most
@@ -109,9 +120,10 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     }
   }, [])
 
-  // Reset the composer whenever the selected conversation changes.
+  // Reset the composer whenever the selected conversation changes. Voice
+  // threads default straight to Note (see the `channel` prop doc above).
   useEffect(() => {
-    setMode("reply")
+    setMode(isVoiceConversation ? "note" : "reply")
     setText("")
     setIsDraftPending(false)
     setDraftMeta({})
@@ -121,7 +133,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     setIsSuggesting(false)
     setIsRewriting(false)
     originalAiDraftRef.current = null
-  }, [conversationId])
+  }, [conversationId, isVoiceConversation])
 
   useEffect(() => {
     if (isDraftPending) textareaRef.current?.focus()
@@ -423,37 +435,44 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
         {announcement}
       </div>
 
-      <div
-        role="radiogroup"
-        aria-label="Reply or internal note"
-        onKeyDown={handleModeKeyDown}
-        className="inline-flex h-8 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
-      >
-        {MODE_OPTIONS.map(({ value: optionValue, label }, index) => {
-          const isSelected = mode === optionValue
-          return (
-            <button
-              key={optionValue}
-              ref={(el) => {
-                modeButtonRefs.current[index] = el
-              }}
-              type="button"
-              role="radio"
-              aria-checked={isSelected}
-              tabIndex={isSelected ? 0 : -1}
-              onClick={() => setMode(optionValue)}
-              className={cn(
-                "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
-                isSelected
-                  ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
-                  : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
+      {isVoiceConversation ? (
+        <div className="flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs font-medium text-warning">
+          <PhoneOff aria-hidden="true" className="size-3.5 shrink-0" />
+          Call transcript — replies can&apos;t reach a finished call. Notes are private to you.
+        </div>
+      ) : (
+        <div
+          role="radiogroup"
+          aria-label="Reply or internal note"
+          onKeyDown={handleModeKeyDown}
+          className="inline-flex h-8 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
+        >
+          {MODE_OPTIONS.map(({ value: optionValue, label }, index) => {
+            const isSelected = mode === optionValue
+            return (
+              <button
+                key={optionValue}
+                ref={(el) => {
+                  modeButtonRefs.current[index] = el
+                }}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                tabIndex={isSelected ? 0 : -1}
+                onClick={() => setMode(optionValue)}
+                className={cn(
+                  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
+                  isSelected
+                    ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                    : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {isWhisperIntent && (
         <div

@@ -80,6 +80,13 @@ function buildDemoTimeline(contactId: string): ContactWithTimeline | null {
     timeline.push({ type: "appointment", at: appointment.starts_at, appointment })
   }
 
+  for (const conversation of DEMO_CONVERSATIONS) {
+    if (conversation.contact_id !== contactId) continue
+    for (const call of conversation.calls ?? []) {
+      timeline.push({ type: "call", at: call.started_at ?? call.created_at, call })
+    }
+  }
+
   // Mirrors getContactWithTimeline's best-effort "current status" marker.
   if (contact.status !== "lead") {
     timeline.push({ type: "status_change", at: contact.updated_at, status: contact.status })
