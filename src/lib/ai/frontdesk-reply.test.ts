@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { STORY_REPLY_PLACEHOLDER_BODY } from "@/lib/social/instagram-attachments"
 import type { Message } from "@/lib/types"
 
 import {
@@ -35,15 +36,87 @@ describe("attachmentToPromptContent", () => {
     )
   })
 
-  it("covers audio, share, and story_mention with honest can't-see/hear phrasing", () => {
+  it("covers audio, share, and story_mention with honest can't-see/hear phrasing when nothing was enriched", () => {
     expect(attachmentToPromptContent({ type: "audio" })).toBe("[sent a voice message you can't hear]")
-    expect(attachmentToPromptContent({ type: "share" })).toBe("[sent a shared post you can't see]")
-    expect(attachmentToPromptContent({ type: "story_mention" })).toBe("[sent a story mention you can't see]")
+    expect(attachmentToPromptContent({ type: "share" })).toBe("[shared a post you can't see]")
+    expect(attachmentToPromptContent({ type: "story_mention" })).toBe("[mentioned you in their story you can't see]")
   })
 
   it("falls back to a generic honest phrase for an unrecognized/file type", () => {
     expect(attachmentToPromptContent({ type: "file" })).toBe("[sent an attachment you can't see]")
     expect(attachmentToPromptContent({ type: "something_new" })).toBe("[sent an attachment you can't see]")
+  })
+})
+
+// Senses Wave — locks in exactly what the AI is told for the newly-enriched
+// kinds (reel caption, shared-post cover-image vision + caption, voice-note
+// transcript, story_mention/story_reply content-sniff results), since each
+// of these is a NEW prompt-content string a wrong render would silently
+// break.
+describe("attachmentToPromptContent — Senses Wave enrichment", () => {
+  it("renders a reel's caption when present, honest can't-watch when it's not", () => {
+    expect(attachmentToPromptContent({ type: "reel", caption: "closing time vibes 🎬" })).toBe(
+      '[sent a reel captioned: "closing time vibes 🎬"]'
+    )
+    expect(attachmentToPromptContent({ type: "reel" })).toBe("[sent a reel you can't watch]")
+    // A description sneaking onto a reel must still never be used — reels are never vision'd.
+    expect(attachmentToPromptContent({ type: "reel", description: "should be ignored" })).toBe(
+      "[sent a reel you can't watch]"
+    )
+  })
+
+  it("renders a shared post across every combination of caption + cover-image description", () => {
+    expect(attachmentToPromptContent({ type: "share", caption: "our new menu!", description: "a printed restaurant menu" })).toBe(
+      '[shared a post: "our new menu!" — image shows a printed restaurant menu]'
+    )
+    expect(attachmentToPromptContent({ type: "share", description: "a printed restaurant menu" })).toBe(
+      "[shared a post — image shows a printed restaurant menu]"
+    )
+    expect(attachmentToPromptContent({ type: "share", caption: "our new menu!" })).toBe(
+      '[shared a post captioned: "our new menu!"]'
+    )
+    expect(attachmentToPromptContent({ type: "share" })).toBe("[shared a post you can't see]")
+  })
+
+  it("renders a voice-note transcript when present, honest can't-hear when it's not", () => {
+    expect(attachmentToPromptContent({ type: "audio", transcript: "hey is the shop open on sunday" })).toBe(
+      '[sent a voice message saying: "hey is the shop open on sunday"]'
+    )
+    expect(attachmentToPromptContent({ type: "audio" })).toBe("[sent a voice message you can't hear]")
+  })
+
+  it("renders story_mention by content-sniffed media_kind, with the link-sticker note only when flagged", () => {
+    expect(attachmentToPromptContent({ type: "story_mention", media_kind: "image", description: "our storefront at sunset" })).toBe(
+      "[mentioned you in their story — image shows our storefront at sunset]"
+    )
+    expect(attachmentToPromptContent({ type: "story_mention", media_kind: "video" })).toBe(
+      "[mentioned you in their story (video)]"
+    )
+    expect(attachmentToPromptContent({ type: "story_mention", media_kind: "unknown" })).toBe(
+      "[mentioned you in their story you can't see]"
+    )
+    expect(attachmentToPromptContent({ type: "story_mention" })).toBe("[mentioned you in their story you can't see]")
+    expect(
+      attachmentToPromptContent({ type: "story_mention", media_kind: "video", has_link_sticker: true })
+    ).toBe("[mentioned you in their story (video)] (their story has a link sticker)")
+  })
+
+  it("renders story_reply (message.reply_to.story) by content-sniffed media_kind, with the link-sticker note only when flagged", () => {
+    expect(attachmentToPromptContent({ type: "story_reply", media_kind: "image", description: "our storefront at sunset" })).toBe(
+      "[replied to your story — image shows our storefront at sunset]"
+    )
+    expect(attachmentToPromptContent({ type: "story_reply", media_kind: "video" })).toBe("[replied to your story (video)]")
+    expect(attachmentToPromptContent({ type: "story_reply" })).toBe("[replied to your story you can't see]")
+    expect(
+      attachmentToPromptContent({ type: "story_reply", media_kind: "video", has_link_sticker: true })
+    ).toBe("[replied to your story (video)] (their story has a link sticker)")
+  })
+
+  it("prefers media_kind 'image' + description over a stray media_kind 'video' collision (defensive)", () => {
+    // Guards the switch's branch order: image+description must win before any video check runs.
+    expect(
+      attachmentToPromptContent({ type: "story_mention", media_kind: "image", description: "a flyer" })
+    ).toBe("[mentioned you in their story — image shows a flyer]")
   })
 })
 
@@ -81,6 +154,24 @@ describe("messageToPromptContent", () => {
   it("ignores malformed attachment metadata and falls back to the body", () => {
     expect(messageToPromptContent({ body: "hello", metadata: { attachment: "not-an-object" } })).toBe("hello")
     expect(messageToPromptContent({ body: "hello", metadata: { attachment: {} } })).toBe("hello")
+  })
+
+  it("combines a customer's real story-reply text with the story_reply phrase (Senses Wave)", () => {
+    expect(
+      messageToPromptContent({
+        body: "omg love this",
+        metadata: { attachment: { type: "story_reply", media_kind: "image", description: "a new haircut" } },
+      })
+    ).toBe("omg love this [replied to your story — image shows a new haircut]")
+  })
+
+  it("returns the story_reply phrase alone when the stored body is the story-reply placeholder", () => {
+    expect(
+      messageToPromptContent({
+        body: STORY_REPLY_PLACEHOLDER_BODY,
+        metadata: { attachment: { type: "story_reply", media_kind: "video" } },
+      })
+    ).toBe("[replied to your story (video)]")
   })
 })
 

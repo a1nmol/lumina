@@ -293,7 +293,9 @@ export async function suggestReplies(input: SuggestRepliesInput): Promise<Sugges
     orgId: input.orgId,
     job: "customer_reply",
     messages,
-    maxTokens: 500,
+    // Brevity/cost pass (owner directive, 2026-08-03) — 3 suggestions capped
+    // at MAX_SUGGESTION_LENGTH (200) chars each fit well inside this; was 500.
+    maxTokens: 240,
     temperature: 0.7,
   })
 

@@ -19,7 +19,7 @@ import "server-only"
 // org's `ai_replies` allowance) so the caller can surface a real
 // "out of quota" state instead of silently drafting nothing.
 
-import { ATTACHMENT_PLACEHOLDER_BY_KIND } from "@/lib/social/instagram-attachments"
+import { ATTACHMENT_PLACEHOLDER_BY_KIND, STORY_REPLY_PLACEHOLDER_BODY } from "@/lib/social/instagram-attachments"
 import { fetchActiveStandingOrders, renderStandingOrdersBlock } from "@/lib/standing-orders"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { getAiRepliesUsageFraction } from "@/lib/usage"
@@ -128,7 +128,7 @@ export const STYLE_GUIDE = [
   "Write short, casual, warm — the shop owner texting back between customers, not a support bot.",
   "Reply in the customer's exact language AND script, including romanized languages (e.g. \"k cha yaar, price kati ho?\" -> same romanized style back). Mirror code-switching. Never translate, switch script, or comment on the language.",
   "In romanized replies, copy the customer's own spellings (they write \"xau\", you write \"xau\", not \"xu\"). Romanized texting often skips \"?\" — read intent from context (\"khana khayeu\" is still a question). If a phrase is genuinely unclear, don't guess or fake understanding — reply so it works either way, or casually ask what they meant, in their style.",
-  "Match the customer's length and energy — short question, short answer. Don't pad or over-explain.",
+  "Match the customer's length and energy. When in doubt, ONE short sentence — two only when the answer genuinely needs it (multiple prices, multiple steps). Never pad, never restate their question back to them. Still warm, not curt — short doesn't mean cold.",
   'No em dashes, semicolons, bullet lists, or stock assistant-speak ("I\'d be happy to assist you", "As an AI", "I hope this helps", "feel free to reach out", "Is there anything else", "I\'ll pass this along"). Plain sentences with commas, always contractions. The "owner will see this" idea: at most once per conversation, worded fresh each time.',
   'Text like a real person: lowercase starts are fine, the odd exclamation point (sparingly), no formal sign-offs, casual words like "yep"/"for sure"/"no worries" when they fit — but no deliberate typos or bad grammar, stay clean, relaxed and human, never sloppy.',
   "Emoji only if the customer used one first, and never more than one.",
@@ -434,49 +434,85 @@ export function buildSystemPrompt(
 /**
  * Shape of `messages.metadata.attachment` as persisted by
  * src/app/api/webhooks/instagram/route.ts (see src/lib/social/instagram-attachments.ts
- * for the `type` values). `description` is only present once
- * src/lib/ai/describe-image.ts has successfully described an image
- * attachment — its absence means "not described" (vision skipped, failed, or
- * the attachment isn't an image), not "empty description."
+ * for the `type` values — plus the Senses-Wave-only pseudo-type
+ * "story_reply", which isn't part of that module's attachments[] union
+ * since it comes from `message.reply_to.story` instead). `description`
+ * (image/share cover-image vision), `caption` (reel/share sender-written
+ * caption), `transcript` (Deepgram voice-note transcription),
+ * `media_kind` (story_mention/story_reply content-sniff result — see
+ * src/lib/social/instagram-story-media.ts), and `has_link_sticker`
+ * (story_reply only) are each only present once the corresponding
+ * best-effort enrichment succeeds — absence means "not enriched" (skipped,
+ * failed, or not applicable to this kind), not "empty."
  */
 export interface StoredAttachmentMetadata {
   type?: string
   url?: string | null
   title?: string | null
   description?: string
+  caption?: string
+  transcript?: string
+  media_kind?: "image" | "video" | "unknown"
+  has_link_sticker?: boolean
 }
+
+const LINK_STICKER_NOTE = " (their story has a link sticker)"
 
 /**
  * Turns a stored attachment's metadata into what the model should see
  * instead of a raw placeholder — an honest, in-voice stand-in for media the
- * model can't actually open, or the real description when vision succeeded
- * (image only; see describeImageAttachment's caps). Pure, exported for unit
- * tests. Paired with the attachment STYLE_GUIDE line above, which tells the
- * model how to react to each case.
+ * model can't actually open, or the real description/caption/transcript when
+ * an enrichment succeeded (see StoredAttachmentMetadata's doc comment for
+ * which kinds get which field). Pure, exported for unit tests. Paired with
+ * the attachment STYLE_GUIDE line above, which tells the model how to react
+ * to each case.
  */
 export function attachmentToPromptContent(attachment: StoredAttachmentMetadata): string {
   const description = attachment.description?.trim()
+  const caption = attachment.caption?.trim()
+  const transcript = attachment.transcript?.trim()
+  const linkStickerNote = attachment.has_link_sticker ? LINK_STICKER_NOTE : ""
 
   switch (attachment.type) {
     case "image":
       return description ? `[sent a photo: ${description}]` : "[sent a photo you can't see]"
     case "reel":
-      return "[sent a reel you can't watch]"
+      return caption ? `[sent a reel captioned: "${caption}"]` : "[sent a reel you can't watch]"
     case "video":
       return "[sent a video you can't watch]"
     case "audio":
-      return "[sent a voice message you can't hear]"
+      return transcript ? `[sent a voice message saying: "${transcript}"]` : "[sent a voice message you can't hear]"
     case "share":
-      return "[sent a shared post you can't see]"
+      if (description) {
+        return caption ? `[shared a post: "${caption}" — image shows ${description}]` : `[shared a post — image shows ${description}]`
+      }
+      return caption ? `[shared a post captioned: "${caption}"]` : "[shared a post you can't see]"
     case "story_mention":
-      return "[sent a story mention you can't see]"
+      if (attachment.media_kind === "image" && description) {
+        return `[mentioned you in their story — image shows ${description}]${linkStickerNote}`
+      }
+      if (attachment.media_kind === "video") {
+        return `[mentioned you in their story (video)]${linkStickerNote}`
+      }
+      return `[mentioned you in their story you can't see]${linkStickerNote}`
+    case "story_reply":
+      if (attachment.media_kind === "image" && description) {
+        return `[replied to your story — image shows ${description}]${linkStickerNote}`
+      }
+      if (attachment.media_kind === "video") {
+        return `[replied to your story (video)]${linkStickerNote}`
+      }
+      return `[replied to your story you can't see]${linkStickerNote}`
     default:
       return "[sent an attachment you can't see]"
   }
 }
 
 /** Every known "attachment-only" placeholder body (e.g. "[photo]") — used to tell apart a real customer-typed caption from the placeholder body an attachment-only message was stored with. */
-const ATTACHMENT_PLACEHOLDER_BODIES = new Set<string>(Object.values(ATTACHMENT_PLACEHOLDER_BY_KIND))
+const ATTACHMENT_PLACEHOLDER_BODIES = new Set<string>([
+  ...Object.values(ATTACHMENT_PLACEHOLDER_BY_KIND),
+  STORY_REPLY_PLACEHOLDER_BODY,
+])
 
 /**
  * Resolves one stored message's content for the model: attachment context
@@ -711,7 +747,9 @@ export async function draftCustomerReply(input: DraftCustomerReplyInput): Promis
       orgId: input.orgId,
       job: "customer_reply",
       messages,
-      maxTokens: 400,
+      // Brevity/cost pass (owner directive, 2026-08-03): a texting reply
+      // never needs more than this — was 400.
+      maxTokens: 240,
       temperature: 0.5,
     })
 
@@ -864,7 +902,8 @@ export async function draftWhisperMessage(input: DraftWhisperMessageInput): Prom
       orgId: input.orgId,
       job: "customer_reply",
       messages,
-      maxTokens: 300,
+      // Brevity/cost pass (owner directive, 2026-08-03) — was 300.
+      maxTokens: 240,
       temperature: 0.6,
     })
 

@@ -59,16 +59,23 @@ import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { describeImageAttachment } from "@/lib/ai/describe-image"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
 import { appendLuminaSignature, getIntroToSend } from "@/lib/ai/intro"
+import { isDeepgramConfigured, transcribeVoiceNote } from "@/lib/ai/transcribe-audio"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
 import { getEntitlements } from "@/lib/entitlements"
 import {
   attachmentPlaceholderBody,
+  classifyInstagramAttachmentType,
   normalizeInstagramAttachments,
+  parseInstagramReplyToStory,
+  STORY_REPLY_PLACEHOLDER_BODY,
   type NormalizedInstagramAttachment,
+  type NormalizedInstagramStoryReply,
   type RawInstagramAttachment,
+  type RawInstagramReplyTo,
 } from "@/lib/social/instagram-attachments"
 import { isDuplicateOfRecentSend, RECENT_SEND_DEDUPE_WINDOW_MS, type DedupeCandidateMessage } from "@/lib/social/instagram-echo"
+import { sniffStoryMediaKind } from "@/lib/social/instagram-story-media"
 import {
   fetchInstagramSenderProfile,
   sendInstagramMessage,
@@ -81,6 +88,9 @@ import { checkRateLimit, sweepStaleRateLimitBuckets } from "../../frontdesk/_sha
 
 /** Mirrors src/app/api/frontdesk/_shared.ts's MAX_MESSAGE_LENGTH for the other public text channels. */
 const MAX_MESSAGE_TEXT_LENGTH = 1000
+
+/** Cap on a reel/shared-post caption (payload.title) persisted into metadata.attachment.caption — sender-supplied text, never trusted beyond this length. */
+const MAX_ATTACHMENT_CAPTION_LENGTH = 300
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -95,6 +105,8 @@ interface InstagramMessagePayload {
   text?: string
   is_echo?: boolean
   attachments?: RawInstagramAttachment[]
+  /** Present when this message is a reply to one of the business's own Stories — see src/lib/social/instagram-attachments.ts#parseInstagramReplyToStory. */
+  reply_to?: RawInstagramReplyTo
 }
 
 interface InstagramMessagingEvent {
@@ -164,6 +176,12 @@ function isValidSignature(rawBody: string, signatureHeader: string | null): bool
 // POST — event delivery
 // ---------------------------------------------------------------------------
 
+// Explicit ceiling (review fix): the enrichment chain (story sniff 8s +
+// voice transcription 15s + vision + reply drafting) can stack on one
+// pathological event; degrade to "finishes late" instead of a platform kill
+// that would strand the thread with no reply and no escalation.
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   sweepStaleRateLimitBuckets()
 
@@ -225,6 +243,13 @@ export async function POST(request: NextRequest) {
       for (const change of entry.changes) {
         if (change?.field === "messages" && change.value && typeof change.value === "object") {
           messagingEvents.push(change.value)
+        } else if (change?.field) {
+          // Diagnostics (Senses Wave — voice-note live-verification): community
+          // reports say some event types (voice notes among them) may arrive
+          // under an UNSUPPORTED or otherwise unhandled `field` instead of
+          // "messages" — this breadcrumb is what makes that confirmable from
+          // logs/webhook_receipts rather than silently dropped.
+          console.warn(`[webhooks/instagram] entry.changes[] field not handled: "${change.field}"`)
         }
       }
     }
@@ -253,6 +278,21 @@ export async function POST(request: NextRequest) {
 // Per-event handling
 // ---------------------------------------------------------------------------
 
+/**
+ * Turns one normalized attachment into the `metadata.attachment`/
+ * `metadata.attachments[]` entry to persist on insert — shared by
+ * handleMessagingEvent and handleEchoMessagingEvent. Story media policy
+ * (Meta rule, Senses Wave): a "story_mention" attachment's `url` is NEVER
+ * persisted, even on this first insert — only `type`/`title`. Every other
+ * kind keeps the existing url/title shape.
+ */
+function attachmentEntryFor(attachment: NormalizedInstagramAttachment): Record<string, unknown> {
+  if (attachment.kind === "story_mention") {
+    return { type: attachment.kind, title: attachment.title }
+  }
+  return { type: attachment.kind, url: attachment.url, title: attachment.title }
+}
+
 async function handleMessagingEvent(
   admin: AdminClient,
   entry: InstagramEntry,
@@ -268,18 +308,45 @@ async function handleMessagingEvent(
 
   if (!checkRateLimit(`instagram:${senderId}`)) return
 
+  // Diagnostics (Senses Wave) — an attachment type Meta sends that this app
+  // doesn't recognize falls back to the generic "file" bucket silently by
+  // design (see instagram-attachments.ts's header), but that silence makes a
+  // genuinely new/unexpected type (e.g. how a voice note that DOESN'T arrive
+  // as "audio" would look) invisible in logs. Logged here, not inside the
+  // pure classifier, to keep that module I/O-free.
+  if (Array.isArray(message.attachments)) {
+    for (const raw of message.attachments) {
+      if (raw?.type && classifyInstagramAttachmentType(raw.type) === "file") {
+        console.warn(`[webhooks/instagram] unrecognized attachment type "${raw.type}" — falling back to 'file' bucket`)
+      }
+    }
+  }
+
   const hasText = typeof message.text === "string" && message.text.trim().length > 0
   const attachments: NormalizedInstagramAttachment[] = normalizeInstagramAttachments(message.attachments)
   const hasAttachments = attachments.length > 0
-  if (!hasText && !hasAttachments) return // nothing worth recording at all
+  const replyToStory: NormalizedInstagramStoryReply | null = parseInstagramReplyToStory(message.reply_to)
+  const hasStoryReply = replyToStory !== null
+
+  // Diagnostics breadcrumb (Senses Wave, owner directive) — makes a live
+  // voice-note test verifiable from logs even before/regardless of whether
+  // DEEPGRAM_API_KEY is set, since community reports say voice notes may not
+  // even arrive as a normal "audio" attachments[] entry (see the
+  // entry.changes[] field breadcrumb above too).
+  if (attachments.some((attachment) => attachment.kind === "audio")) {
+    console.warn(`[webhooks/instagram] audio attachment observed (deepgram configured: ${isDeepgramConfigured()})`)
+  }
+
+  if (!hasText && !hasAttachments && !hasStoryReply) return // nothing worth recording at all
 
   const text = hasText ? (message.text as string).trim().slice(0, MAX_MESSAGE_TEXT_LENGTH) : null
   // A typed placeholder ("[photo]", "[reel]", ...) per src/lib/social/instagram-attachments.ts
   // instead of a generic "[attachment]" — reads better in the Inbox thread
   // list with zero UI changes. When the customer also sent real text
   // alongside the attachment (a caption), that text is the stored body, same
-  // as any other message.
-  const storedBody = text ?? attachmentPlaceholderBody(attachments[0].kind)
+  // as any other message. A story reply with no typed text (rare) falls back
+  // to STORY_REPLY_PLACEHOLDER_BODY the same way.
+  const storedBody = text ?? (hasAttachments ? attachmentPlaceholderBody(attachments[0].kind) : STORY_REPLY_PLACEHOLDER_BODY)
 
   // -----------------------------------------------------------------
   // 4. Org mapping — recipient.id (the specific account this event was
@@ -457,19 +524,22 @@ async function handleMessagingEvent(
 
   // Attachment metadata (migration 0012's jsonb `metadata` column, same
   // convention as `instagram_mid` above): `attachment` is always the primary
-  // (first) attachment; `attachments` is added too when there's more than
-  // one, so nothing is lost for the rare multi-attachment event. `description`
-  // is filled in below, after the insert, once vision has had a chance to run
-  // — kept off this first insert so a slow/failed vision call never delays
-  // recording the inbound message itself.
+  // (first) attachment (or, when there's no attachments[] entry at all, the
+  // reply_to.story envelope, normalized to the "story_reply" pseudo-type);
+  // `attachments` is added too when there's more than one, so nothing is
+  // lost for the rare multi-attachment event. `description`/`caption`/
+  // `transcript`/`media_kind` are filled in below, after the insert, once
+  // the relevant best-effort enrichment (vision/caption/sniff/transcribe)
+  // has had a chance to run — kept off this first insert so a slow/failed
+  // enrichment call never delays recording the inbound message itself.
   const attachmentMetadata: Record<string, unknown> = hasAttachments
     ? {
-        attachment: { type: attachments[0].kind, url: attachments[0].url, title: attachments[0].title },
-        ...(attachments.length > 1
-          ? { attachments: attachments.map((attachment) => ({ type: attachment.kind, url: attachment.url, title: attachment.title })) }
-          : {}),
+        attachment: attachmentEntryFor(attachments[0]),
+        ...(attachments.length > 1 ? { attachments: attachments.map(attachmentEntryFor) } : {}),
       }
-    : {}
+    : hasStoryReply
+      ? { attachment: { type: "story_reply" } } // url intentionally omitted — story media policy, see attachmentEntryFor's doc comment.
+      : {}
 
   const { data: inboundMessage, error: inboundError } = await admin
     .from("messages")
@@ -488,26 +558,90 @@ async function handleMessagingEvent(
   if (inboundError || !inboundMessage) {
     throw new Error(inboundError?.message ?? "failed to record inbound message")
   }
+  // A separately-named, definitely-non-null alias for the row above — TS
+  // narrowing from the guard doesn't carry into the nested function
+  // declarations below (patchAttachmentMetadata/enrichStoryMedia), which
+  // close over this binding.
+  const persistedInboundMessage: Message = inboundMessage
 
   // A fresh inbound message always makes the thread newly unread — the
   // owner-alert path, same as every other channel.
   await admin
     .from("conversations")
-    .update({ last_message_at: inboundMessage.created_at, unread: true })
+    .update({ last_message_at: persistedInboundMessage.created_at, unread: true })
     .eq("id", conversation.id)
     .eq("org_id", orgId)
 
   // -----------------------------------------------------------------
-  // Image vision — describe the FIRST attachment, ONLY when it's an image
-  // with a url (never video/reel/etc — src/lib/ai/describe-image.ts's whole
-  // job is images). Best-effort: any failure (including out-of-quota) just
-  // means the AI answers honestly that it can't see the image, per the
-  // attachment STYLE_GUIDE line in src/lib/ai/frontdesk-reply.ts — it must
-  // never block the reply below. The description is persisted onto this same
-  // message row so future replies in this thread reuse it instead of
-  // re-describing the image every time.
+  // Attachment enrichment (Senses Wave) — best-effort per kind, mirroring
+  // this block's original image-only shape: any failure just means the AI
+  // answers honestly that it can't see/hear it, per the attachment
+  // STYLE_GUIDE line in src/lib/ai/frontdesk-reply.ts — it must never block
+  // the reply below. Every successful enrichment is patched onto THIS SAME
+  // message row so later replies in this thread reuse it instead of redoing
+  // the work. Kind coverage this wave (owner-approved ranking — plain video
+  // is deliberately skipped):
+  //   image         -> vision (unchanged from before this wave)
+  //   reel          -> caption from payload.title only (url is the VIDEO
+  //                    FILE, never fetched/vision'd)
+  //   share/post    -> vision on the post's cover IMAGE (payload.url) +
+  //                    title-as-caption
+  //   story_mention -> content-sniff payload.url; vision only if it sniffs
+  //                    as an image
+  //   story_reply   -> same content-sniff, from message.reply_to.story
+  //                    (not part of attachments[] at all)
+  //   audio         -> Deepgram transcription, only when DEEPGRAM_API_KEY
+  //                    is set; otherwise stays honest-blind
+  //
+  // Story-media policy (Meta rule): the CDN url is NEVER persisted for
+  // story_mention/story_reply — only the resulting description/media_kind
+  // flag — and the sniff/vision call happens synchronously here since the
+  // CDN url is short-lived, matching this whole block's existing
+  // synchronous-before-drafting shape.
   // -----------------------------------------------------------------
+
+  async function patchAttachmentMetadata(patch: Record<string, unknown>): Promise<void> {
+    const currentMetadata = (persistedInboundMessage.metadata ?? {}) as Record<string, unknown>
+    const currentAttachment = (currentMetadata.attachment ?? {}) as Record<string, unknown>
+    const updatedMetadata = { ...currentMetadata, attachment: { ...currentAttachment, ...patch } }
+
+    const { error: metadataUpdateError } = await admin
+      .from("messages")
+      .update({ metadata: updatedMetadata })
+      .eq("id", persistedInboundMessage.id)
+      .eq("org_id", orgId)
+
+    if (metadataUpdateError) {
+      console.error("[webhooks/instagram] failed to persist attachment metadata", metadataUpdateError.message)
+    } else {
+      persistedInboundMessage.metadata = updatedMetadata
+    }
+  }
+
+  /** Shared by the story_mention attachment branch and the reply_to.story branch below — both need the exact same sniff-then-maybe-vision treatment, just from different sources (an attachments[] entry vs. reply_to.story). */
+  async function enrichStoryMedia(url: string | null, caption: string | null, hasLinkSticker: boolean): Promise<void> {
+    const patch: Record<string, unknown> = {}
+    if (caption) patch.caption = caption.slice(0, MAX_ATTACHMENT_CAPTION_LENGTH)
+    if (hasLinkSticker) patch.has_link_sticker = true
+
+    if (url) {
+      try {
+        const mediaKind = await sniffStoryMediaKind(url)
+        patch.media_kind = mediaKind
+        if (mediaKind === "image") {
+          const described = await describeImageAttachment({ orgId, imageUrl: url, title: caption })
+          if (described?.description) patch.description = described.description
+        }
+      } catch (sniffError) {
+        console.error("[webhooks/instagram] story-media sniff/describe failed — falling back to type-only", sniffError)
+      }
+    }
+
+    if (Object.keys(patch).length > 0) await patchAttachmentMetadata(patch)
+  }
+
   const primaryAttachment = attachments[0]
+
   if (primaryAttachment?.kind === "image" && primaryAttachment.url) {
     try {
       const described = await describeImageAttachment({
@@ -515,30 +649,59 @@ async function handleMessagingEvent(
         imageUrl: primaryAttachment.url,
         title: primaryAttachment.title,
       })
-
-      if (described?.description) {
-        const currentMetadata = (inboundMessage.metadata ?? {}) as Record<string, unknown>
-        const currentAttachment = (currentMetadata.attachment ?? {}) as Record<string, unknown>
-        const updatedMetadata = {
-          ...currentMetadata,
-          attachment: { ...currentAttachment, description: described.description },
-        }
-
-        const { error: metadataUpdateError } = await admin
-          .from("messages")
-          .update({ metadata: updatedMetadata })
-          .eq("id", inboundMessage.id)
-          .eq("org_id", orgId)
-
-        if (metadataUpdateError) {
-          console.error("[webhooks/instagram] failed to persist image description", metadataUpdateError.message)
-        } else {
-          inboundMessage.metadata = updatedMetadata
-        }
-      }
+      if (described?.description) await patchAttachmentMetadata({ description: described.description })
     } catch (visionError) {
       console.error("[webhooks/instagram] image vision describe failed — falling back to type-only", visionError)
     }
+  } else if (primaryAttachment?.kind === "reel") {
+    // No fetch, no vision — payload.url is the reel's VIDEO FILE; payload.title
+    // is the reel's CAPTION, which is grounding enough on its own.
+    if (primaryAttachment.title) {
+      try {
+        await patchAttachmentMetadata({ caption: primaryAttachment.title.slice(0, MAX_ATTACHMENT_CAPTION_LENGTH) })
+      } catch (captionError) {
+        console.error("[webhooks/instagram] failed to persist reel caption", captionError)
+      }
+    }
+  } else if (primaryAttachment?.kind === "share") {
+    try {
+      const patch: Record<string, unknown> = {}
+      if (primaryAttachment.title) patch.caption = primaryAttachment.title.slice(0, MAX_ATTACHMENT_CAPTION_LENGTH)
+      if (primaryAttachment.url) {
+        const described = await describeImageAttachment({
+          orgId,
+          imageUrl: primaryAttachment.url,
+          title: primaryAttachment.title,
+        })
+        if (described?.description) patch.description = described.description
+      }
+      if (Object.keys(patch).length > 0) await patchAttachmentMetadata(patch)
+    } catch (visionError) {
+      console.error("[webhooks/instagram] shared-post vision describe failed — falling back to type-only", visionError)
+    }
+  } else if (primaryAttachment?.kind === "story_mention") {
+    await enrichStoryMedia(primaryAttachment.url, primaryAttachment.title, false).catch((error) =>
+      console.error("[webhooks/instagram] story_mention enrichment failed", error)
+    )
+  } else if (primaryAttachment?.kind === "audio" && primaryAttachment.url) {
+    if (isDeepgramConfigured()) {
+      try {
+        const transcribed = await transcribeVoiceNote({ orgId, audioUrl: primaryAttachment.url })
+        if (transcribed?.transcript) await patchAttachmentMetadata({ transcript: transcribed.transcript })
+      } catch (transcribeError) {
+        console.error("[webhooks/instagram] voice-note transcription failed — falling back to type-only", transcribeError)
+      }
+    }
+    // No key configured — the diagnostics breadcrumb already fired above
+    // (right after attachments were normalized); nothing else to do here,
+    // the message stays honest-blind per attachmentToPromptContent's "audio"
+    // fallback.
+  }
+
+  if (replyToStory) {
+    await enrichStoryMedia(replyToStory.url, null, Boolean(replyToStory.linkStickerUrl)).catch((error) =>
+      console.error("[webhooks/instagram] story-reply enrichment failed", error)
+    )
   }
 
   // -----------------------------------------------------------------
@@ -683,7 +846,7 @@ async function handleMessagingEvent(
   // the inbound message that just triggered this reply). A send failure here
   // is logged and swallowed — it must never block the real reply below.
   // -----------------------------------------------------------------
-  const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
+  const priorMessages = (history ?? []).filter((message) => message.id !== persistedInboundMessage.id)
   let introToSend = getIntroToSend({
     aiIntroEnabled: brain?.ai_intro_enabled ?? false,
     aiIntroText: brain?.ai_intro_text,
@@ -1011,10 +1174,8 @@ async function handleEchoMessagingEvent(
   // so the transcript is complete and memory learns it.
   const attachmentMetadata: Record<string, unknown> = hasAttachments
     ? {
-        attachment: { type: attachments[0].kind, url: attachments[0].url, title: attachments[0].title },
-        ...(attachments.length > 1
-          ? { attachments: attachments.map((attachment) => ({ type: attachment.kind, url: attachment.url, title: attachment.title })) }
-          : {}),
+        attachment: attachmentEntryFor(attachments[0]),
+        ...(attachments.length > 1 ? { attachments: attachments.map(attachmentEntryFor) } : {}),
       }
     : {}
 

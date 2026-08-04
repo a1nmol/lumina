@@ -5,6 +5,8 @@ import {
   attachmentPlaceholderBody,
   classifyInstagramAttachmentType,
   normalizeInstagramAttachments,
+  parseInstagramReplyToStory,
+  STORY_REPLY_PLACEHOLDER_BODY,
 } from "./instagram-attachments"
 
 // Feature B (attachment-aware Instagram DMs) — locks in the raw
@@ -24,6 +26,12 @@ describe("classifyInstagramAttachmentType", () => {
   it("normalizes both reel spellings to the same kind", () => {
     expect(classifyInstagramAttachmentType("ig_reel")).toBe("reel")
     expect(classifyInstagramAttachmentType("reel")).toBe("reel")
+  })
+
+  it("normalizes all three shared-post spellings ('share', 'post', 'ig_post') to the same 'share' kind (Senses Wave)", () => {
+    expect(classifyInstagramAttachmentType("share")).toBe("share")
+    expect(classifyInstagramAttachmentType("post")).toBe("share")
+    expect(classifyInstagramAttachmentType("ig_post")).toBe("share")
   })
 
   it("is case-insensitive and trims whitespace", () => {
@@ -90,5 +98,76 @@ describe("normalizeInstagramAttachments", () => {
       { type: "ig_reel", payload: { url: "https://cdn.example.com/reel.mp4" } },
     ])
     expect(result.map((a) => a.kind)).toEqual(["image", "reel"])
+  })
+
+  it("carries payload.title through for every recognized kind, including the 'share'-family types (Senses Wave)", () => {
+    expect(normalizeInstagramAttachments([{ type: "ig_reel", payload: { url: "u", title: "closing time vibes" } }])[0].title).toBe(
+      "closing time vibes"
+    )
+    expect(normalizeInstagramAttachments([{ type: "share", payload: { url: "u", title: "check this out" } }])[0].title).toBe(
+      "check this out"
+    )
+    expect(normalizeInstagramAttachments([{ type: "post", payload: { url: "u", title: "our new menu" } }])[0].title).toBe(
+      "our new menu"
+    )
+    expect(normalizeInstagramAttachments([{ type: "ig_post", payload: { url: "u", title: "our new menu" } }])[0].title).toBe(
+      "our new menu"
+    )
+    expect(normalizeInstagramAttachments([{ type: "story_mention", payload: { url: "u", title: "tagged you!" } }])[0].title).toBe(
+      "tagged you!"
+    )
+  })
+})
+
+// Senses Wave — reply_to.story parsing. message.reply_to.story is a
+// DIFFERENT envelope than attachments[] (see the module header), so this is
+// tested separately.
+describe("parseInstagramReplyToStory", () => {
+  it("returns null for a missing/undefined/null reply_to", () => {
+    expect(parseInstagramReplyToStory(undefined)).toBeNull()
+    expect(parseInstagramReplyToStory(null)).toBeNull()
+    expect(parseInstagramReplyToStory({})).toBeNull()
+  })
+
+  it("returns null when story is present but carries neither a url nor an id", () => {
+    expect(parseInstagramReplyToStory({ story: {} })).toBeNull()
+    expect(parseInstagramReplyToStory({ story: { url: "   " } })).toBeNull()
+  })
+
+  it("parses a full story-reply envelope defensively", () => {
+    const result = parseInstagramReplyToStory({
+      story: {
+        url: "https://cdn.example.com/story.mp4",
+        id: "story-123",
+        link_sticker_url: "https://example.com/booking",
+        is_self_reply: false,
+      },
+    })
+    expect(result).toEqual({
+      url: "https://cdn.example.com/story.mp4",
+      id: "story-123",
+      linkStickerUrl: "https://example.com/booking",
+      isSelfReply: false,
+    })
+  })
+
+  it("accepts an id-only envelope (no url) and normalizes blank strings to null", () => {
+    expect(parseInstagramReplyToStory({ story: { id: "story-123", url: "  ", link_sticker_url: "" } })).toEqual({
+      url: null,
+      id: "story-123",
+      linkStickerUrl: null,
+      isSelfReply: false,
+    })
+  })
+
+  it("normalizes a missing/non-true is_self_reply to false", () => {
+    expect(parseInstagramReplyToStory({ story: { id: "s1" } })?.isSelfReply).toBe(false)
+    expect(parseInstagramReplyToStory({ story: { id: "s1", is_self_reply: true } })?.isSelfReply).toBe(true)
+  })
+})
+
+describe("STORY_REPLY_PLACEHOLDER_BODY", () => {
+  it("is a distinct, bracketed placeholder", () => {
+    expect(STORY_REPLY_PLACEHOLDER_BODY).toBe("[replied to your story]")
   })
 })
