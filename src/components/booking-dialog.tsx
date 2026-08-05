@@ -153,7 +153,7 @@ export function BookingDialog({ contact, open, onOpenChange, onBooked }: Booking
               <Skeleton className="h-8 w-full rounded-lg" />
             ) : services.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No services set up yet — add one in Settings &amp; Brain.
+                No services set up yet — add one in Settings → Business profile.
               </p>
             ) : (
               <Select value={service} onValueChange={(value) => setService(value ?? "")}>

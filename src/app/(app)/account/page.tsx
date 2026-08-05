@@ -10,9 +10,10 @@ export const metadata: Metadata = { title: "My account" }
 
 /**
  * Personal account settings — the user layer, deliberately separate from
- * the business layer (/settings "Settings & Brain"). Reached from the
- * sidebar user menu. Server component fetches the current identity;
- * everything interactive lives in the client cards.
+ * the business layer (/settings "Settings"). Reached from the sidebar user
+ * menu (and listed in the Settings sub-nav for findability — see
+ * src/app/(app)/settings/layout.tsx). Server component fetches the current
+ * identity; everything interactive lives in the client cards.
  */
 export default async function AccountPage() {
   const configured = isSupabaseConfigured()
@@ -35,7 +36,7 @@ export default async function AccountPage() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <PageHeader
         title="My account"
-        description="Your personal sign-in details. Business settings live in Settings & Brain."
+        description="Your personal sign-in details. Business settings live in Settings."
       />
       <AccountForms configured={configured} email={email} initialFullName={fullName} />
     </div>

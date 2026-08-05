@@ -139,7 +139,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
    * Sets the selected conversation's per-thread AI autonomy (Auto/Off).
    * Optimistic like handleStatusChange above. Demo mode is a local-only
    * no-op with the standard "changes aren't saved" toast (matching
-   * src/app/(app)/settings/faq-card.tsx) instead of round-tripping to the
+   * src/app/(app)/settings/business/faq-card.tsx) instead of round-tripping to the
    * server action, which would otherwise silently no-op with no feedback.
    */
   async function handleAiModeChange(mode: ConversationAiMode) {

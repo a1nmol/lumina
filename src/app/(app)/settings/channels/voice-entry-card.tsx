@@ -1,9 +1,9 @@
-// Settings hub entry point for the AI Phone Receptionist (wave V2 — the
-// full config surface lives at /settings/voice, a subpage rather than a
-// card here since the hub is already carrying 7 cards). Server component —
-// just a status badge + a link, no interactivity of its own. Mirrors
-// ./brain-summary-card.tsx's "summary card links to the full surface"
-// convention.
+// Settings hub -> Channels & phone entry point for the AI Phone Receptionist
+// (wave V2 — the full config surface lives at /settings/voice, a subpage
+// rather than a card here). Server component — just a status badge + a
+// link, no interactivity of its own. Mirrors
+// ../business/brain-summary-card.tsx's "summary card links to the full
+// surface" convention.
 
 import Link from "next/link"
 import { Phone } from "lucide-react"

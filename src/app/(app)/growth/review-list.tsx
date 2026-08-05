@@ -6,6 +6,10 @@
 // control; the reply flow reuses the inbox AI-draft pattern verbatim
 // (src/components/inbox/reply-composer.tsx): prefilled draft, indigo left
 // border + "AI draft" label, Send/Regenerate/Discard.
+//
+// Redesign R2: the auto-reply threshold card that used to sit above this
+// list moved to Settings -> AI behaviour (src/app/(app)/settings/ai/
+// auto-reply-settings-card.tsx) — this section just points there now.
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, Filter, Loader2, RefreshCw, Reply, Send, Sparkles, Star, X } from "lucide-react"
@@ -21,8 +25,7 @@ import { StatusPill, type StatusPillTone } from "@/components/inbox/status-pill"
 import { cn } from "@/lib/utils"
 import type { Review, ReviewPlatform } from "@/lib/types"
 
-import { AutoReplySettingsCard } from "./auto-reply-settings-card"
-import { draftReviewReplyAction, sendReviewReplyAction, type ReviewAutoReplySettings } from "./actions"
+import { draftReviewReplyAction, sendReviewReplyAction } from "./actions"
 
 type PlatformFilterValue = "all" | ReviewPlatform
 type RatingFilterValue = "all" | "5" | "4" | "le3"
@@ -42,10 +45,9 @@ type RecoveredDraft = { text: string; isDraftPending: boolean }
 interface ReviewsSectionProps {
   initialReviews: Review[]
   isLive: boolean
-  initialAutoReplySettings: ReviewAutoReplySettings
 }
 
-export function ReviewsSection({ initialReviews, isLive, initialAutoReplySettings }: ReviewsSectionProps) {
+export function ReviewsSection({ initialReviews, isLive }: ReviewsSectionProps) {
   const [reviews, setReviews] = useState<Review[]>(initialReviews)
   const [platformFilter, setPlatformFilter] = useState<PlatformFilterValue>("all")
   const [ratingFilter, setRatingFilter] = useState<RatingFilterValue>("all")
@@ -105,32 +107,35 @@ export function ReviewsSection({ initialReviews, isLive, initialAutoReplySetting
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={platformFilter} onValueChange={(value) => setPlatformFilter(value as PlatformFilterValue)}>
-            <SelectTrigger size="sm" className="w-36" aria-label="Filter by platform">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All platforms</SelectItem>
-              <SelectItem value="google">Google</SelectItem>
-              <SelectItem value="facebook">Facebook</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={ratingFilter} onValueChange={(value) => setRatingFilter(value as RatingFilterValue)}>
-            <SelectTrigger size="sm" className="w-36" aria-label="Filter by rating">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All ratings</SelectItem>
-              <SelectItem value="5">5 stars</SelectItem>
-              <SelectItem value="4">4 stars</SelectItem>
-              <SelectItem value="le3">3 stars &amp; under</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-lg font-semibold text-foreground">Reviews</h2>
+        <p className="text-sm text-muted-foreground">
+          Google and Facebook reviews, with AI-drafted replies. Auto-reply rules live in Settings → AI behaviour.
+        </p>
+      </div>
 
-        <AutoReplySettingsCard initialSettings={initialAutoReplySettings} className="w-full sm:w-72" />
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={platformFilter} onValueChange={(value) => setPlatformFilter(value as PlatformFilterValue)}>
+          <SelectTrigger size="sm" className="w-36" aria-label="Filter by platform">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All platforms</SelectItem>
+            <SelectItem value="google">Google</SelectItem>
+            <SelectItem value="facebook">Facebook</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={ratingFilter} onValueChange={(value) => setRatingFilter(value as RatingFilterValue)}>
+          <SelectTrigger size="sm" className="w-36" aria-label="Filter by rating">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All ratings</SelectItem>
+            <SelectItem value="5">5 stars</SelectItem>
+            <SelectItem value="4">4 stars</SelectItem>
+            <SelectItem value="le3">3 stars &amp; under</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {reviews.length === 0 ? (

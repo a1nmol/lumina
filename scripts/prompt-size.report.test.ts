@@ -70,6 +70,7 @@ const BRAIN: BusinessBrain = {
   ai_intro_enabled: true,
   ai_intro_text: null,
   ai_always_on: true,
+  follow_ups_enabled: true,
 }
 
 const CONVERSATION_MEMORY = {

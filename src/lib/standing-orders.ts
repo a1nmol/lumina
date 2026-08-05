@@ -7,7 +7,7 @@ import "server-only"
 // draftWhisperMessage — one-shot, one thread), these are org-wide and
 // expire on their own via `expires_at` (null = no expiry). See
 // supabase/migrations/0019_standing_orders_followups.sql for the table +
-// RLS policy, and src/app/(app)/settings/standing-orders-card.tsx +
+// RLS policy, and src/app/(app)/settings/ai/standing-orders-card.tsx +
 // standing-orders-actions.ts for the owner-facing CRUD surface.
 //
 // This module is the READ side consumed by the reply-drafting prompts
@@ -23,7 +23,7 @@ import "server-only"
 import { createAdminClient, isSupabaseConfigured } from "@/lib/supabase/admin"
 import type { StandingOrder } from "@/lib/types"
 
-/** Server-enforced cap on ACTIVE standing orders per org (src/app/(app)/settings/standing-orders-actions.ts's addStandingOrder rejects past this) — also the fetch limit here, so the prompt never carries more than this many. */
+/** Server-enforced cap on ACTIVE standing orders per org (src/app/(app)/settings/ai/standing-orders-actions.ts's addStandingOrder rejects past this) — also the fetch limit here, so the prompt never carries more than this many. */
 export const MAX_ACTIVE_STANDING_ORDERS = 5
 
 /** Each instruction is truncated to this many characters when rendered into a prompt (the DB row itself has no length cap — the settings card caps new drafts to the same 300 chars, but this defends against any other write path too). */

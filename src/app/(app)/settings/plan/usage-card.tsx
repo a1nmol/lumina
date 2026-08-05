@@ -16,7 +16,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { PlanLimits, UsageFeature } from "@/lib/types"
 import { getUsageSummary, type UsageSummary } from "@/lib/usage"
 
-import { UsageBar } from "./usage-bar"
+import { UsageBar } from "../usage-bar"
 
 const FEATURE_ORDER: UsageFeature[] = ["content_generations", "images", "slideshows", "ai_replies"]
 

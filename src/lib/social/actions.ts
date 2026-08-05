@@ -1,7 +1,7 @@
 "use server"
 
 // Server action(s) for the Settings "Channels" card
-// (src/app/(app)/settings/channels-card.tsx). Disconnect is a privileged
+// (src/app/(app)/settings/channels/channels-card.tsx). Disconnect is a privileged
 // delete — social_connections has no RLS write policy for `authenticated`
 // (tokens are sensitive; see supabase/migrations/0008_social_connections.sql),
 // so this goes through the service-role admin client, scoped to the

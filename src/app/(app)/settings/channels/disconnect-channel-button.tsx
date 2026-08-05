@@ -2,7 +2,7 @@
 
 // Small client island for the Channels card's per-connection "Disconnect"
 // button — pending state + toast feedback, mirroring the persist() pattern
-// in ./faq-card.tsx. Calls the disconnectSocialConnection server action
+// in ../business/faq-card.tsx. Calls the disconnectSocialConnection server action
 // (src/lib/social/actions.ts), which deletes via the service-role admin
 // client (social_connections has no client-writable RLS policy).
 

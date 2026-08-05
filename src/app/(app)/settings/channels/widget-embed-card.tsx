@@ -1,9 +1,12 @@
 "use client"
 
-// Growth-page showcase for the FrontDesk web chat widget
+// Web chat widget embed card — Settings hub -> Channels & phone
 // (MASTER_PLAN.md §4.D / docs/design-briefs/phase-2-inbox-frontdesk-crm.md
 // "Web chat widget"). Shows the one-line embed snippet (copyable) plus a
-// live preview of this org's own widget in a new tab.
+// live preview of this org's own widget in a new tab. Relocated here in
+// redesign R2 from the Growth page, where it was stranded in a 3-col grid
+// alongside nothing else — now stacks with its Channels siblings at the
+// same max-w-2xl width.
 
 import { useState } from "react"
 import { Check, Copy, ExternalLink, MessageCircle } from "lucide-react"
@@ -38,7 +41,7 @@ export function WidgetEmbedCard({ origin, orgSlug }: WidgetEmbedCardProps) {
   }
 
   return (
-    <Card>
+    <Card className="max-w-2xl">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>

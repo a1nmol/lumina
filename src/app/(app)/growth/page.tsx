@@ -12,11 +12,9 @@ import type { Review } from "@/lib/types"
 
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
-import { getReviewAutoReplySettings } from "./actions"
 import { QrCodesCard } from "./qr-codes-card"
 import { ReviewRequestDialog } from "./review-request-dialog"
 import { ReviewsSection } from "./review-list"
-import { WidgetEmbedCard } from "./widget-embed-card"
 
 export const metadata: Metadata = { title: "Growth" }
 
@@ -39,7 +37,7 @@ const DEMO_RECIPIENT_COUNT = 24
 interface GrowthData {
   reviews: Review[]
   isLive: boolean
-  /** This org's public slug — powers the widget embed snippet/preview and the QR codes' booking/chat links. Empty string only in the (unreachable in practice) orphaned-user case. */
+  /** This org's public slug — powers the QR codes' booking/chat links (the widget embed snippet itself lives at Settings -> Channels & phone). Empty string only in the (unreachable in practice) orphaned-user case. */
   orgSlug: string
   /** Real count of this org's contacts with a phone number on file (org-scoped, RLS-enforced) — demo mode uses DEMO_RECIPIENT_COUNT instead. */
   recipientCount: number
@@ -70,11 +68,10 @@ async function loadGrowthData(): Promise<GrowthData> {
 }
 
 export default async function GrowthPage() {
-  const [origin, { reviews, isLive, orgSlug, recipientCount }, businessBrain, autoReplySettings] = await Promise.all([
+  const [origin, { reviews, isLive, orgSlug, recipientCount }, businessBrain] = await Promise.all([
     resolveOrigin(),
     loadGrowthData(),
     getBusinessBrain(),
-    getReviewAutoReplySettings(),
   ])
 
   return (
@@ -87,19 +84,7 @@ export default async function GrowthPage() {
         }
       />
 
-      <ReviewsSection initialReviews={reviews} isLive={isLive} initialAutoReplySettings={autoReplySettings} />
-
-      <section className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold text-foreground">Web chat widget</h2>
-          <p className="text-sm text-muted-foreground">
-            Embed the FrontDesk chat bubble on your site — AI-answered from your Business Brain.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <WidgetEmbedCard origin={origin} orgSlug={orgSlug} />
-        </div>
-      </section>
+      <ReviewsSection initialReviews={reviews} isLive={isLive} />
 
       <QrCodesCard
         reviewLink={buildReviewLink(businessBrain.business_name)}

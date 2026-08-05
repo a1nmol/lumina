@@ -863,7 +863,7 @@ export async function setState(conversationId: string, aiState: ConversationAiSt
  * src/app/api/twilio/sms/route.ts). Demo-safe no-op when unconfigured — the
  * inbox UI itself skips calling this action in demo mode (see
  * InboxShell#handleAiModeChange) and shows the standard "changes aren't
- * saved" toast instead, matching src/app/(app)/settings/faq-card.tsx.
+ * saved" toast instead, matching src/app/(app)/settings/business/faq-card.tsx.
  */
 export async function setConversationAiMode(conversationId: string, mode: ConversationAiMode): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { ok: true }

@@ -26,6 +26,7 @@ function brainFixture(overrides: Partial<BusinessBrain> = {}): BusinessBrain {
     ai_intro_enabled: false,
     ai_intro_text: null,
     ai_always_on: true,
+    follow_ups_enabled: true,
     ...overrides,
   }
 }

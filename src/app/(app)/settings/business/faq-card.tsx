@@ -1,10 +1,10 @@
 "use client"
 
-// FAQ editor card for the Settings & Brain hub. List of question/answer
-// pairs — collapsed answers that expand on click, inline add/edit, delete.
-// Persists via saveFaq (src/app/(app)/settings/brain/actions.ts), reusing
-// the wizard's own validation caps. Demo mode edits local state only and
-// says so in the toast.
+// FAQ editor card for the Settings hub -> Business profile. List of
+// question/answer pairs — collapsed answers that expand on click, inline
+// add/edit, delete. Persists via saveFaq (src/app/(app)/settings/brain/actions.ts),
+// reusing the wizard's own validation caps. Demo mode edits local state only
+// and says so in the toast.
 
 import { useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
@@ -19,7 +19,7 @@ import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import type { BusinessFaq } from "@/lib/types"
 
-import { saveFaq } from "./brain/actions"
+import { saveFaq } from "../brain/actions"
 
 const MAX_QUESTION = 300
 const MAX_ANSWER = 1000

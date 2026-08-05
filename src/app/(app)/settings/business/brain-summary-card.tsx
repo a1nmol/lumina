@@ -18,7 +18,7 @@ import { duration, easing } from "@/lib/motion"
 import type { BusinessBrain } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-import type { Completeness } from "./brain-completeness"
+import type { Completeness } from "../brain-completeness"
 
 type BrainSummaryCardProps = {
   brain: BusinessBrain

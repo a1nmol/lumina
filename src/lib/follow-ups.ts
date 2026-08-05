@@ -47,7 +47,7 @@ export const FOLLOW_UP_MAX_AGE_MS = 7 * DAY_MS
 export const FOLLOW_UP_RENUDGE_GAP_MS = 14 * DAY_MS
 /** Hard cap on drafted nudges per org per scan run. */
 export const MAX_FOLLOW_UPS_PER_ORG_PER_RUN = 3
-/** Literal opt-out token — the interim control until a dedicated toggle column exists (see src/app/(app)/settings/standing-orders-card.tsx's helper copy). */
+/** Literal opt-out token — a legacy escape hatch kept alongside the dedicated `business_brain.follow_ups_enabled` toggle (settings/ai/follow-ups-card.tsx) for owners who'd rather type a quick standing order than flip a switch. */
 export const NO_FOLLOW_UPS_TOKEN = "[no-followups]"
 
 export interface FollowUpCandidateInput {
@@ -343,8 +343,9 @@ async function isFollowUpsPausedForOrg(orgId: string, now: Date): Promise<boolea
 
 /**
  * Runs the proactive follow-up scan for ONE org: skips entirely unless
- * `frontdesk_auto_reply` is on (the org's own opt-in to AI autonomy) and the
- * org isn't wound down (windDownStage !== "none" — an org near/over its
+ * `follow_ups_enabled` is on (the org's own opt-in to proactive nudges,
+ * migration 0022 — the dedicated toggle behind the Settings hub's "Proactive
+ * follow-ups" card) and the org isn't wound down (windDownStage !== "none" — an org near/over its
  * ai_replies allowance shouldn't spend its remaining budget on unprompted
  * nudges) and hasn't paused follow-ups via the "[no-followups]" standing
  * order. Drafts up to MAX_FOLLOW_UPS_PER_ORG_PER_RUN nudges, each metered as
@@ -354,14 +355,14 @@ async function isFollowUpsPausedForOrg(orgId: string, now: Date): Promise<boolea
  * quota exhaustion must never abort the whole cron run.
  */
 interface OrgScanOutcome {
-  /** True once this org passed every gate (frontdesk_auto_reply on, not wound down, not paused) and was actually queried for candidates — independent of whether any candidate qualified or drafted successfully. */
+  /** True once this org passed every gate (follow_ups_enabled on, not wound down, not paused) and was actually queried for candidates — independent of whether any candidate qualified or drafted successfully. */
   eligible: boolean
   created: number
 }
 
 async function runFollowUpScanForOrg(admin: AdminClient, orgId: string, now: Date): Promise<OrgScanOutcome> {
   const businessBrain = await loadBusinessBrain(admin, orgId)
-  if (!businessBrain || !businessBrain.frontdesk_auto_reply) return { eligible: false, created: 0 }
+  if (!businessBrain || !businessBrain.follow_ups_enabled) return { eligible: false, created: 0 }
 
   let fraction: number | null
   try {
@@ -405,7 +406,7 @@ async function runFollowUpScanForOrg(admin: AdminClient, orgId: string, now: Dat
 export interface FollowUpScanResult {
   /** Total nudges drafted (persisted as internal notes) across every org. */
   created: number
-  /** Orgs actually scanned (frontdesk_auto_reply on, not wound down, not paused). */
+  /** Orgs actually scanned (follow_ups_enabled on, not wound down, not paused). */
   scannedOrgs: number
 }
 

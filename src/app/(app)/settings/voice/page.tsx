@@ -47,7 +47,7 @@ export default async function VoiceSettingsPage() {
         title="AI Receptionist"
         description="Configure the phone number that answers, texts back, and books for your business — 24/7."
         actions={
-          <Button variant="ghost" size="sm" render={<Link href="/settings" />}>
+          <Button variant="ghost" size="sm" render={<Link href="/settings/channels" />}>
             <ArrowLeft aria-hidden="true" data-icon="inline-start" className="size-3.5" />
             Back to Settings
           </Button>

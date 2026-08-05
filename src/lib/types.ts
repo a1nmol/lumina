@@ -124,6 +124,8 @@ export type BusinessBrain = {
   ai_intro_text: string | null
   /** Commander update (migration 0015): AI never self-escalates into silence; topic-level deferral only. */
   ai_always_on: boolean
+  /** Proactive follow-ups toggle (migration 0022), default true — the real gate for src/lib/follow-ups.ts's daily draft-first check-ins (the "[no-followups]" standing-order token remains a legacy escape hatch on top of this). */
+  follow_ups_enabled: boolean
 }
 
 // ---------------------------------------------------------------------------

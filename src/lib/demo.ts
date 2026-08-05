@@ -131,6 +131,9 @@ export const DEMO_BUSINESS_BRAIN: BusinessBrain = {
   // Commander update (migration 0015) — off by default; the showcase org's
   // demo threads already read as "always engaged" without it.
   ai_always_on: false,
+  // Proactive follow-ups (migration 0022) — on by default, matching the
+  // column's own default so the showcase org demonstrates the feature.
+  follow_ups_enabled: true,
   onboarding_step: 5,
   completed: true,
   updated_at: "2026-07-01T00:00:00.000Z",

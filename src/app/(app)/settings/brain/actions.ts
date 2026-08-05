@@ -38,6 +38,7 @@ function blankBusinessBrain(orgId: string): BusinessBrain {
     ai_intro_enabled: false,
     ai_intro_text: null,
     ai_always_on: false,
+    follow_ups_enabled: true,
     completed: false,
     updated_at: new Date(0).toISOString(),
   }
@@ -326,7 +327,7 @@ export interface SaveFrontdeskAutoReplyResult {
 /**
  * Persists the org-wide default AI autonomy for NEW conversations (migration
  * 0011 `business_brain.frontdesk_auto_reply`) — used by the Settings hub's
- * FrontDesk auto-reply card (src/app/(app)/settings/frontdesk-auto-reply-card.tsx).
+ * FrontDesk auto-reply card (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx).
  * true -> new conversations start with `ai_mode: 'auto'`; false -> 'off'
  * (still drafts, never sends) — see the enforcement in
  * src/app/api/frontdesk/chat/route.ts and src/app/api/twilio/sms/route.ts.
@@ -358,7 +359,7 @@ export interface SaveAiIntroResult {
  * Persists the owner's Honest-AI intro settings (migration 0013
  * `business_brain.ai_intro_enabled` / `.ai_intro_text`) — used by the
  * Settings hub's FrontDesk auto-reply card
- * (src/app/(app)/settings/frontdesk-auto-reply-card.tsx). `aiIntroText` is
+ * (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx). `aiIntroText` is
  * the owner's literal, one-time disclosure line — stored trimmed, and as
  * null when blank so `ai_intro_enabled` alone can't fire an empty intro (see
  * the gating contract in src/lib/ai/intro.ts#shouldSendIntro). No-ops in
@@ -390,7 +391,7 @@ export interface SaveAiAlwaysOnResult {
 /**
  * Persists the org-wide "Always on" switch (Commander update, migration
  * 0015 `business_brain.ai_always_on`) — used by the Settings hub's FrontDesk
- * auto-reply card (src/app/(app)/settings/frontdesk-auto-reply-card.tsx).
+ * auto-reply card (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx).
  * When true, src/lib/ai/frontdesk-reply.ts's buildSystemPrompt tells the
  * model to never fully hand a conversation off — it can still flag a topic
  * for the owner (ai_state 'escalated'), it just keeps engaging with
@@ -406,6 +407,36 @@ export async function saveAiAlwaysOn(aiAlwaysOn: boolean): Promise<SaveAiAlwaysO
   const { error } = await supabase
     .from("business_brain")
     .upsert({ ai_always_on: aiAlwaysOn, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveFollowUpsEnabledResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide "Proactive follow-ups" toggle (migration 0022
+ * `business_brain.follow_ups_enabled`) — used by the Settings hub's
+ * Proactive follow-ups card (src/app/(app)/settings/ai/follow-ups-card.tsx).
+ * This is the real gate src/lib/follow-ups.ts's daily scan checks before
+ * drafting a check-in nudge for a quiet conversation; the "[no-followups]"
+ * standing-order token remains a legacy escape hatch on top of this toggle.
+ * Same standalone-card pattern as saveFrontdeskAutoReply. No-ops in demo
+ * mode.
+ */
+export async function saveFollowUpsEnabled(followUpsEnabled: boolean): Promise<SaveFollowUpsEnabledResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ follow_ups_enabled: followUpsEnabled, org_id: orgId }, { onConflict: "org_id" })
 
   return { ok: !error }
 }

@@ -1,14 +1,21 @@
 "use client"
 
-// Standing orders card for the Settings & Brain hub — persistent owner
-// instructions the FrontDesk AI weaves into every reply while active (see
-// src/lib/standing-orders.ts for the prompt-injection side and
-// src/app/(app)/settings/standing-orders-actions.ts for the CRUD). List of
-// active orders (instruction, expiry countdown, created date) + an add form
-// (textarea capped at 300 chars, quick expiry chips — no custom datetime
-// picker) + a deactivate button per order. Reuses ./faq-card.tsx's
+// Standing orders card for the Settings hub -> AI behaviour — persistent
+// owner instructions the FrontDesk AI weaves into every reply while active
+// (see src/lib/standing-orders.ts for the prompt-injection side and
+// ./standing-orders-actions.ts for the CRUD). List of active orders
+// (instruction, expiry countdown, created date) + an add form (textarea
+// capped at 300 chars, quick expiry chips — no custom datetime picker) + a
+// deactivate button per order. Reuses ../business/faq-card.tsx's
 // list/expand/add-form shell conventions (motion, empty state, demo-mode
 // toast) so the two Settings cards read like one family.
+//
+// Redesign R2 note: this card no longer advertises the "[no-followups]"
+// magic string in its copy — proactive follow-ups now have their own honest
+// toggle (Settings -> AI behaviour -> "Proactive follow-ups", backed by
+// business_brain.follow_ups_enabled). The token still works as a legacy
+// escape hatch (src/lib/follow-ups.ts#hasFollowUpsPausedToken), it's just no
+// longer the ONLY way to pause them, so it doesn't need top billing here.
 
 import { useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
@@ -157,9 +164,7 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
         </div>
         <CardDescription>
           Running instructions the AI follows in every reply while active — &quot;I&apos;m at a wedding till Sunday,
-          tell people I&apos;ll be slow&quot; or &quot;registrations are closed, stop taking signups.&quot; Add{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">[no-followups]</code> as a standing order to pause
-          suggested follow-ups.
+          tell people I&apos;ll be slow&quot; or &quot;registrations are closed, stop taking signups.&quot;
         </CardDescription>
       </CardHeader>
 

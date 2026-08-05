@@ -1,10 +1,14 @@
 "use client"
 
-// Small settings card at the top of the Reviews section — the "auto-publish
-// threshold" rule from docs/design-briefs/phase-3-analytics-reviews.md:
-// auto-send AI replies for reviews at/above a chosen star rating, manual
-// approval otherwise. Persists via saveReviewSettings (business_brain.
-// connected_channels.review_auto_reply — see src/app/(app)/growth/actions.ts).
+// Review auto-reply threshold card — the "auto-publish threshold" rule from
+// docs/design-briefs/phase-3-analytics-reviews.md: auto-send AI replies for
+// reviews at/above a chosen star rating, manual approval otherwise. Lives in
+// Settings -> AI behaviour (redesign R2 relocation from the Growth page's
+// Reviews section, where it originally shipped). Persists via
+// saveReviewSettings (business_brain.connected_channels.review_auto_reply —
+// see src/app/(app)/growth/actions.ts, which still owns the review-reply
+// server actions since this setting is read by the Growth page's Reviews
+// list too).
 
 import { useState } from "react"
 import { Sparkles } from "lucide-react"
@@ -15,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
-import { saveReviewSettings, type ReviewAutoReplySettings } from "./actions"
+import { saveReviewSettings, type ReviewAutoReplySettings } from "@/app/(app)/growth/actions"
 
 const MIN_STARS_OPTIONS: { value: "5" | "4" | "3"; label: string }[] = [
   { value: "5", label: "5★ only" },
