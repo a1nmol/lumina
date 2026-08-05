@@ -10,7 +10,7 @@ import { useState } from "react"
 import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
@@ -56,12 +56,9 @@ export function AutoReplySettingsCard({ initialSettings, className }: AutoReplyS
     <Card size="sm" className={cn("gap-3", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Sparkles className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <Sparkles />
+          </CardIcon>
           <CardTitle className="text-sm">Auto-reply with AI</CardTitle>
         </div>
         <CardDescription className="text-xs">

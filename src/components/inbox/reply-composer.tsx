@@ -463,7 +463,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
                 className={cn(
                   "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
                   isSelected
-                    ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                    ? "bg-background text-foreground shadow-soft dark:border-input dark:bg-input/30"
                     : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
                 )}
               >

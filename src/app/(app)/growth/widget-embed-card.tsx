@@ -10,7 +10,7 @@ import { Check, Copy, ExternalLink, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 
 const COPIED_RESET_MS = 2000
 
@@ -41,12 +41,9 @@ export function WidgetEmbedCard({ origin, orgSlug }: WidgetEmbedCardProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <MessageCircle className="size-4" />
-          </span>
+          <CardIcon>
+            <MessageCircle />
+          </CardIcon>
           <CardTitle>Web chat widget</CardTitle>
         </div>
         <CardDescription>

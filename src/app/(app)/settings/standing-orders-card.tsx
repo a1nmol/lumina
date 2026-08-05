@@ -16,7 +16,7 @@ import { ClipboardList, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
@@ -149,10 +149,12 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
   return (
     <Card className={cn("max-w-2xl", className)}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ClipboardList aria-hidden="true" className="size-4 text-primary" />
-          Standing orders
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardIcon>
+            <ClipboardList />
+          </CardIcon>
+          <CardTitle>Standing orders</CardTitle>
+        </div>
         <CardDescription>
           Running instructions the AI follows in every reply while active — &quot;I&apos;m at a wedding till Sunday,
           tell people I&apos;ll be slow&quot; or &quot;registrations are closed, stop taking signups.&quot; Add{" "}

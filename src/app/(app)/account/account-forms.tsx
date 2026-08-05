@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { KeyRound, Loader2, Mail, UserRound } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -52,6 +53,9 @@ function demoToast() {
   })
 }
 
+// The one shared card convention (ui/card.tsx's CardIcon chip) — matches
+// every settings/growth/voice card so Account reads like the same family
+// instead of its own bespoke shell.
 function CardShell({
   icon: Icon,
   title,
@@ -64,18 +68,23 @@ function CardShell({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-soft sm:p-6">
-      <div className="mb-4 flex items-start gap-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Icon aria-hidden="true" className="size-4" />
-        </span>
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CardIcon>
+            <Icon />
+          </CardIcon>
+          {/* Real <h2>, not CardTitle's div (review fix): this page had proper
+              headings before the shared-card migration — keep the outline for
+              screen readers. Styling matches CardTitle exactly. */}
+          <CardTitle asChild>
+            <h2>{title}</h2>
+          </CardTitle>
         </div>
-      </div>
-      {children}
-    </section>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   )
 }
 

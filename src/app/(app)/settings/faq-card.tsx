@@ -12,7 +12,7 @@ import { ChevronDown, HelpCircle, Pencil, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { duration, easing } from "@/lib/motion"
@@ -125,10 +125,12 @@ export function FaqCard({ initialFaq, isLive }: FaqCardProps) {
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HelpCircle aria-hidden="true" className="size-4 text-primary" />
-          FAQ
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardIcon>
+            <HelpCircle />
+          </CardIcon>
+          <CardTitle>FAQ</CardTitle>
+        </div>
         <CardDescription>
           Questions your FrontDesk AI can answer automatically — the things customers ask you every day.
         </CardDescription>

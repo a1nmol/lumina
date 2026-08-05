@@ -1,4 +1,5 @@
 import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
 
 import { cn } from "@/lib/utils"
 
@@ -33,12 +34,19 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({ className, asChild = false, ...props }: React.ComponentProps<"div"> & { asChild?: boolean }) {
+  // asChild (Radix Slot): lets a call site render a REAL heading element
+  // (e.g. account-forms' <h2>) with CardTitle's exact styling when the page
+  // outline needs it — CardTitle is otherwise a div by convention.
+  const Comp = asChild ? Slot : "div"
   return (
-    <div
+    <Comp
       data-slot="card-title"
       className={cn(
-        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        // Dense UI chrome — deliberately font-sans, never the display serif
+        // (that's reserved for page-hero headlines / big stat numerals /
+        // empty-state headlines / celebration moments; see globals.css).
+        "text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
         className
       )}
       {...props}
@@ -51,6 +59,43 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-description"
       className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+/**
+ * The one shared "tinted icon chip" convention for card headers app-wide
+ * (settings/growth/voice cards) — a small rounded-lg bg-primary/10
+ * text-primary chip that wraps a Lucide icon. Sits next to CardTitle inside
+ * a `<div className="flex items-center gap-2">`, e.g.:
+ *
+ *   <CardHeader>
+ *     <div className="flex items-center gap-2">
+ *       <CardIcon><Phone /></CardIcon>
+ *       <CardTitle>AI Receptionist</CardTitle>
+ *     </div>
+ *     <CardDescription>…</CardDescription>
+ *   </CardHeader>
+ *
+ * `size="sm"` matches `<Card size="sm">`'s tighter card rhythm.
+ */
+function CardIcon({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"span"> & { size?: "default" | "sm" }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-slot="card-icon"
+      data-size={size}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary",
+        "data-[size=default]:size-8 data-[size=default]:[&_svg:not([class*='size-'])]:size-4",
+        "data-[size=sm]:size-7 data-[size=sm]:[&_svg:not([class*='size-'])]:size-3.5",
+        className
+      )}
       {...props}
     />
   )
@@ -97,6 +142,7 @@ export {
   CardHeader,
   CardFooter,
   CardTitle,
+  CardIcon,
   CardAction,
   CardDescription,
   CardContent,

@@ -7,7 +7,7 @@
 import { CircleDollarSign } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { DEMO_ORG } from "@/lib/demo"
 import { FREE_TEST_LIMITS, getEntitlements, type ResolvedEntitlements } from "@/lib/entitlements"
 import { getCurrentOrgId } from "@/lib/org"
@@ -77,12 +77,9 @@ export async function UsageCard() {
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            >
-              <CircleDollarSign className="size-4" />
-            </span>
+            <CardIcon>
+              <CircleDollarSign />
+            </CardIcon>
             <CardTitle>Usage this month</CardTitle>
           </div>
           <Badge variant="secondary">{plan.name}</Badge>

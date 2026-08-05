@@ -11,7 +11,7 @@ import { Loader2, PhoneCall } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -63,12 +63,9 @@ export function VoiceTestCallCard({ canTestCall, isLive, className }: VoiceTestC
     <Card className={className}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <PhoneCall className="size-4" />
-          </span>
+          <CardIcon>
+            <PhoneCall />
+          </CardIcon>
           <CardTitle>Test call</CardTitle>
         </div>
         <CardDescription>Have the AI Receptionist call any number so you can hear it in action.</CardDescription>

@@ -98,7 +98,7 @@ export function AiModeToggle({ mode, onChange, disabled, className }: AiModeTogg
             className={cn(
               "relative inline-flex h-[18px] items-center justify-center rounded-full border border-transparent px-2 text-[11px] font-semibold whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:cursor-not-allowed",
               isSelected
-                ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                ? "bg-background text-foreground shadow-soft dark:border-input dark:bg-input/30"
                 : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
             )}
           >

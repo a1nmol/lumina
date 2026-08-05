@@ -66,7 +66,8 @@ export function StatCard({
       </div>
 
       <div className="flex items-end justify-between gap-2">
-        <span className="font-heading text-3xl leading-none font-semibold text-foreground tabular-nums">
+        {/* Metric display, not a headline — mono + tabular so digits align and never reflow (matches brain-summary %/phone-number precedent). */}
+        <span className="font-mono text-3xl leading-none font-semibold text-foreground tabular-nums">
           {value}
         </span>
         {delta && (

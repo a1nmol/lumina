@@ -16,7 +16,7 @@ import { Check, Copy, Hash, PhoneIncoming, ShoppingBag } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { formatForwardingCodes } from "@/lib/voice/forwarding-codes"
 
 const COPY_RESET_MS = 1500
@@ -32,18 +32,16 @@ export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumbe
       <Card className={className}>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            >
-              <Hash className="size-4" />
-            </span>
+            <CardIcon>
+              <Hash />
+            </CardIcon>
             <CardTitle>Phone number</CardTitle>
           </div>
           <CardDescription>Calls to this number ring your AI Receptionist.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <p className="font-heading text-lg font-semibold text-foreground">{phoneNumber}</p>
+          {/* A phone number is a numeral display, not a headline — font-mono + tabular-nums, not the display serif. */}
+          <p className="font-mono text-lg font-semibold text-foreground tabular-nums">{phoneNumber}</p>
           <ForwardingInstructions luminaNumber={phoneNumber} />
         </CardContent>
       </Card>
@@ -54,12 +52,9 @@ export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumbe
     <Card className={className}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Hash className="size-4" />
-          </span>
+          <CardIcon>
+            <Hash />
+          </CardIcon>
           <CardTitle>Phone number</CardTitle>
         </div>
         <CardDescription>Your AI Receptionist needs a number to answer. Here&apos;s how it works.</CardDescription>

@@ -64,7 +64,7 @@ export function TemplatesPanel({ templates, onUse, disabled, className }: Templa
   if (items.length === 0) {
     return (
       <p className={cn("px-0.5 text-xs text-muted-foreground", className)}>
-        Templates you 👍 will appear here.
+        Templates you save will appear here.
       </p>
     )
   }

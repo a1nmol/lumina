@@ -10,7 +10,7 @@ import { Clock3, MessageSquareText } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 
 import { saveVoiceSettings } from "../voice-actions"
@@ -93,12 +93,9 @@ export function VoiceScriptsCard({ initialGreeting, initialAfterHoursScript, isL
     <Card size="sm" className={className}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <MessageSquareText className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <MessageSquareText />
+          </CardIcon>
           <CardTitle className="text-sm">Greeting</CardTitle>
         </div>
         <CardDescription className="text-xs">
@@ -139,12 +136,9 @@ export function VoiceScriptsCard({ initialGreeting, initialAfterHoursScript, isL
 
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Clock3 className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <Clock3 />
+          </CardIcon>
           <CardTitle className="text-sm">After-hours script</CardTitle>
         </div>
         <CardDescription className="text-xs">

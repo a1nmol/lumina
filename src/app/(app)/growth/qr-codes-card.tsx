@@ -10,7 +10,7 @@ import { toast } from "sonner"
 
 import { QrCode, downloadQrPng } from "@/components/qr-code"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 
 interface QrCodesCardProps {
   reviewLink: string
@@ -44,12 +44,9 @@ export function QrCodesCard({ reviewLink, bookingLink, chatLink }: QrCodesCardPr
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <QrCodeIcon className="size-4" />
-          </span>
+          <CardIcon>
+            <QrCodeIcon />
+          </CardIcon>
           <CardTitle>QR codes</CardTitle>
         </div>
         <CardDescription>

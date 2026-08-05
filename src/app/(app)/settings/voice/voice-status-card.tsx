@@ -13,7 +13,7 @@ import { Phone, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 
 import { disableVoice, enableVoice } from "../voice-actions"
@@ -77,12 +77,9 @@ export function VoiceStatusCard({ initialEnabled, phoneNumber, retellConfigured,
     <Card className={className}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Phone className="size-4" />
-          </span>
+          <CardIcon>
+            <Phone />
+          </CardIcon>
           <CardTitle>AI Receptionist</CardTitle>
         </div>
         <CardDescription>

@@ -15,7 +15,7 @@ import { CheckCircle2, Link2, Share2, TriangleAlert } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { getCurrentOrgId } from "@/lib/org"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
@@ -102,12 +102,9 @@ export async function ChannelsCard({ connectedParam, errorParam, igErrorParam }:
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            >
-              <Share2 className="size-4" />
-            </span>
+            <CardIcon>
+              <Share2 />
+            </CardIcon>
             <CardTitle>Connected channels</CardTitle>
           </div>
           {!metaConfigured && !instagramConfigured && <Badge variant="outline">Not configured</Badge>}

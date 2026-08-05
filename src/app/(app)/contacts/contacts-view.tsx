@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookingDialog } from "@/components/booking-dialog"
+import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -380,30 +381,14 @@ function ContactCard({ contact, index, reduceMotion, onOpen, onBook }: CardProps
 }
 
 function EmptyContactsState({ onAdd }: { onAdd: () => void }) {
-  const reduceMotion = useReducedMotion()
-
   return (
-    <motion.div
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: duration.base, ease: easing.out }}
-      className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center"
-    >
-      <span
-        aria-hidden="true"
-        className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 via-primary/5 to-[var(--chart-2)]/10 text-primary ring-1 ring-primary/10"
-      >
-        <Users className="size-6" />
-      </span>
-      <div className="flex max-w-sm flex-col gap-1.5">
-        <h3 className="text-base font-medium text-foreground">Build your customer list</h3>
-        <p className="text-sm text-muted-foreground">
-          Every lead and customer gets a contact record — synced automatically from content and
-          FrontDesk, or added by hand right here.
-        </p>
-      </div>
-      <Button onClick={onAdd}>Add a contact</Button>
-    </motion.div>
+    <EmptyState
+      icon={<Users className="size-6" />}
+      title="Build your customer list"
+      description="Every lead and customer gets a contact record — synced automatically from content and FrontDesk, or added by hand right here."
+      actionLabel="Add a contact"
+      onAction={onAdd}
+    />
   )
 }
 

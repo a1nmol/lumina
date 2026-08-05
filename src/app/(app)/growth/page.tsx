@@ -91,7 +91,7 @@ export default async function GrowthPage() {
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-lg font-semibold text-foreground">Web chat widget</h2>
+          <h2 className="text-lg font-semibold text-foreground">Web chat widget</h2>
           <p className="text-sm text-muted-foreground">
             Embed the FrontDesk chat bubble on your site — AI-answered from your Business Brain.
           </p>

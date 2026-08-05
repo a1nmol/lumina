@@ -171,7 +171,7 @@ export function BrainWizard({ initialBrain }: BrainWizardProps) {
             <h2
               ref={focusHeadingOnMount}
               tabIndex={-1}
-              className="font-heading text-xl font-semibold text-foreground outline-none"
+              className="font-heading text-2xl font-normal text-foreground outline-none"
             >
               {WIZARD_STEPS[stepIndex].label}
             </h2>
@@ -227,7 +227,7 @@ function CompletionState({
         <h2
           ref={headingRef}
           tabIndex={-1}
-          className="font-heading text-xl font-semibold text-foreground outline-none"
+          className="font-heading text-2xl font-normal text-foreground outline-none"
         >
           Your Business Brain is live
         </h2>

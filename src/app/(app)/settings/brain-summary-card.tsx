@@ -11,6 +11,7 @@ import {
   CardDescription,
   CardFooter,
   CardHeader,
+  CardIcon,
   CardTitle,
 } from "@/components/ui/card"
 import { duration, easing } from "@/lib/motion"
@@ -35,10 +36,12 @@ export function BrainSummaryCard({ brain, completeness }: BrainSummaryCardProps)
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BrainCircuit aria-hidden="true" className="size-4 text-primary" />
-          {brain.business_name || "Your Business Brain"}
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardIcon>
+            <BrainCircuit />
+          </CardIcon>
+          <CardTitle>{brain.business_name || "Your Business Brain"}</CardTitle>
+        </div>
         <CardDescription>
           The info that powers your content and FrontDesk agent — hours, services, tone, and
           channels.
@@ -64,7 +67,9 @@ export function BrainSummaryCard({ brain, completeness }: BrainSummaryCardProps)
             />
           </svg>
           <div className="flex flex-col">
-            <span className="font-heading text-2xl leading-none font-semibold text-foreground tabular-nums">
+            {/* Metric display, not a headline — font-mono + tabular-nums so
+                the digits don't reflow as the ring animates. */}
+            <span className="font-mono text-2xl leading-none font-semibold text-foreground tabular-nums">
               {percent}%
             </span>
             <span className="text-xs text-muted-foreground">complete</span>

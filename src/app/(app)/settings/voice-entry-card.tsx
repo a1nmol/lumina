@@ -10,7 +10,7 @@ import { Phone } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import type { OrgVoiceSettings } from "@/lib/types"
 
 type VoiceEntryCardProps = {
@@ -30,12 +30,9 @@ export function VoiceEntryCard({ settings, retellConfigured }: VoiceEntryCardPro
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            >
-              <Phone className="size-4" />
-            </span>
+            <CardIcon>
+              <Phone />
+            </CardIcon>
             <CardTitle>AI Receptionist</CardTitle>
           </div>
           <Badge variant="outline" className={status.className}>

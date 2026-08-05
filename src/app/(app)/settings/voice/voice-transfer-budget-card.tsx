@@ -10,7 +10,7 @@ import { PhoneForwarded, Timer } from "lucide-react"
 import { toast } from "sonner"
 
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 
 import { UsageBar } from "../usage-bar"
@@ -130,12 +130,9 @@ export function VoiceTransferBudgetCard({
     <Card size="sm" className={className}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <PhoneForwarded className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <PhoneForwarded />
+          </CardIcon>
           <CardTitle className="text-sm">Transfer to a human</CardTitle>
         </div>
         <CardDescription className="text-xs">
@@ -166,12 +163,9 @@ export function VoiceTransferBudgetCard({
 
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Timer className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <Timer />
+          </CardIcon>
           <CardTitle className="text-sm">Monthly minute budget</CardTitle>
         </div>
         <CardDescription className="text-xs">

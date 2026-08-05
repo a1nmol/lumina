@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { updateAppointmentStatusAction } from "@/app/(app)/contacts/booking-actions"
 import { AppointmentStatusSelect } from "@/components/appointment-status-select"
 import { BookingDialog } from "@/components/booking-dialog"
+import { EmptyState } from "@/components/empty-state"
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -94,9 +95,8 @@ export function ContextPane({
 
   if (!contact) {
     return (
-      <div className={cn("flex h-full flex-col items-center justify-center gap-2 p-6 text-center", className)}>
-        <User aria-hidden="true" className="size-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">No contact selected.</p>
+      <div className={cn("flex h-full flex-col items-center justify-center p-6", className)}>
+        <EmptyState compact icon={<User />} title="No contact selected" />
       </div>
     )
   }

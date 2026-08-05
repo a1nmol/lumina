@@ -8,17 +8,16 @@
 // border + "AI draft" label, Send/Regenerate/Discard.
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useReducedMotion, motion } from "framer-motion"
 import { Check, Filter, Loader2, RefreshCw, Reply, Send, Sparkles, Star, X } from "lucide-react"
 import { toast } from "sonner"
 
+import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ChannelGlyph } from "@/components/inbox/channel-glyphs"
 import { formatRelativeTime } from "@/components/inbox/relative-time"
 import { StatusPill, type StatusPillTone } from "@/components/inbox/status-pill"
-import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import type { Review, ReviewPlatform } from "@/lib/types"
 
@@ -481,29 +480,12 @@ function ReviewReplyPanel({
 // ---------------------------------------------------------------------------
 
 function EmptyReviewsState() {
-  const reduceMotion = useReducedMotion()
-
   return (
-    <motion.div
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: duration.base, ease: easing.out }}
-      className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center"
-    >
-      <span
-        aria-hidden="true"
-        className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 via-primary/5 to-[var(--chart-2)]/10 text-primary ring-1 ring-primary/10"
-      >
-        <Star className="size-6" />
-      </span>
-      <div className="flex max-w-sm flex-col gap-1.5">
-        <h3 className="text-base font-medium text-foreground">No reviews yet</h3>
-        <p className="text-sm text-muted-foreground">
-          Once customers leave reviews on Google or Facebook, they&apos;ll show up here to read and
-          reply to — or ask for your first one with the button above.
-        </p>
-      </div>
-    </motion.div>
+    <EmptyState
+      icon={<Star className="size-6" />}
+      title="No reviews yet"
+      description="Once customers leave reviews on Google or Facebook, they'll show up here to read and reply to — or ask for your first one with the button above."
+    />
   )
 }
 

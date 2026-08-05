@@ -5,6 +5,7 @@ import { parseISO } from "date-fns"
 
 import { CopyCaptionButton, ReminderButton } from "@/components/calendar/reminder-button"
 import { PostDetailSheet } from "@/components/calendar/post-detail-sheet"
+import { EmptyState } from "@/components/empty-state"
 
 import { dayKeyOfPost, queueHeading } from "./calendar-utils"
 import type { DemoPost } from "./demo-posts"
@@ -47,9 +48,12 @@ export function QueueView({ posts, onPostsChange }: QueueViewProps) {
 
   if (groups.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
-        No posts scheduled.
-      </p>
+      <EmptyState
+        compact
+        title="No posts scheduled"
+        description="Content you schedule from Studio or the calendar will queue up here."
+        className="py-16"
+      />
     )
   }
 

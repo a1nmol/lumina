@@ -33,7 +33,7 @@ import { Infinity as InfinityIcon, MessageSquareText, Sparkles } from "lucide-re
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -174,12 +174,9 @@ export function FrontdeskAutoReplyCard({
     <Card size="sm" className={cn("max-w-2xl gap-3", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <Sparkles className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <Sparkles />
+          </CardIcon>
           <CardTitle className="text-sm">AI auto-replies for new conversations</CardTitle>
         </div>
         <CardDescription className="text-xs">
@@ -205,12 +202,9 @@ export function FrontdeskAutoReplyCard({
 
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <MessageSquareText className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <MessageSquareText />
+          </CardIcon>
           <CardTitle className="text-sm">Honest AI intro</CardTitle>
         </div>
         <CardDescription className="text-xs">
@@ -271,12 +265,9 @@ export function FrontdeskAutoReplyCard({
 
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <InfinityIcon className="size-3.5" />
-          </span>
+          <CardIcon size="sm">
+            <InfinityIcon />
+          </CardIcon>
           <CardTitle className="text-sm">Always on</CardTitle>
         </div>
         <CardDescription className="text-xs">
