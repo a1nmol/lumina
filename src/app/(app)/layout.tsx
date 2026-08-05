@@ -66,8 +66,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <NotificationsProvider>
       <SidebarProvider>
         <AppSidebar isAdmin={isAdmin} {...sidebarProps} />
-        <SidebarInset>
-          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
+        {/* h-svh + min-h-0 bounds this to exactly the viewport height, so the
+            header stays put and ONLY the content region below scrolls — the
+            app-shell pattern most dashboard tools use. This replaces the old
+            model where the whole document scrolled (SidebarInset had no
+            height cap), which is what forced pages like Inbox to hard-code a
+            `calc(100svh-...)` height to fake a fixed-height canvas. Now any
+            page can just do `flex-1 min-h-0` and get real, correct sizing. */}
+        <SidebarInset className="h-svh overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
             <SidebarTrigger />
             <Separator orientation="vertical" className="h-5" />
             <RouteBreadcrumb />
@@ -75,7 +82,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               <NotificationTray />
             </div>
           </header>
-          <div className="flex flex-1 flex-col p-6">
+          <div className="flex flex-1 flex-col overflow-y-auto p-6 min-h-0">
             <RouteTransition>{children}</RouteTransition>
           </div>
         </SidebarInset>

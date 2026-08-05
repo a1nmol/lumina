@@ -19,7 +19,7 @@ export function RouteTransition({ children }: { children: ReactNode }) {
         animate={{ opacity: 1, y: 0 }}
         exit={reduceMotion ? undefined : { opacity: 0, y: 4 }}
         transition={{ duration: reduceMotion ? 0 : duration.base, ease: easing.out }}
-        className="flex flex-1 flex-col"
+        className="flex min-h-0 flex-1 flex-col"
       >
         {children}
       </motion.div>

@@ -297,6 +297,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
 
   const contextPaneNode = (
     <ContextPane
+      loading={detailLoading && !selectedDetail}
       contact={selectedDetail?.contact ?? null}
       currentConversationId={selectedDetail?.id ?? ""}
       conversations={conversations}
@@ -312,7 +313,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
   )
 
   return (
-    <div className="flex h-[calc(100svh-13rem)] min-h-[26rem] flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+    <div className="flex min-h-[26rem] flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
       <div
         className={cn(
           "w-full flex-col md:w-[340px] md:shrink-0 md:border-r md:border-border",

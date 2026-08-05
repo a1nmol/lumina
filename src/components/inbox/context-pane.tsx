@@ -43,6 +43,8 @@ type ContextPaneProps = {
   onAddTag: (tag: string) => void
   onAddNote: () => void
   onToggleVip: () => void
+  /** True while the parent conversation detail (and this contact) is still loading — shows a whole-pane skeleton instead of a stale/empty flash. */
+  loading?: boolean
   className?: string
 }
 
@@ -55,6 +57,7 @@ export function ContextPane({
   onAddTag,
   onAddNote,
   onToggleVip,
+  loading,
   className,
 }: ContextPaneProps) {
   const [tagInput, setTagInput] = useState("")
@@ -92,6 +95,25 @@ export function ContextPane({
       cancelled = true
     }
   }, [contactId])
+
+  // Whole-pane skeleton (redesign wave R3, item 8) — the parent's detail
+  // fetch is in flight, so `contact` may still be the PREVIOUS selection's
+  // stale value for a moment. Loading takes priority over that stale data so
+  // this pane never flashes the wrong contact while switching threads.
+  if (loading) {
+    return (
+      <div className={cn("flex h-full flex-col gap-5 overflow-y-auto p-4", className)}>
+        <div className="flex flex-col items-center gap-2">
+          <Skeleton className="size-12 rounded-full" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-32 w-full rounded-xl" />
+        <Skeleton className="h-16 w-full rounded-lg" />
+      </div>
+    )
+  }
 
   if (!contact) {
     return (
@@ -152,6 +174,14 @@ export function ContextPane({
           <StatusPill {...CONTACT_STATUS_META[contact.status]} />
           <VipToggle isVip={contact.is_vip} onToggle={onToggleVip} />
         </div>
+        {/* Labels-in-words (wave R3, item 4a): the star icon's meaning
+            shouldn't live in a tooltip alone — spell it out here when VIP is
+            actually on. */}
+        {contact.is_vip && (
+          <p className="max-w-56 text-xs text-muted-foreground">
+            VIP — the AI never auto-replies to them; you get alerted.
+          </p>
+        )}
       </div>
 
       {/* Quick actions */}

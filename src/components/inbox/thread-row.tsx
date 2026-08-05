@@ -73,11 +73,11 @@ export const ThreadRow = forwardRef<HTMLButtonElement, ThreadRowProps>(function 
         </span>
         {showAiSparkle && (
           <span
+            aria-label="AI handled"
+            title="AI handled"
             className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-card"
-            title="AI-handled"
           >
             <Sparkles aria-hidden="true" className="size-2.5" />
-            <span className="sr-only">AI-handled</span>
           </span>
         )}
       </div>

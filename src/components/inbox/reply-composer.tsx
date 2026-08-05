@@ -1,7 +1,18 @@
 "use client"
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react"
-import { Loader2, PhoneOff, RefreshCw, Send, Sparkles, Wand2, X } from "lucide-react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
+import {
+  Ellipsis,
+  Lightbulb,
+  Loader2,
+  MessageCircleDashed,
+  PhoneOff,
+  RefreshCw,
+  Send,
+  Sparkles,
+  Wand2,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -9,8 +20,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Segmented, type SegmentedOption } from "@/components/ui/segmented"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { ConversationChannel, Message, MessageKind } from "@/lib/types"
@@ -62,6 +82,15 @@ const MODE_OPTIONS: { value: ComposerMode; label: string }[] = [
   { value: "note", label: "Note" },
 ]
 
+const MODE_SEGMENTED_OPTIONS: SegmentedOption<ComposerMode>[] = MODE_OPTIONS.map(({ value, label }) => ({
+  value,
+  label,
+}))
+
+// Whisper's one-time explainer popover (item 3, wave R3) — shown the first
+// time the button is ever pressed in this browser, never again after.
+const WHISPER_SEEN_KEY = "lumina_whisper_seen"
+
 /** Imperative handle so the context pane's "Add note" quick action can jump the composer into Note mode and focus it. */
 export type ReplyComposerHandle = {
   focusNote: () => void
@@ -112,6 +141,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [isSuggesting, setIsSuggesting] = useState(false)
   const [isRewriting, setIsRewriting] = useState(false)
+  const [whisperPopoverOpen, setWhisperPopoverOpen] = useState(false)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -132,6 +162,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     setSuggestions([])
     setIsSuggesting(false)
     setIsRewriting(false)
+    setWhisperPopoverOpen(false)
     originalAiDraftRef.current = null
   }, [conversationId, isVoiceConversation])
 
@@ -145,43 +176,6 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
       requestAnimationFrame(() => textareaRef.current?.focus())
     },
   }))
-
-  const modeButtonRefs = useRef<Array<HTMLButtonElement | null>>([])
-
-  function selectModeAndFocus(index: number) {
-    const option = MODE_OPTIONS[index]
-    if (!option) return
-    setMode(option.value)
-    modeButtonRefs.current[index]?.focus()
-  }
-
-  function handleModeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const currentIndex = MODE_OPTIONS.findIndex((option) => option.value === mode)
-    if (currentIndex === -1) return
-
-    switch (event.key) {
-      case "ArrowRight":
-      case "ArrowDown":
-        event.preventDefault()
-        selectModeAndFocus((currentIndex + 1) % MODE_OPTIONS.length)
-        break
-      case "ArrowLeft":
-      case "ArrowUp":
-        event.preventDefault()
-        selectModeAndFocus((currentIndex - 1 + MODE_OPTIONS.length) % MODE_OPTIONS.length)
-        break
-      case "Home":
-        event.preventDefault()
-        selectModeAndFocus(0)
-        break
-      case "End":
-        event.preventDefault()
-        selectModeAndFocus(MODE_OPTIONS.length - 1)
-        break
-      default:
-        break
-    }
-  }
 
   async function requestDraft() {
     // Captured at call time so a stale response (the user switched
@@ -318,6 +312,40 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
     }
   }
 
+  /**
+   * The Whisper button's click handler (item 3, wave R3) — inserts the
+   * "@ai " prefix into the compose box (leaving any text already there
+   * intact, after the prefix) and focuses it. A no-op prefix-wise if the box
+   * already starts with "@ai" — typing it by hand first and then pressing
+   * the button just focuses, it never double-inserts.
+   */
+  function insertWhisperPrefix() {
+    setText((current) => (WHISPER_HINT_RE.test(current.trimStart()) ? current : `@ai ${current}`))
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      const end = textarea.value.length
+      textarea.setSelectionRange(end, end)
+    })
+  }
+
+  /**
+   * Gates the Whisper explainer popover to the FIRST-ever press in this
+   * browser (localStorage flag) — every press still inserts the prefix via
+   * the trigger's own onClick above regardless of this. Closes normally on
+   * outside click / Escape / explicit close like any other popover.
+   */
+  function handleWhisperPopoverOpenChange(open: boolean) {
+    if (!open) {
+      setWhisperPopoverOpen(false)
+      return
+    }
+    if (typeof window === "undefined" || window.localStorage.getItem(WHISPER_SEEN_KEY)) return
+    window.localStorage.setItem(WHISPER_SEEN_KEY, "1")
+    setWhisperPopoverOpen(true)
+  }
+
   /** Whisper submit path — swaps in for a normal send when the draft matches "@ai <instruction>" (see WHISPER_SEND_RE above). Never sends the raw instruction text itself; the AI composes what actually goes to the customer. */
   async function handleWhisperSend(instruction: string) {
     setIsSending(true)
@@ -441,37 +469,14 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           Call transcript — replies can&apos;t reach a finished call. Notes are private to you.
         </div>
       ) : (
-        <div
-          role="radiogroup"
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          options={MODE_SEGMENTED_OPTIONS}
           aria-label="Reply or internal note"
-          onKeyDown={handleModeKeyDown}
           className="inline-flex h-8 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
-        >
-          {MODE_OPTIONS.map(({ value: optionValue, label }, index) => {
-            const isSelected = mode === optionValue
-            return (
-              <button
-                key={optionValue}
-                ref={(el) => {
-                  modeButtonRefs.current[index] = el
-                }}
-                type="button"
-                role="radio"
-                aria-checked={isSelected}
-                tabIndex={isSelected ? 0 : -1}
-                onClick={() => setMode(optionValue)}
-                className={cn(
-                  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
-                  isSelected
-                    ? "bg-background text-foreground shadow-soft dark:border-input dark:bg-input/30"
-                    : "text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
-                )}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+          itemClassName={() => "h-[calc(100%-1px)] flex-1 gap-1.5 rounded-md px-1.5 py-0.5 text-sm font-medium"}
+        />
       )}
 
       {isWhisperIntent && (
@@ -587,9 +592,14 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
           </Button>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          {mode === "reply" ? (
-            <>
+        // Action row (item 1, wave R3): primary Send always docks right and
+        // never wraps at laptop widths — the AI cluster (draft/suggest/
+        // rewrite/whisper) shows inline from md up, and collapses into a
+        // single "More" overflow menu below md so this row is always exactly
+        // one line regardless of viewport.
+        <div className="flex items-center gap-2">
+          {mode === "reply" && (
+            <div className="hidden flex-1 flex-wrap items-center gap-2 md:flex">
               <Button
                 type="button"
                 variant="outline"
@@ -616,7 +626,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
                 {isSuggesting ? (
                   <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
                 ) : (
-                  <Sparkles aria-hidden="true" className="size-3.5" />
+                  <Lightbulb aria-hidden="true" className="size-3.5" />
                 )}
                 {isSuggesting ? "Suggesting…" : "Suggest"}
               </Button>
@@ -628,6 +638,7 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
                       variant="outline"
                       size="sm"
                       disabled={!text.trim() || isRewriting}
+                      title={!text.trim() ? "Type or draft a reply first" : undefined}
                       className="gap-1.5"
                     />
                   }
@@ -647,10 +658,67 @@ export const ReplyComposer = forwardRef<ReplyComposerHandle, ReplyComposerProps>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </>
-          ) : (
-            <span />
+              {!isVoiceConversation && (
+                <Popover open={whisperPopoverOpen} onOpenChange={handleWhisperPopoverOpenChange}>
+                  <PopoverTrigger
+                    onClick={insertWhisperPrefix}
+                    render={<Button type="button" variant="outline" size="sm" className="gap-1.5" />}
+                  >
+                    <MessageCircleDashed aria-hidden="true" className="size-3.5" />
+                    Whisper
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72">
+                    <p className="text-xs leading-relaxed text-foreground">
+                      Tell the AI what to say — it delivers your instruction in its own words. Try: “@ai tell them
+                      I’ll be there at 5”.
+                    </p>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
           )}
+
+          {mode === "reply" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button type="button" variant="outline" size="icon-sm" className="md:hidden" aria-label="More AI tools" />
+                }
+              >
+                <Ellipsis aria-hidden="true" className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={requestDraft} disabled={isDrafting}>
+                  <Sparkles aria-hidden="true" className="size-3.5" />
+                  {isDrafting ? "Drafting…" : "AI draft"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={requestSuggestions} disabled={isSuggesting}>
+                  <Lightbulb aria-hidden="true" className="size-3.5" />
+                  {isSuggesting ? "Suggesting…" : "Suggest"}
+                </DropdownMenuItem>
+                {!isVoiceConversation && (
+                  <DropdownMenuItem onClick={insertWhisperPrefix}>
+                    <MessageCircleDashed aria-hidden="true" className="size-3.5" />
+                    Whisper
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={!text.trim() || isRewriting}>
+                    <Wand2 aria-hidden="true" className="size-3.5" />
+                    Rewrite
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {REWRITE_MODE_OPTIONS.map((option) => (
+                      <DropdownMenuItem key={option.value} onClick={() => handleRewrite(option.value)}>
+                        {option.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           <Button
             type="button"
             onClick={handleSend}

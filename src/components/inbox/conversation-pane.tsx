@@ -28,6 +28,7 @@ import { CallHeader } from "./call-header"
 import { ChannelGlyph, CHANNEL_GLYPHS } from "./channel-glyphs"
 import { initialsFromName } from "./inbox-filters"
 import { MessageBubble } from "./message-bubble"
+import { formatRelativeTime } from "./relative-time"
 import { ReplyComposer, type ReplyComposerHandle } from "./reply-composer"
 import { CONVERSATION_STATUS_META } from "./status-pill"
 
@@ -103,6 +104,11 @@ export function ConversationPane({
 
   return (
     <div className={cn("flex h-full flex-col", className)}>
+      {/* Unified thread header (redesign wave R3, item 2): two calm rows
+          instead of one wrapping line of four differently-shaped pills.
+          Row 1 is identity (name, VIP star, channel, relative time). Row 2
+          is controls (status, AI mode, AI state) — all h-8, one shape
+          family (rounded-full pills). */}
       <div className="flex items-center gap-3 border-b border-border px-3 py-2.5 sm:px-4">
         <Button
           type="button"
@@ -119,23 +125,40 @@ export function ConversationPane({
           <AvatarFallback>{initialsFromName(detail.contact_name)}</AvatarFallback>
         </Avatar>
 
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
-            <span className="truncate">{detail.contact_name ?? "Unknown contact"}</span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          {/* Row 1 — identity */}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-semibold text-foreground">
+              {detail.contact_name ?? "Unknown contact"}
+            </span>
             {detail.contact?.is_vip && (
               <span title="VIP: AI never auto-replies, you get alerted" className="inline-flex shrink-0 items-center">
                 <Star aria-hidden="true" className="size-3.5 fill-warning text-warning" />
                 <span className="sr-only">VIP</span>
               </span>
             )}
-          </p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
               <ChannelGlyph channel={detail.channel} className="size-3" />
               {channelMeta.label}
             </span>
+            {detail.last_message_at && (
+              <time
+                dateTime={detail.last_message_at}
+                className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground"
+              >
+                {formatRelativeTime(detail.last_message_at)}
+              </time>
+            )}
+          </div>
+
+          {/* Row 2 — controls, all h-8, same shape family */}
+          <div className="flex flex-wrap items-center gap-1.5">
             <Select value={detail.status} onValueChange={(value) => onStatusChange(value as ConversationStatus)}>
-              <SelectTrigger size="sm" aria-label="Conversation status" className="h-6 gap-1 border-none bg-transparent px-1.5 text-xs">
+              <SelectTrigger
+                size="sm"
+                aria-label="Conversation status"
+                className="h-8 gap-1 rounded-full border-none bg-transparent px-2.5 text-xs"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
@@ -155,8 +178,8 @@ export function ConversationPane({
                 ))}
               </SelectContent>
             </Select>
-            <AiStateChip state={detail.ai_state} />
             <AiModeToggle mode={detail.ai_mode} onChange={onAiModeChange} />
+            <AiStateChip state={detail.ai_state} />
           </div>
         </div>
 
