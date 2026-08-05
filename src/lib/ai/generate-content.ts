@@ -169,3 +169,127 @@ export async function generateContentDraft(
 
   return null
 }
+
+// ---------------------------------------------------------------------------
+// Caption refinement (redesign wave R5) — the Content Studio "AI Assist"
+// rail's real backend. Previously that rail applied hard-coded string
+// transforms (append a fixed emoji suffix, append a fixed "neighborhood"
+// sentence) to EVERY caption for EVERY business and presented it as AI —
+// the worst finding of the design audit. This is the real replacement: one
+// routed "content_gen" call (same job/route as generateContentDraft above —
+// a caption is the business's own marketing copy, not customer PII, so it
+// doesn't need the customer_reply route) that edits the CURRENT caption per
+// a short instruction, grounded in the org's own Business Brain.
+// ---------------------------------------------------------------------------
+
+export interface RefineCaptionInput {
+  orgId: string
+  businessBrain: BusinessBrain | null
+  /** The caption currently in the Composer, to be edited in place. */
+  caption: string
+  /** A short instruction, e.g. one of the rail's quick actions or the free-text "Tell the AI what to change" field. */
+  instruction: string
+}
+
+export interface RefinedCaption {
+  caption: string
+  model: string
+  costUsd: number
+}
+
+const MAX_REFINE_INSTRUCTION_LENGTH = 300
+
+function buildRefineCaptionSystemPrompt(brain: BusinessBrain | null): string {
+  const lines = [
+    "You make one targeted edit to an existing social media caption for a local small business, per a short instruction.",
+    "This is a focused edit, not a rewrite from scratch — keep the same platform, tone, and core message unless the instruction says otherwise.",
+    brain?.business_name
+      ? `Business: ${brain.business_name}${brain.category ? `, a ${brain.category}` : ""}.`
+      : null,
+    brain?.tone ? `Brand voice: ${brain.tone}.` : null,
+    brain?.description
+      ? `About the business (use for local/neighborhood specifics when the instruction asks for them — never invent details not implied here): ${brain.description
+          .trim()
+          .slice(0, MAX_DESCRIPTION_CHARS_IN_PROMPT)}`
+      : null,
+    "Respond with ONLY strict JSON, no markdown code fences, no commentary before or after — exactly this shape:",
+    '{"caption": string}',
+  ].filter((line): line is string => Boolean(line))
+
+  return lines.join(" ")
+}
+
+function buildRefineCaptionUserPrompt(caption: string, instruction: string): string {
+  return [`Current caption:\n${caption}`, "", `Instruction: ${instruction}`].join("\n")
+}
+
+interface ParsedRefineCaptionJson {
+  caption: string
+}
+
+/** Defensively extracts + validates the model's refine-caption JSON reply. Returns null on any shape/length problem, mirroring parseDraftJson above. Exported for unit testing (pure function, no network). */
+export function parseRefineCaptionJson(raw: string): ParsedRefineCaptionJson | null {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(match[0])
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== "object") return null
+  const obj = parsed as Record<string, unknown>
+
+  const caption = typeof obj.caption === "string" ? obj.caption.trim() : ""
+  if (!caption || caption.length > MAX_CAPTION_LENGTH) return null
+
+  return { caption }
+}
+
+/**
+ * Refines the Composer's current caption per one short instruction, via the
+ * "content_gen" router job (Gemini 2.5 Flash first — MASTER_PLAN §5, same
+ * route generateContentDraft uses). Returns null when OpenRouter/Supabase
+ * aren't configured, the caption/instruction are empty, or the model
+ * repeatedly fails to return usable JSON. Throws AllowanceDeniedError when
+ * the org is out of `content_generations` quota — callers must NOT treat
+ * that as "fall back", it's a real quota state (mirrors generateContentDraft).
+ */
+export async function refineCaption(input: RefineCaptionInput): Promise<RefinedCaption | null> {
+  if (!isOpenRouterConfigured() || !isSupabaseConfigured()) return null
+
+  const caption = input.caption.trim().slice(0, MAX_CAPTION_LENGTH)
+  const instruction = input.instruction.trim().slice(0, MAX_REFINE_INSTRUCTION_LENGTH)
+  if (!caption || !instruction) return null
+
+  const baseMessages: ChatMessage[] = [
+    { role: "system", content: buildRefineCaptionSystemPrompt(input.businessBrain) },
+    { role: "user", content: buildRefineCaptionUserPrompt(caption, instruction) },
+  ]
+
+  const retryMessage: ChatMessage = {
+    role: "user",
+    content: "Your last reply was not valid JSON matching the requested shape. Respond again with ONLY the strict JSON object — nothing else.",
+  }
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const messages = attempt === 0 ? baseMessages : [...baseMessages, retryMessage]
+
+    const result = await runTextJob({
+      orgId: input.orgId,
+      job: "content_gen",
+      messages,
+      maxTokens: 300,
+      temperature: 0.7,
+    })
+
+    const parsed = parseRefineCaptionJson(result.text)
+    if (parsed) {
+      return { caption: parsed.caption, model: result.model, costUsd: result.costUsd }
+    }
+  }
+
+  return null
+}

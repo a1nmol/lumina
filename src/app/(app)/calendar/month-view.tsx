@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -34,6 +34,7 @@ import { Plus } from "lucide-react"
 import { useReducedMotion } from "framer-motion"
 import { toast } from "sonner"
 
+import { PostDetailSheet } from "@/components/calendar/post-detail-sheet"
 import { cn } from "@/lib/utils"
 
 import { reschedulePost } from "./actions"
@@ -62,6 +63,22 @@ export function MonthView({ posts, onPostsChange, isLive = false }: MonthViewPro
   const reduceMotion = useReducedMotion()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  // Redesign wave R5 parity fix: month cards now open the same post-detail
+  // sheet Queue's cards do. suppressClickRef guards against the click event
+  // that (in some browsers) still fires on a card right after a real
+  // pointer drag ends — armed on drag start, cleared shortly after drag
+  // end/cancel, so a genuine drag never also pops the detail sheet open.
+  const [detailPostId, setDetailPostId] = useState<string | null>(null)
+  const suppressClickRef = useRef(false)
+  const suppressClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear any pending suppress window on unmount (review nit) — the ref
+  // itself is harmless post-unmount, but dangling timers are untidy.
+  useEffect(() => {
+    return () => {
+      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current)
+    }
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -124,6 +141,23 @@ export function MonthView({ posts, onPostsChange, isLive = false }: MonthViewPro
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id))
+    suppressClickRef.current = true
+    if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current)
+    // Cleared shortly after the drag settles — long enough to swallow the
+    // trailing click some browsers still fire on drop, short enough to never
+    // affect the NEXT unrelated click.
+    suppressClickTimeoutRef.current = setTimeout(() => {
+      suppressClickRef.current = false
+    }, 300)
+  }
+
+  const handleOpenDetail = useCallback((postId: string) => {
+    if (suppressClickRef.current) return
+    setDetailPostId(postId)
+  }, [])
+
+  function handleMarkedPosted(postId: string) {
+    onPostsChange(posts.map((post) => (post.id === postId ? { ...post, status: "posted" } : post)))
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -215,66 +249,80 @@ export function MonthView({ posts, onPostsChange, isLive = false }: MonthViewPro
     }
   }
 
+  const detailPost = detailPostId ? (posts.find((p) => p.id === detailPostId) ?? null) : null
+
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => {
-        setActiveId(null)
-        setOverId(null)
-      }}
-      accessibility={{
-        announcements,
-        screenReaderInstructions: {
-          draggable:
-            "To pick up a post, press space or enter. While dragging, use the arrow keys to move it to another day or position. Press space or enter again to drop the post, or press escape to cancel.",
-        },
-      }}
-    >
-      <div className="overflow-x-auto">
-        <div className="min-w-[640px] overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
-          <div className="grid grid-cols-7 border-b border-border">
-            {WEEKDAY_LABELS.map((label) => (
-              <div
-                key={label}
-                className="px-2 py-2.5 text-center text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
-                {label}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7">
-            {days.map((day) => {
-              const dayKey = format(day, "yyyy-MM-dd")
-              const dayPosts = postsByDay.get(dayKey) ?? []
-              return (
-                <DayCell
-                  key={dayKey}
-                  day={day}
-                  dayKey={dayKey}
-                  posts={dayPosts}
-                  isCurrentMonth={isSameMonth(day, monthStart)}
-                  isToday={isToday(day)}
-                  overId={overId}
-                  activeId={activeId}
-                />
-              )
-            })}
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => {
+          setActiveId(null)
+          setOverId(null)
+        }}
+        accessibility={{
+          announcements,
+          screenReaderInstructions: {
+            draggable:
+              "To pick up a post, press space or enter. While dragging, use the arrow keys to move it to another day or position. Press space or enter again to drop the post, or press escape to cancel.",
+          },
+        }}
+      >
+        <div className="overflow-x-auto">
+          <div className="min-w-[640px] overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+            <div className="grid grid-cols-7 border-b border-border">
+              {WEEKDAY_LABELS.map((label) => (
+                <div
+                  key={label}
+                  className="px-2 py-2.5 text-center text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {days.map((day) => {
+                const dayKey = format(day, "yyyy-MM-dd")
+                const dayPosts = postsByDay.get(dayKey) ?? []
+                return (
+                  <DayCell
+                    key={dayKey}
+                    day={day}
+                    dayKey={dayKey}
+                    posts={dayPosts}
+                    isCurrentMonth={isSameMonth(day, monthStart)}
+                    isToday={isToday(day)}
+                    overId={overId}
+                    activeId={activeId}
+                    onOpenDetail={handleOpenDetail}
+                  />
+                )
+              })}
+            </div>
           </div>
         </div>
-      </div>
 
-      <DragOverlay dropAnimation={reduceMotion ? null : undefined}>
-        {activePost ? (
-          <div className="w-12 scale-[1.03] rounded-lg shadow-overlay">
-            <PostCard post={activePost} variant="compact" isDragging />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay dropAnimation={reduceMotion ? null : undefined}>
+          {activePost ? (
+            <div className="w-12 scale-[1.03] rounded-lg shadow-overlay">
+              <PostCard post={activePost} variant="compact" isDragging />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <PostDetailSheet
+        post={detailPost}
+        open={detailPostId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailPostId(null)
+        }}
+        onMarkedPosted={handleMarkedPosted}
+      />
+    </>
   )
 }
 
@@ -286,6 +334,7 @@ type DayCellProps = {
   isToday: boolean
   overId: string | null
   activeId: string | null
+  onOpenDetail: (postId: string) => void
 }
 
 const DayCell = memo(function DayCell({
@@ -296,6 +345,7 @@ const DayCell = memo(function DayCell({
   isToday: today,
   overId,
   activeId,
+  onOpenDetail,
 }: DayCellProps) {
   const { setNodeRef, isOver } = useDroppable({ id: containerId(dayKey) })
   const items = useMemo(() => posts.map((p) => p.id), [posts])
@@ -346,7 +396,7 @@ const DayCell = memo(function DayCell({
                   className="absolute -top-1 right-0 left-0 h-0.5 rounded-full bg-primary"
                 />
               )}
-              <SortablePostCard post={post} />
+              <SortablePostCard post={post} onOpenDetail={() => onOpenDetail(post.id)} />
             </div>
           ))}
           {showTrailingLine && (

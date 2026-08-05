@@ -1,14 +1,16 @@
 "use client"
 
 import { useId, type ReactNode } from "react"
+import Link from "next/link"
 import { motion, useReducedMotion } from "framer-motion"
-import { ArrowDownRight, ArrowUpRight } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { duration, easing } from "@/lib/motion"
 
 type Delta = {
-  direction: "up" | "down"
+  /** "flat" renders a muted, arrow-less "±N%" chip instead of vanishing — an honestly-flat week is still a real data point, not nothing to report. */
+  direction: "up" | "down" | "flat"
   value: string
 }
 
@@ -22,10 +24,12 @@ type StatCardProps = {
   sparkline?: number[]
   /** Position in a staggered grid — drives the entrance delay. */
   index?: number
+  /** When provided, the whole card becomes a link (stretched-link overlay — keeps the card's own hover/motion styling intact while giving keyboard/AT users a single accessible target). */
+  href?: string
   className?: string
 }
 
-/** Command Center / Admin stat surface: label → value → delta chip → sparkline. */
+/** Command Center / Admin stat surface: label → value → delta chip → sparkline. Optionally a link (Command Center's clickable strip — see `href`). */
 export function StatCard({
   label,
   value,
@@ -33,11 +37,14 @@ export function StatCard({
   icon,
   sparkline,
   index = 0,
+  href,
   className,
 }: StatCardProps) {
   const reduceMotion = useReducedMotion()
   const gradientId = useId()
-  const positiveTrend = delta ? delta.direction === "up" : true
+  // "flat" reads as a neutral/positive-tinted line, not an alarm — only a
+  // real decline colors the sparkline as a downtrend.
+  const positiveTrend = delta ? delta.direction !== "down" : true
 
   return (
     <motion.div
@@ -48,12 +55,20 @@ export function StatCard({
         ease: easing.out,
         delay: reduceMotion ? 0 : index * 0.05,
       }}
-      whileHover={reduceMotion ? undefined : { y: -2 }}
+      whileHover={reduceMotion ? undefined : { y: href ? -3 : -2 }}
       className={cn(
         "group relative flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 hover:shadow-raised",
         className
       )}
     >
+      {href && (
+        <Link
+          href={href}
+          aria-label={`View ${label}`}
+          className="absolute inset-0 z-10 rounded-xl border border-transparent outline-none focus-visible:border-lamplight focus-visible:ring-3 focus-visible:ring-lamplight/50 focus-visible:shadow-lamplight"
+        />
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {label}
@@ -76,13 +91,17 @@ export function StatCard({
               "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-medium",
               delta.direction === "up"
                 ? "bg-success/10 text-success"
-                : "bg-destructive/10 text-destructive"
+                : delta.direction === "down"
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-muted text-muted-foreground"
             )}
           >
             {delta.direction === "up" ? (
               <ArrowUpRight aria-hidden="true" className="size-3" />
-            ) : (
+            ) : delta.direction === "down" ? (
               <ArrowDownRight aria-hidden="true" className="size-3" />
+            ) : (
+              <Minus aria-hidden="true" className="size-3" />
             )}
             {delta.value}
           </span>

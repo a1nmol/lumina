@@ -58,7 +58,7 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
       ) : view === "month" ? (
         <MonthView posts={posts} onPostsChange={setPosts} isLive={isLive} />
       ) : view === "week" ? (
-        <WeekView posts={posts} />
+        <WeekView posts={posts} onPostsChange={setPosts} />
       ) : (
         <QueueView posts={posts} onPostsChange={setPosts} />
       )}

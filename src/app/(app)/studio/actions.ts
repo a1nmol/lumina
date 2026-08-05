@@ -24,7 +24,7 @@
 import { randomUUID } from "node:crypto"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { designPost } from "@/lib/ai/design-post"
-import { generateContentDraft, type GeneratedContentDraft } from "@/lib/ai/generate-content"
+import { generateContentDraft, refineCaption, type GeneratedContentDraft } from "@/lib/ai/generate-content"
 import { generateImage, isFalConfigured } from "@/lib/ai/generate-image"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
 import {
@@ -363,6 +363,138 @@ export async function generateDraft(
   const businessBrain = await getBusinessBrain()
   await sleep(SIMULATED_LATENCY_MS)
   return groundedFallbackDraft(input, businessBrain, attempt)
+}
+
+// ---------------------------------------------------------------------------
+// AI Assist rail (redesign wave R5) — real caption refinement.
+//
+// Previously the rail (src/components/studio/ai-assist-rail.tsx) applied
+// hard-coded string transforms — append a fixed "🥐✨" suffix, append a
+// fixed "Made right here in the neighborhood…" sentence — to EVERY caption
+// for EVERY business, and presented that as AI. This is the honest
+// replacement:
+// - True demo mode (Supabase not configured): the whole app is already
+//   running on canned data (pickCannedDraft above does the same), so the
+//   rail keeps a labeled, honest canned-transform fallback here — never a
+//   network call, always deterministic, exactly like the old behavior
+//   minus the "presented as AI" deception.
+// - A real, signed-in org with OpenRouter configured: refineCaption
+//   (src/lib/ai/generate-content.ts) makes one real routed "content_gen"
+//   call grounded in the org's own Business Brain.
+// - A real, signed-in org WITHOUT an OpenRouter key: there is no honest
+//   fallback available (unlike generateDraft's groundedFallbackDraft, a
+//   canned transform on a REAL business's caption would just be the same
+//   dishonest behavior we're removing) — the composer must disable the
+//   rail's buttons instead. isAiAssistAvailable() below is what the page
+//   uses to compute that up front; a denial mid-session (e.g. the key gets
+//   revoked) still surfaces cleanly as { error: "unavailable" }.
+// ---------------------------------------------------------------------------
+
+const MAX_REFINE_CAPTION_LENGTH = 2200 // mirrors generate-content.ts's MAX_CAPTION_LENGTH
+const MAX_REFINE_INSTRUCTION_LENGTH = 300
+
+/**
+ * True when the AI Assist rail has SOME honest path available — demo mode's
+ * labeled canned fallback, or a real configured OpenRouter route. False only
+ * for a real, signed-in org missing an OpenRouter key (the one case with no
+ * honest fallback). Server-computed so the client never has to guess from
+ * env vars it can't see. Async (despite doing no I/O) because every export
+ * of a "use server" file must be an async function — see page.tsx's call.
+ */
+export async function isAiAssistAvailable(): Promise<boolean> {
+  return !isSupabaseConfigured() || isOpenRouterConfigured()
+}
+
+/** Demo-mode-only canned transforms — deterministic, no network call. Honest because demo mode is never presented as a real business's own AI (the whole app is running on seed data). Kept intentionally simple; real orgs never reach this path (see isAiAssistAvailable). */
+function applyDemoCaptionTransform(caption: string, instructionId: string): string {
+  const trimmed = caption.trim()
+  switch (instructionId) {
+    case "punchier":
+      return trimmed.endsWith("!") ? trimmed : `${trimmed.replace(/[.!?]+$/, "")}!`
+    case "shorter": {
+      const match = trimmed.match(/^[^.!?]*[.!?]/)
+      if (match) return match[0].trim()
+      const words = trimmed.split(/\s+/)
+      return words.slice(0, 12).join(" ") + (words.length > 12 ? "…" : "")
+    }
+    case "emoji": {
+      const suffix = "🥐✨"
+      return trimmed.endsWith(suffix) ? trimmed : `${trimmed} ${suffix}`
+    }
+    case "local": {
+      const suffix = "Made right here in the neighborhood, for the neighborhood."
+      return trimmed.includes(suffix) ? trimmed : `${trimmed} ${suffix}`
+    }
+    default:
+      return `${trimmed} ✨`
+  }
+}
+
+export type RefineCaptionResult =
+  | { caption: string }
+  | { error: "allowance"; message: string }
+  | { error: "unavailable"; message: string }
+
+/**
+ * Refines the Composer's current caption per one short instruction (a quick
+ * action id, or free text from "Tell the AI what to change"). See the
+ * section header above for the three-path behavior. `instructionId` is only
+ * used to pick a demo-mode canned transform when Supabase isn't configured;
+ * `instructionText` is always what's actually sent to the model in real mode.
+ */
+export async function refineCaptionAction(
+  caption: string,
+  instructionText: string,
+  instructionId = "freeform"
+): Promise<RefineCaptionResult> {
+  if (typeof caption !== "string" || typeof instructionText !== "string" || typeof instructionId !== "string") {
+    throw new Error("refineCaptionAction: invalid input")
+  }
+
+  const trimmedCaption = caption.trim().slice(0, MAX_REFINE_CAPTION_LENGTH)
+  const trimmedInstruction = instructionText.trim().slice(0, MAX_REFINE_INSTRUCTION_LENGTH)
+  if (!trimmedCaption || !trimmedInstruction) {
+    return { error: "unavailable", message: "Nothing to refine yet." }
+  }
+
+  if (!isSupabaseConfigured()) {
+    await sleep(500)
+    return { caption: applyDemoCaptionTransform(trimmedCaption, instructionId) }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    return {
+      error: "unavailable",
+      message: "Add your OpenRouter key in Settings to turn on AI Assist.",
+    }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    // Not a key problem — the session/org couldn't be resolved (review fix:
+    // the OpenRouter copy here pointed users at the wrong remedy).
+    return { error: "unavailable", message: "Couldn't verify your account — refresh and try again." }
+  }
+
+  const businessBrain = await getBusinessBrain()
+
+  try {
+    const refined = await refineCaption({
+      orgId,
+      businessBrain,
+      caption: trimmedCaption,
+      instruction: trimmedInstruction,
+    })
+    if (!refined) {
+      return { error: "unavailable", message: "Couldn't refine that caption — please try again." }
+    }
+    return { caption: refined.caption }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || OUT_OF_QUOTA_MESSAGE }
+    }
+    throw error
+  }
 }
 
 export interface RateDraftResult {

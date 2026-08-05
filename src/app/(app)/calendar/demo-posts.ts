@@ -22,6 +22,8 @@ export type DemoPost = {
   status: PostStatus
   /** Optional — used by the queue's "Copy caption" reminder-to-post action (real content_items only; demo posts keep hashtags inline in the caption text). */
   hashtags?: string[]
+  /** Real generated/attached media (real content_items only — mapped from content_items.media_urls[0] in map-content-item.ts). Demo posts never set this; their card/detail-sheet thumbnails always render the brand-hue gradient placeholder honestly, never a fake "saved image". */
+  imageUrl?: string
 }
 
 /**

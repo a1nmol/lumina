@@ -6,9 +6,9 @@
 // deep-link → paste"). No social APIs — every action here is client-side or
 // a status update the org already owns.
 
-import { useState } from "react"
-import { Check, Download, ExternalLink, Loader2 } from "lucide-react"
+import { Check, ExternalLink, Loader2, Download } from "lucide-react"
 import { toast } from "sonner"
+import { useState } from "react"
 
 import { markPostAsPosted } from "@/app/(app)/calendar/actions"
 import type { DemoPost, PostPlatform } from "@/app/(app)/calendar/demo-posts"
@@ -23,6 +23,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { cn } from "@/lib/utils"
 
 /**
  * Per-platform "open the app" targets. Custom URI schemes where the OS can
@@ -37,40 +38,6 @@ const PLATFORM_DEEP_LINKS: Record<PostPlatform, string> = {
   google_business: "https://business.google.com/",
 }
 
-const DOWNLOAD_PX = 1080
-
-/**
- * Demo posts don't carry a real generated image yet — downloads the same
- * brand gradient shown as the card thumbnail, standing in for the actual
- * asset (real media generation already exists in Content Studio; wiring its
- * output through to here is a follow-up, not new scope for this feature).
- */
-async function downloadGradientPng(hue: number, filename: string): Promise<void> {
-  const canvas = document.createElement("canvas")
-  canvas.width = DOWNLOAD_PX
-  canvas.height = DOWNLOAD_PX
-  const ctx = canvas.getContext("2d")
-  if (!ctx) throw new Error("Canvas 2D context unavailable")
-
-  const gradient = ctx.createLinearGradient(0, 0, DOWNLOAD_PX, DOWNLOAD_PX)
-  gradient.addColorStop(0, `oklch(0.74 0.13 ${hue})`)
-  gradient.addColorStop(1, `oklch(0.52 0.19 ${(hue + 45) % 360})`)
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, DOWNLOAD_PX, DOWNLOAD_PX)
-
-  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"))
-  if (!blob) throw new Error("Failed to encode PNG")
-
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-}
-
 type PostDetailSheetProps = {
   post: DemoPost | null
   open: boolean
@@ -81,7 +48,6 @@ type PostDetailSheetProps = {
 
 /** Bottom sheet (mobile-first): full caption, media preview, and the manual-post action set. */
 export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: PostDetailSheetProps) {
-  const [savingImage, setSavingImage] = useState(false)
   const [marking, setMarking] = useState(false)
 
   if (!post) return null
@@ -91,19 +57,13 @@ export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: Po
       ? post.hashtags.map((tag) => `#${tag}`).join(" ")
       : null
   const isPosted = post.status === "posted"
-
-  async function handleSaveImage() {
-    if (!post) return
-    setSavingImage(true)
-    try {
-      await downloadGradientPng(post.thumbnailHue, `lumina-post-${post.id}.png`)
-      toast.success("Image saved")
-    } catch {
-      toast.error("Couldn't save the image", { description: "Please try again." })
-    } finally {
-      setSavingImage(false)
-    }
-  }
+  // Honesty fix (redesign wave R5): the old "Save image" button always
+  // downloaded a freshly-rendered CSS gradient PNG — a fake standing in for
+  // real art, even for posts that never had any generated image at all.
+  // Only real content_items carry a real fal.ai/rendered-template image URL
+  // (see map-content-item.ts); the button now only exists when that's true,
+  // and links straight to the real asset instead of faking one client-side.
+  const hasRealImage = Boolean(post.imageUrl)
 
   async function handleCopyCaption() {
     if (!post) return
@@ -141,16 +101,29 @@ export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: Po
         <SheetHeader>
           <SheetTitle>Post details</SheetTitle>
           <SheetDescription>
-            Save the image, copy the caption, and post it yourself — or mark it posted once it&rsquo;s live.
+            {hasRealImage
+              ? "Save the image, copy the caption, and post it yourself — or mark it posted once it’s live."
+              : "Copy the caption and post it yourself — or mark it posted once it’s live."}
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4">
-          <div
-            style={thumbnailStyle(post.thumbnailHue)}
-            className="aspect-square w-full overflow-hidden rounded-2xl ring-1 ring-foreground/10"
-            aria-hidden="true"
-          />
+          <div className="aspect-square w-full overflow-hidden rounded-2xl ring-1 ring-foreground/10">
+            {post.imageUrl ? (
+              // Real fal.ai/rendered-template URLs are remote and arbitrary —
+              // a plain <img> is the simplest safe choice, same call as
+              // src/components/studio/phone-frame.tsx's ImageBlock.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={post.imageUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div
+                style={thumbnailStyle(post.thumbnailHue)}
+                className="h-full w-full"
+                title="This post doesn't have a saved image yet."
+                aria-hidden="true"
+              />
+            )}
+          </div>
 
           <div className="flex flex-col gap-1.5">
             <p className="text-sm whitespace-pre-wrap text-foreground">{post.caption}</p>
@@ -178,15 +151,18 @@ export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: Po
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" onClick={handleSaveImage} disabled={savingImage} className="gap-1.5">
-              {savingImage ? (
-                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-              ) : (
+          <div className={cn("grid gap-2", hasRealImage ? "grid-cols-2" : "grid-cols-1")}>
+            {hasRealImage && (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                render={<a href={post.imageUrl} download={`lumina-post-${post.id}.png`} target="_blank" rel="noopener noreferrer" />}
+              >
                 <Download aria-hidden="true" className="size-3.5" />
-              )}
-              Save image
-            </Button>
+                Save image
+              </Button>
+            )}
             <Button type="button" variant="outline" onClick={handleCopyCaption} className="gap-1.5">
               Copy caption
             </Button>

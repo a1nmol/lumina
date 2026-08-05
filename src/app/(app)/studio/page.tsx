@@ -8,6 +8,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 
+import { isAiAssistAvailable } from "./actions"
 import { DEMO_TEMPLATES, mapTemplate } from "./demo-templates"
 import type { StudioTemplate } from "./types"
 
@@ -30,7 +31,11 @@ export default async function StudioPage() {
   // — see src/app/(app)/settings/brain/actions.ts — so demo mode keeps its
   // existing preview exactly, while real orgs get their own saved name (or
   // a neutral placeholder before Brain setup) instead of the demo bakery's.
-  const [templates, businessBrain] = await Promise.all([loadInitialTemplates(), getBusinessBrain()])
+  const [templates, businessBrain, aiAssistAvailable] = await Promise.all([
+    loadInitialTemplates(),
+    getBusinessBrain(),
+    isAiAssistAvailable(),
+  ])
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -38,7 +43,11 @@ export default async function StudioPage() {
         title="Content Studio"
         description="Describe what you want to post — AI drafts the caption, image, and hashtags, ready for every platform."
       />
-      <Composer businessName={businessBrain.business_name ?? "Your Business"} templates={templates} />
+      <Composer
+        businessName={businessBrain.business_name ?? "Your Business"}
+        templates={templates}
+        aiAssistAvailable={aiAssistAvailable}
+      />
     </div>
   )
 }

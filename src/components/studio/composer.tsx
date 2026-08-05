@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/empty-state"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { duration, easing, microCopyCycleMs, wordRevealMs } from "@/lib/motion"
@@ -132,9 +133,11 @@ type ComposerProps = {
   businessName: string
   /** Saved templates (★ save-as-template) — demo data or Supabase-backed, loaded server-side in page.tsx. */
   templates?: StudioTemplate[]
+  /** Server-computed (src/app/(app)/studio/actions.ts#isAiAssistAvailable) — threaded into the AI Assist rail so it can show honest disabled copy instead of guessing from env vars it can't see. */
+  aiAssistAvailable?: boolean
 }
 
-export function Composer({ businessName, templates = [] }: ComposerProps) {
+export function Composer({ businessName, templates = [], aiAssistAvailable = true }: ComposerProps) {
   const reduceMotion = useReducedMotion()
   const isMountedRef = useRef(true)
   const revealIntervalRef = useRef<RevealInterval | null>(null)
@@ -503,18 +506,31 @@ export function Composer({ businessName, templates = [] }: ComposerProps) {
 
       {/* Zone 2 — content */}
       <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,320px)_1fr]">
-        <PhoneFrame
-          format={format}
-          status={phoneFrameStatus}
-          resultKey={resultKey}
-          businessName={businessName}
-          caption={caption}
-          hashtags={hashtagsList}
-          imageDescription={draft?.imageDescription ?? ""}
-          imageUrl={imageUrl}
-          videoUrl={format === "slideshow" ? slideshowVideoUrl : undefined}
-          microCopy={phoneFrameMicroCopy}
-        />
+        {status === "idle" ? (
+          // Before the first generation, teach the flow instead of showing a
+          // blank phone mockup — the phone frame's own gutted "idle" state
+          // was too quiet to double as the page's real empty state.
+          <EmptyState
+            compact
+            icon={<Sparkles aria-hidden="true" className="size-4" />}
+            title="Describe it, generate it, queue it"
+            description="Type what you're posting about above, hit Generate for a caption and image, then add the draft to your queue when it looks right."
+            className="mx-auto flex h-full min-h-[360px] w-full max-w-[300px] flex-col justify-center"
+          />
+        ) : (
+          <PhoneFrame
+            format={format}
+            status={phoneFrameStatus}
+            resultKey={resultKey}
+            businessName={businessName}
+            caption={caption}
+            hashtags={hashtagsList}
+            imageDescription={draft?.imageDescription ?? ""}
+            imageUrl={imageUrl}
+            videoUrl={format === "slideshow" ? slideshowVideoUrl : undefined}
+            microCopy={phoneFrameMicroCopy}
+          />
+        )}
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -658,6 +674,7 @@ export function Composer({ businessName, templates = [] }: ComposerProps) {
         onOpenChange={setRailOpen}
         caption={caption}
         disabled={status !== "ready"}
+        available={aiAssistAvailable}
         onApply={(next) => setCaption(next)}
       />
     </div>

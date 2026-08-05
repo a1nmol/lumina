@@ -1,7 +1,9 @@
 "use client"
 
+import { useState } from "react"
 import { eachDayOfInterval, endOfWeek, format, isToday, startOfWeek } from "date-fns"
 
+import { PostDetailSheet } from "@/components/calendar/post-detail-sheet"
 import { EmptyState } from "@/components/empty-state"
 import { cn } from "@/lib/utils"
 
@@ -11,16 +13,29 @@ import { PostCard } from "./post-card"
 
 type WeekViewProps = {
   posts: DemoPost[]
+  /** Lets the post-detail sheet's "Mark as posted" reflect immediately in the grid above it — mirrors QueueView's own onPostsChange. */
+  onPostsChange?: (posts: DemoPost[]) => void
 }
 
-/** Current week, 7 columns (stacked on mobile) — fuller cards with caption + time + platform badges. */
-export function WeekView({ posts }: WeekViewProps) {
+/**
+ * Current week, 7 columns (stacked on mobile) — fuller cards with caption +
+ * time + platform badges. Redesign wave R5 parity fix: cards now open the
+ * same shared post-detail sheet Queue's cards do (audit finding: week was
+ * read-only while month/queue weren't).
+ */
+export function WeekView({ posts, onPostsChange }: WeekViewProps) {
+  const [detailPostId, setDetailPostId] = useState<string | null>(null)
   const today = new Date()
   const days = eachDayOfInterval({
     start: startOfWeek(today, { weekStartsOn: 0 }),
     end: endOfWeek(today, { weekStartsOn: 0 }),
   })
   const grouped = groupPostsByDayKey(posts)
+  const detailPost = detailPostId ? (posts.find((post) => post.id === detailPostId) ?? null) : null
+
+  function handleMarkedPosted(postId: string) {
+    onPostsChange?.(posts.map((post) => (post.id === postId ? { ...post, status: "posted" } : post)))
+  }
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-7">
@@ -50,12 +65,28 @@ export function WeekView({ posts }: WeekViewProps) {
               {dayPosts.length === 0 ? (
                 <EmptyState compact title="No posts" description="" className="flex-1 border-none py-3" />
               ) : (
-                dayPosts.map((post) => <PostCard key={post.id} post={post} variant="full" />)
+                dayPosts.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    variant="full"
+                    onOpenDetail={() => setDetailPostId(post.id)}
+                  />
+                ))
               )}
             </div>
           </div>
         )
       })}
+
+      <PostDetailSheet
+        post={detailPost}
+        open={detailPostId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailPostId(null)
+        }}
+        onMarkedPosted={handleMarkedPosted}
+      />
     </div>
   )
 }

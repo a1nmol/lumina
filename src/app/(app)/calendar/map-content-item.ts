@@ -41,6 +41,8 @@ export function contentItemToPost(item: ContentItem): CalendarPost | null {
     KNOWN_PLATFORMS.has(platform)
   )
 
+  const firstMediaUrl = item.media_urls?.[0]
+
   return {
     id: item.id,
     date: item.scheduled_at,
@@ -50,5 +52,6 @@ export function contentItemToPost(item: ContentItem): CalendarPost | null {
     thumbnailHue: hueFromId(item.id),
     status: toPostStatus(item.status),
     hashtags: item.hashtags,
+    imageUrl: typeof firstMediaUrl === "string" ? firstMediaUrl : undefined,
   }
 }

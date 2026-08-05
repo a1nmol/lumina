@@ -108,8 +108,12 @@ export function ReviewsSection({ initialReviews, isLive }: ReviewsSectionProps) 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">Reviews</h2>
-        <p className="text-sm text-muted-foreground">
+        {/* Matches the app's section-header convention (see e.g.
+            src/components/analytics/overview-tab.tsx's "Post performance")
+            — this was the one raw text-lg/h2+p pair left over from before
+            that convention existed (redesign audit finding). */}
+        <h2 className="text-sm font-medium text-foreground">Reviews</h2>
+        <p className="text-xs text-muted-foreground">
           Google and Facebook reviews, with AI-drafted replies. Auto-reply rules live in Settings → AI behaviour.
         </p>
       </div>

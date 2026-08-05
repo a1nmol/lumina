@@ -197,6 +197,68 @@ export async function getOverviewStats(orgId: string, rangeDays: number): Promis
   }
 }
 
+export interface OverviewSparklines {
+  postsPublished: number[]
+  leads: number[]
+  bookings: number[]
+  reviewsCount: number[]
+}
+
+/** Maps a raw analytics_events kind to the OverviewSparklines bucket it contributes to (the same four counters getOverviewStats already tracks, minus "reach" — post_metric rows don't carry a per-day count worth sparklining here). */
+const SPARKLINE_STAT_BY_KIND: Partial<Record<AnalyticsEventKind, keyof OverviewSparklines>> = {
+  post_published: "postsPublished",
+  lead_captured: "leads",
+  booking_created: "bookings",
+  review_received: "reviewsCount",
+}
+
+/**
+ * Cheap per-day trend lines for the Command Center's stat strip (redesign
+ * wave R5 — live mode previously had no sparklines at all). One grouped
+ * query covers every stat (kind + occurred_at only, no join), bucketed into
+ * `days` day-wide buckets oldest-first — the same shape StatCard's demo
+ * sparklines already use. Returns null (never throws) when Supabase isn't
+ * configured or the query fails; callers should omit the sparkline rather
+ * than fake one.
+ */
+export async function getOverviewSparklines(orgId: string, days: number): Promise<OverviewSparklines | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const end = new Date()
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
+
+  const { data, error } = await supabase
+    .from("analytics_events")
+    .select("kind, occurred_at")
+    .eq("org_id", orgId)
+    .in("kind", ["post_published", "lead_captured", "booking_created", "review_received"])
+    .gte("occurred_at", start.toISOString())
+    .lt("occurred_at", end.toISOString())
+
+  if (error || !data) return null
+
+  const buckets: OverviewSparklines = {
+    postsPublished: Array(days).fill(0),
+    leads: Array(days).fill(0),
+    bookings: Array(days).fill(0),
+    reviewsCount: Array(days).fill(0),
+  }
+
+  const startMs = start.getTime()
+  const dayMs = 24 * 60 * 60 * 1000
+
+  for (const row of data) {
+    const stat = SPARKLINE_STAT_BY_KIND[row.kind as AnalyticsEventKind]
+    if (!stat) continue
+    const bucketIndex = Math.floor((new Date(row.occurred_at).getTime() - startMs) / dayMs)
+    const clampedIndex = Math.min(days - 1, Math.max(0, bucketIndex))
+    buckets[stat][clampedIndex] += 1
+  }
+
+  return buckets
+}
+
 // ---------------------------------------------------------------------------
 // The Loop — post ↔ outcome attribution
 // ---------------------------------------------------------------------------

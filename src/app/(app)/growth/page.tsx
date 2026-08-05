@@ -75,7 +75,7 @@ export default async function GrowthPage() {
   ])
 
   return (
-    <div className="flex flex-1 flex-col gap-8">
+    <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title="Growth"
         description="Reviews, referrals, and the tools that bring customers back."

@@ -7,7 +7,7 @@ import { DigestSeenTracker } from "@/components/dashboard/digest-seen-tracker"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
-import { getOverviewStats } from "@/lib/analytics"
+import { getOverviewSparklines, getOverviewStats, type OverviewSparklines } from "@/lib/analytics"
 import { DEMO_ORG } from "@/lib/demo"
 import { getWhileYouWereAwayDigest } from "@/lib/digest"
 import { getOrgSidebarContext } from "@/lib/org"
@@ -27,9 +27,11 @@ function getGreeting() {
 type DashboardStat = {
   label: string
   value: number
-  delta?: { direction: "up" | "down"; value: string }
+  delta?: { direction: "up" | "down" | "flat"; value: string }
   icon: ReactNode
   sparkline?: number[]
+  /** Where the stat card links to — redesign wave R5: every Command Center stat is now a shortcut into the module that owns it. */
+  href: string
 }
 
 /** Rich demo stats (7-day window, with sparklines) — kept exactly as before for demo mode. */
@@ -40,6 +42,7 @@ const DEMO_STATS: DashboardStat[] = [
     delta: { direction: "up", value: "+12%" },
     icon: <Send aria-hidden="true" className="size-3.5" />,
     sparkline: [4, 5, 4, 6, 7, 6, 8],
+    href: "/studio",
   },
   {
     label: "Leads captured",
@@ -47,6 +50,7 @@ const DEMO_STATS: DashboardStat[] = [
     delta: { direction: "up", value: "+26%" },
     icon: <UserPlus aria-hidden="true" className="size-3.5" />,
     sparkline: [3, 5, 6, 8, 7, 9, 11],
+    href: "/contacts",
   },
   {
     label: "Bookings",
@@ -54,6 +58,7 @@ const DEMO_STATS: DashboardStat[] = [
     delta: { direction: "down", value: "-4%" },
     icon: <CalendarCheck2 aria-hidden="true" className="size-3.5" />,
     sparkline: [4, 3, 4, 3, 2, 3, 2],
+    href: "/calendar",
   },
   {
     label: "Reviews",
@@ -61,40 +66,49 @@ const DEMO_STATS: DashboardStat[] = [
     delta: { direction: "up", value: "+50%" },
     icon: <Star aria-hidden="true" className="size-3.5" />,
     sparkline: [0, 1, 1, 2, 2, 3, 3],
+    href: "/growth",
   },
 ]
 
-/** Formats a percent-change delta honestly — omitted entirely when flat (0%) rather than faking a direction. */
-function formatDelta(percent: number): { direction: "up" | "down"; value: string } | undefined {
-  if (percent === 0) return undefined
+/** Formats a percent-change delta honestly — a flat 0% still renders (muted, arrow-less "±0%") rather than vanishing, since "nothing changed" is a real data point too. */
+function formatDelta(percent: number): { direction: "up" | "down" | "flat"; value: string } {
+  if (percent === 0) return { direction: "flat", value: "±0%" }
   return { direction: percent > 0 ? "up" : "down", value: `${percent > 0 ? "+" : ""}${percent}%` }
 }
 
-function liveStats(overview: AnalyticsOverviewStats): DashboardStat[] {
+function liveStats(overview: AnalyticsOverviewStats, sparklines: OverviewSparklines | null): DashboardStat[] {
   return [
     {
       label: "Posts published",
       value: overview.postsPublished,
       delta: formatDelta(overview.deltas.postsPublished),
       icon: <Send aria-hidden="true" className="size-3.5" />,
+      sparkline: sparklines?.postsPublished,
+      href: "/studio",
     },
     {
       label: "Leads captured",
       value: overview.leads,
       delta: formatDelta(overview.deltas.leads),
       icon: <UserPlus aria-hidden="true" className="size-3.5" />,
+      sparkline: sparklines?.leads,
+      href: "/contacts",
     },
     {
       label: "Bookings",
       value: overview.bookings,
       delta: formatDelta(overview.deltas.bookings),
       icon: <CalendarCheck2 aria-hidden="true" className="size-3.5" />,
+      sparkline: sparklines?.bookings,
+      href: "/calendar",
     },
     {
       label: "Reviews",
       value: overview.reviewsCount,
       delta: formatDelta(overview.deltas.reviewsCount),
       icon: <Star aria-hidden="true" className="size-3.5" />,
+      sparkline: sparklines?.reviewsCount,
+      href: "/growth",
     },
   ]
 }
@@ -120,20 +134,30 @@ async function loadDashboardData(): Promise<DashboardData> {
     return {
       orgName: "your business",
       greetName: "your business",
-      stats: liveStats({
-        rangeDays: 7,
-        postsPublished: 0,
-        reach: 0,
-        leads: 0,
-        bookings: 0,
-        reviewsCount: 0,
-        deltas: { postsPublished: 0, reach: 0, leads: 0, bookings: 0, reviewsCount: 0 },
-      }),
+      stats: liveStats(
+        {
+          rangeDays: 7,
+          postsPublished: 0,
+          reach: 0,
+          leads: 0,
+          bookings: 0,
+          reviewsCount: 0,
+          deltas: { postsPublished: 0, reach: 0, leads: 0, bookings: 0, reviewsCount: 0 },
+        },
+        null
+      ),
     }
   }
 
-  const overview = await getOverviewStats(context.orgId, 7)
-  return { orgName: context.orgName, greetName: context.userName ?? context.orgName, stats: liveStats(overview) }
+  const [overview, sparklines] = await Promise.all([
+    getOverviewStats(context.orgId, 7),
+    getOverviewSparklines(context.orgId, 7),
+  ])
+  return {
+    orgName: context.orgName,
+    greetName: context.userName ?? context.orgName,
+    stats: liveStats(overview, sparklines),
+  }
 }
 
 export default async function DashboardPage() {
