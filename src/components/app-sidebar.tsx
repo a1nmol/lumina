@@ -10,6 +10,7 @@ import {
   LogOut,
   Plus,
   Settings,
+  UserRound,
   type LucideIcon,
 } from "lucide-react"
 
@@ -128,10 +129,6 @@ export function AppSidebar({ isAdmin, orgName, orgSlug, planName, userEmail, use
               <Settings aria-hidden="true" className="size-4" />
               Business settings
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
-              <LogOut aria-hidden="true" className="size-4" />
-              Sign out
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -172,19 +169,40 @@ export function AppSidebar({ isAdmin, orgName, orgSlug, planName, userEmail, use
         </SidebarMenu>
 
         <div className="flex items-center justify-between gap-2 rounded-lg px-1 py-1 group-data-[collapsible=icon]:flex-col">
-          <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
-            <Avatar size="sm">
-              <AvatarFallback>{getInitials(userDisplayName)}</AvatarFallback>
-            </Avatar>
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-xs font-medium text-sidebar-foreground">
-                {userDisplayName}
-              </span>
-              <span className="truncate text-xs text-sidebar-foreground/60">
-                {userEmail}
-              </span>
-            </div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              title={`${userDisplayName} — account menu`}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 text-left ring-sidebar-ring outline-hidden transition-colors hover:bg-sidebar-accent focus-visible:ring-2",
+                "group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
+              )}
+            >
+              <Avatar size="sm">
+                <AvatarFallback>{getInitials(userDisplayName)}</AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-xs font-medium text-sidebar-foreground">
+                  {userDisplayName}
+                </span>
+                <span className="truncate text-xs text-sidebar-foreground/60">{userEmail}</span>
+              </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-60">
+              <DropdownMenuLabel className="flex flex-col">
+                <span className="truncate">{userDisplayName}</span>
+                <span className="truncate text-xs font-normal text-muted-foreground">{userEmail}</span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem render={<Link href="/account" />}>
+                <UserRound aria-hidden="true" className="size-4" />
+                My account
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
+                <LogOut aria-hidden="true" className="size-4" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ThemeToggle />
         </div>
       </SidebarFooter>

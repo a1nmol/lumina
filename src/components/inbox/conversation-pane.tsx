@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type Ref } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { ArrowLeft, Info } from "lucide-react"
+import { ArrowLeft, Info, Star } from "lucide-react"
 
 import { Wick } from "@/components/brand/wick"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -17,11 +17,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
-import type { ConversationStatus, Message } from "@/lib/types"
+import type { ConversationAiMode, ConversationStatus, Message } from "@/lib/types"
 
 import type { InboxConversationDetail } from "@/app/(app)/inbox/actions"
 
+import { AiMemoryStrip } from "./ai-memory-strip"
+import { AiModeToggle } from "./ai-mode-toggle"
 import { AiStateChip } from "./ai-state-chip"
+import { CallHeader } from "./call-header"
 import { ChannelGlyph, CHANNEL_GLYPHS } from "./channel-glyphs"
 import { initialsFromName } from "./inbox-filters"
 import { MessageBubble } from "./message-bubble"
@@ -35,6 +38,7 @@ type ConversationPaneProps = {
   loading: boolean
   onBack: () => void
   onStatusChange: (status: ConversationStatus) => void
+  onAiModeChange: (mode: ConversationAiMode) => void
   onMessageSent: (message: Message) => void
   onEscalated: (conversationId: string, reason: string) => void
   onOpenContext: () => void
@@ -47,6 +51,7 @@ export function ConversationPane({
   loading,
   onBack,
   onStatusChange,
+  onAiModeChange,
   onMessageSent,
   onEscalated,
   onOpenContext,
@@ -115,7 +120,15 @@ export function ConversationPane({
         </Avatar>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">{detail.contact_name ?? "Unknown contact"}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+            <span className="truncate">{detail.contact_name ?? "Unknown contact"}</span>
+            {detail.contact?.is_vip && (
+              <span title="VIP: AI never auto-replies, you get alerted" className="inline-flex shrink-0 items-center">
+                <Star aria-hidden="true" className="size-3.5 fill-warning text-warning" />
+                <span className="sr-only">VIP</span>
+              </span>
+            )}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <ChannelGlyph channel={detail.channel} className="size-3" />
@@ -143,6 +156,7 @@ export function ConversationPane({
               </SelectContent>
             </Select>
             <AiStateChip state={detail.ai_state} />
+            <AiModeToggle mode={detail.ai_mode} onChange={onAiModeChange} />
           </div>
         </div>
 
@@ -157,6 +171,9 @@ export function ConversationPane({
           <Info aria-hidden="true" className="size-4" />
         </Button>
       </div>
+
+      <AiMemoryStrip aiMemory={detail.ai_memory} />
+      {detail.channel === "voice" && <CallHeader calls={detail.calls ?? []} />}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
         <AnimatePresence mode="wait">
@@ -184,6 +201,7 @@ export function ConversationPane({
           key={detail.id}
           ref={composerRef}
           conversationId={detail.id}
+          channel={detail.channel}
           onSent={onMessageSent}
           onEscalated={onEscalated}
         />

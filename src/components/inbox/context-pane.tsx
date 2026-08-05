@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { updateAppointmentStatusAction } from "@/app/(app)/contacts/booking-actions"
 import { AppointmentStatusSelect } from "@/components/appointment-status-select"
 import { BookingDialog } from "@/components/booking-dialog"
+import { EmptyState } from "@/components/empty-state"
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { VipToggle } from "@/components/vip-toggle"
 import { cn } from "@/lib/utils"
 import type { Appointment, AppointmentStatus, Contact, ContactStatus } from "@/lib/types"
 
@@ -40,6 +42,7 @@ type ContextPaneProps = {
   onStatusChange: (status: ContactStatus) => void
   onAddTag: (tag: string) => void
   onAddNote: () => void
+  onToggleVip: () => void
   className?: string
 }
 
@@ -51,6 +54,7 @@ export function ContextPane({
   onStatusChange,
   onAddTag,
   onAddNote,
+  onToggleVip,
   className,
 }: ContextPaneProps) {
   const [tagInput, setTagInput] = useState("")
@@ -91,9 +95,8 @@ export function ContextPane({
 
   if (!contact) {
     return (
-      <div className={cn("flex h-full flex-col items-center justify-center gap-2 p-6 text-center", className)}>
-        <User aria-hidden="true" className="size-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">No contact selected.</p>
+      <div className={cn("flex h-full flex-col items-center justify-center p-6", className)}>
+        <EmptyState compact icon={<User />} title="No contact selected" />
       </div>
     )
   }
@@ -145,7 +148,10 @@ export function ContextPane({
           {contact.phone && <p className="text-xs text-muted-foreground">{contact.phone}</p>}
           {contact.email && <p className="text-xs text-muted-foreground">{contact.email}</p>}
         </div>
-        <StatusPill {...CONTACT_STATUS_META[contact.status]} />
+        <div className="flex items-center gap-1.5">
+          <StatusPill {...CONTACT_STATUS_META[contact.status]} />
+          <VipToggle isVip={contact.is_vip} onToggle={onToggleVip} />
+        </div>
       </div>
 
       {/* Quick actions */}

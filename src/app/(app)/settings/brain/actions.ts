@@ -34,6 +34,11 @@ function blankBusinessBrain(orgId: string): BusinessBrain {
     brand_kit: {},
     connected_channels: {},
     onboarding_step: 0,
+    frontdesk_auto_reply: true,
+    ai_intro_enabled: false,
+    ai_intro_text: null,
+    ai_always_on: false,
+    follow_ups_enabled: true,
     completed: false,
     updated_at: new Date(0).toISOString(),
   }
@@ -56,6 +61,7 @@ const MAX_FAQ_QUESTION = 300
 const MAX_FAQ_ANSWER = 1000
 const MAX_HOURS_VALUE = 20
 const MAX_LOGO_URL = 500
+const MAX_AI_INTRO_TEXT = 500
 
 // Contract: strictly 24-hour "HH:MM" — matches `<input type="time">` output and
 // the parsing contract in src/lib/booking-slots.ts' parseTimeToMinutes. No AM/PM.
@@ -250,7 +256,9 @@ export async function getBusinessBrain(): Promise<BusinessBrain> {
   if (!isSupabaseConfigured()) return DEMO_BUSINESS_BRAIN
 
   const orgId = await getCurrentOrgId()
-  if (!orgId) return DEMO_BUSINESS_BRAIN
+  // Configured but no org resolved yet (e.g. bootstrap hasn't run): a blank
+  // brain shape, never the seeded demo business.
+  if (!orgId) return blankBusinessBrain("")
 
   const supabase = await createClient()
   const { data } = await supabase
@@ -306,6 +314,129 @@ export async function saveFaq(faq: BusinessFaq[]): Promise<SaveFaqResult> {
 
   const supabase = await createClient()
   const { error } = await supabase.from("business_brain").upsert({ faq, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveFrontdeskAutoReplyResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide default AI autonomy for NEW conversations (migration
+ * 0011 `business_brain.frontdesk_auto_reply`) — used by the Settings hub's
+ * FrontDesk auto-reply card (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx).
+ * true -> new conversations start with `ai_mode: 'auto'`; false -> 'off'
+ * (still drafts, never sends) — see the enforcement in
+ * src/app/api/frontdesk/chat/route.ts and src/app/api/twilio/sms/route.ts.
+ * The owner can always override per conversation from the Inbox regardless
+ * of this default. Independent of the wizard's step-by-step draft flow,
+ * same standalone-card pattern as saveFaq. No-ops in demo mode.
+ */
+export async function saveFrontdeskAutoReply(frontdeskAutoReply: boolean): Promise<SaveFrontdeskAutoReplyResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ frontdesk_auto_reply: frontdeskAutoReply, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveAiIntroResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org" | "invalid-payload"
+}
+
+/**
+ * Persists the owner's Honest-AI intro settings (migration 0013
+ * `business_brain.ai_intro_enabled` / `.ai_intro_text`) — used by the
+ * Settings hub's FrontDesk auto-reply card
+ * (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx). `aiIntroText` is
+ * the owner's literal, one-time disclosure line — stored trimmed, and as
+ * null when blank so `ai_intro_enabled` alone can't fire an empty intro (see
+ * the gating contract in src/lib/ai/intro.ts#shouldSendIntro). No-ops in
+ * demo mode.
+ */
+export async function saveAiIntro(aiIntroEnabled: boolean, aiIntroText: string): Promise<SaveAiIntroResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const trimmed = aiIntroText.trim()
+  if (trimmed.length > MAX_AI_INTRO_TEXT) return { ok: false, reason: "invalid-payload" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ ai_intro_enabled: aiIntroEnabled, ai_intro_text: trimmed || null, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveAiAlwaysOnResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide "Always on" switch (Commander update, migration
+ * 0015 `business_brain.ai_always_on`) — used by the Settings hub's FrontDesk
+ * auto-reply card (src/app/(app)/settings/ai/{auto-replies,ai-intro,always-on}-card.tsx).
+ * When true, src/lib/ai/frontdesk-reply.ts's buildSystemPrompt tells the
+ * model to never fully hand a conversation off — it can still flag a topic
+ * for the owner (ai_state 'escalated'), it just keeps engaging with
+ * everything else instead of going quiet. No-ops in demo mode.
+ */
+export async function saveAiAlwaysOn(aiAlwaysOn: boolean): Promise<SaveAiAlwaysOnResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ ai_always_on: aiAlwaysOn, org_id: orgId }, { onConflict: "org_id" })
+
+  return { ok: !error }
+}
+
+export interface SaveFollowUpsEnabledResult {
+  ok: boolean
+  /** Present when ok is false, so the caller can tailor its toast copy. */
+  reason?: "no-org"
+}
+
+/**
+ * Persists the org-wide "Proactive follow-ups" toggle (migration 0022
+ * `business_brain.follow_ups_enabled`) — used by the Settings hub's
+ * Proactive follow-ups card (src/app/(app)/settings/ai/follow-ups-card.tsx).
+ * This is the real gate src/lib/follow-ups.ts's daily scan checks before
+ * drafting a check-in nudge for a quiet conversation; the "[no-followups]"
+ * standing-order token remains a legacy escape hatch on top of this toggle.
+ * Same standalone-card pattern as saveFrontdeskAutoReply. No-ops in demo
+ * mode.
+ */
+export async function saveFollowUpsEnabled(followUpsEnabled: boolean): Promise<SaveFollowUpsEnabledResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false, reason: "no-org" }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("business_brain")
+    .upsert({ follow_ups_enabled: followUpsEnabled, org_id: orgId }, { onConflict: "org_id" })
 
   return { ok: !error }
 }

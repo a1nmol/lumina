@@ -8,7 +8,7 @@ import "server-only"
 
 import { getOverviewStats } from "@/lib/analytics"
 import { DEMO_WHILE_YOU_WERE_AWAY_ROWS } from "@/lib/demo"
-import { listConversations } from "@/lib/frontdesk"
+import { countCallsSince, listConversations } from "@/lib/frontdesk"
 import { getLastSeenIso } from "@/lib/last-seen"
 import { getOrgSidebarContext } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
@@ -47,9 +47,10 @@ export async function getWhileYouWereAwayDigest(): Promise<ReceiptCardRow[] | nu
   const lastSeenMs = new Date(lastSeenIso).getTime()
   if (Number.isNaN(lastSeenMs)) return null
 
-  const [conversations, overview] = await Promise.all([
+  const [conversations, overview, newCallCount] = await Promise.all([
     listConversations(context.orgId, { unreadOnly: true }),
     getOverviewStats(context.orgId, daysSince(lastSeenMs)),
+    countCallsSince(context.orgId, lastSeenIso),
   ])
 
   const newConversationCount = conversations.filter(
@@ -68,6 +69,12 @@ export async function getWhileYouWereAwayDigest(): Promise<ReceiptCardRow[] | nu
   }
   if (overview.bookings > 0) {
     rows.push({ label: `New booking${overview.bookings === 1 ? "" : "s"}`, value: String(overview.bookings) })
+  }
+  // AI Phone Receptionist (wave V2) — env-gated on RETELL_API_KEY upstream;
+  // countCallsSince simply returns 0 rows for an org that's never taken a
+  // call, so this row silently stays absent until voice is actually live.
+  if (newCallCount > 0) {
+    rows.push({ label: `New call${newCallCount === 1 ? "" : "s"}`, value: String(newCallCount) })
   }
 
   return rows.length > 0 ? rows : null

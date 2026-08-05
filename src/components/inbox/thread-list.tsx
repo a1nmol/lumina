@@ -26,6 +26,7 @@ import {
   type ThreadFilter,
 } from "./inbox-filters"
 import { ThreadRow } from "./thread-row"
+import { ThreadSearch } from "./thread-search"
 
 const CHANNELS = Object.keys(CHANNEL_GLYPHS) as Channel[]
 
@@ -76,6 +77,7 @@ export function ThreadList({
 
   return (
     <div className={cn("flex h-full flex-col", className)}>
+      <ThreadSearch onSelectConversation={onSelect} />
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5">
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {THREAD_FILTERS.map((option) => (

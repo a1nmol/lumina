@@ -117,6 +117,15 @@ export type BusinessBrain = {
   onboarding_step: number
   completed: boolean
   updated_at: string
+  /** Org-wide default AI autonomy for NEW conversations (migration 0011). */
+  frontdesk_auto_reply: boolean
+  /** Honest-AI intro (migration 0013): one-time per-session disclosure before AI auto-replies. */
+  ai_intro_enabled: boolean
+  ai_intro_text: string | null
+  /** Commander update (migration 0015): AI never self-escalates into silence; topic-level deferral only. */
+  ai_always_on: boolean
+  /** Proactive follow-ups toggle (migration 0022), default true — the real gate for src/lib/follow-ups.ts's daily draft-first check-ins (the "[no-followups]" standing-order token remains a legacy escape hatch on top of this). */
+  follow_ups_enabled: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +190,7 @@ export type MediaAsset = {
 // Unified Inbox + FrontDesk + CRM (Phase 2) — mirrors supabase/migrations/0003_frontdesk.sql.
 // ---------------------------------------------------------------------------
 
-/** Where a contact/conversation originated. 'manual' is CRM-only (no conversation carries it). */
+/** Where a contact/conversation originated. 'manual' is CRM-only (no conversation carries it). 'voice' (migration 0020) is a live phone call handled by the AI Phone Receptionist — see src/lib/voice/*. */
 export type ContactSource =
   | "web_chat"
   | "form"
@@ -191,6 +200,7 @@ export type ContactSource =
   | "facebook"
   | "google"
   | "missed_call"
+  | "voice"
   | "manual"
 
 /** The channel a conversation is happening on — ContactSource minus 'manual'. */
@@ -211,6 +221,10 @@ export type Contact = {
   custom: Record<string, unknown>
   created_at: string
   updated_at: string
+  /** Person-level AI memory across conversations (migration 0016) — see src/lib/ai/conversation-memory.ts. */
+  ai_memory: Record<string, unknown> | null
+  /** VIP (migration 0016): AI drafts but never auto-sends; owner gets an instant alert. */
+  is_vip: boolean
 }
 
 export type ConversationStatus = "open" | "pending" | "resolved"
@@ -230,11 +244,19 @@ export type Conversation = {
   channel: ConversationChannel
   status: ConversationStatus
   ai_state: ConversationAiState
+  /** Per-thread AI autonomy: 'auto' = AI may send replies itself; 'off' = drafts only, never sends. Migration 0011. */
+  ai_mode: ConversationAiMode
   last_message_at: string | null
   unread: boolean
   created_at: string
   updated_at: string
+  /** Rolling structured conversation memory (migration 0015) — see src/lib/ai/conversation-memory.ts. */
+  ai_memory: Record<string, unknown> | null
+  /** When the proactive follow-up scan last drafted a nudge for this thread (migration 0019) — see src/lib/follow-ups.ts. Null until the first nudge. */
+  last_follow_up_at: string | null
 }
+
+export type ConversationAiMode = "auto" | "off"
 
 export type MessageDirection = "inbound" | "outbound"
 
@@ -267,6 +289,15 @@ export type Appointment = {
   notes: string | null
   created_at: string
   updated_at: string
+}
+
+/** supabase/migrations/0009_org_phone_numbers.sql — maps a Twilio number (E.164) to the org it's provisioned for. Provisioned by the platform admin/CLI, not end users. */
+export type OrgPhoneNumber = {
+  id: string
+  org_id: string
+  phone_number: string
+  twilio_sid: string | null
+  created_at: string
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +372,125 @@ export type EarlyAccessLead = {
   id: string
   business_name: string
   email: string
+  created_at: string
+}
+
+/**
+ * 'meta' = Facebook Page (+ its linked Instagram Business account, when
+ * present) via the Facebook Login dialog (src/lib/social/meta.ts). 'instagram'
+ * = an Instagram professional account connected directly via Instagram
+ * Business Login (src/lib/social/instagram.ts) — no Facebook Page required.
+ * See supabase/migrations/0010_social_connections_instagram.sql for the
+ * column-reuse convention on 'instagram' rows.
+ */
+export type SocialProvider = "meta" | "instagram"
+
+/** supabase/migrations/0008_social_connections.sql — one row per connected Facebook Page (+ its linked Instagram Business account, when present). Connection layer only — publishing/insights are a later wave (MASTER_PLAN.md §4.B/§4.E). */
+export type SocialConnection = {
+  id: string
+  org_id: string
+  provider: SocialProvider
+  page_id: string
+  page_name: string | null
+  ig_user_id: string | null
+  ig_username: string | null
+  /** Long-lived Page access token — never sent to the client, only read server-side via the service-role admin client. */
+  access_token: string
+  token_expires_at: string | null
+  connected_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Mirrors supabase/migrations/0017_watchdog.sql — dedupe ledger for the ops watchdog cron (src/lib/watchdog.ts). */
+export type WatchdogAlert = {
+  id: string
+  org_id: string
+  kind: string
+  detail: string | null
+  sent_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0019_standing_orders_followups.sql —
+ * persistent owner instructions the AI weaves into every reply while
+ * active (see src/lib/standing-orders.ts). Unlike a whisper (one-shot, one
+ * thread), these are org-wide and expire on their own via `expires_at`
+ * (null = no expiry). Never hard-deleted — the owner "removes" one by
+ * setting `active` false.
+ */
+export type StandingOrder = {
+  id: string
+  org_id: string
+  instruction: string
+  expires_at: string | null
+  active: boolean
+  created_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0020_voice_receptionist.sql — per-org AI Phone
+ * Receptionist config (Retell hosted-agent pilot, owner-approved). One row
+ * per org, created lazily by the settings surface. `voice_id` refers to the
+ * curated stock-voice catalog (src/lib/voice/catalog.ts); `retell_agent_id`
+ * and `phone_number` are provisioned/bound by src/lib/voice/retell.ts when
+ * the org enables voice. Read via RLS (select-only policy); every write goes
+ * through the service-role client via src/app/(app)/settings/voice-actions.ts,
+ * matching entitlements' write convention.
+ */
+export type OrgVoiceSettings = {
+  org_id: string
+  enabled: boolean
+  voice_id: string | null
+  greeting: string | null
+  after_hours_script: string | null
+  transfer_number: string | null
+  max_minutes_month: number
+  retell_agent_id: string | null
+  phone_number: string | null
+  updated_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0020_voice_receptionist.sql — one row per phone
+ * call handled by the AI Phone Receptionist. The metadata spine only; the
+ * actual transcript lives in conversations/messages with channel 'voice'
+ * (see src/app/api/webhooks/retell/route.ts). `retell_call_id` is unique and
+ * is this table's idempotency key against Retell's at-least-once webhook
+ * delivery.
+ */
+export type Call = {
+  id: string
+  org_id: string
+  conversation_id: string | null
+  retell_call_id: string | null
+  from_number: string | null
+  to_number: string | null
+  started_at: string | null
+  ended_at: string | null
+  duration_secs: number | null
+  outcome: string | null
+  summary: string | null
+  cost_usd: number
+  created_at: string
+}
+
+/**
+ * Mirrors supabase/migrations/0018_style_examples.sql — edit-learning
+ * exemplar pairs: what the AI drafted vs. what the owner actually sent,
+ * captured whenever the owner edits an AI draft before sending (see
+ * sendReply in src/app/(app)/inbox/actions.ts). Read by
+ * src/lib/ai/style-examples.ts and injected into the reply-drafting prompts
+ * as style guidance so replies converge on the owner's real texting
+ * fingerprint over time.
+ */
+export type AiStyleExample = {
+  id: string
+  org_id: string
+  conversation_id: string | null
+  channel: string | null
+  ai_draft: string
+  owner_text: string
   created_at: string
 }
 
@@ -422,12 +572,23 @@ export type ConversationWithContact = Conversation & {
   contact_name: string | null
   contact_phone: string | null
   contact_email: string | null
+  /** Mirrors contacts.is_vip (migration 0016) — lets the thread list badge a VIP contact's threads without loading the full contact. */
+  contact_is_vip: boolean
 }
 
 /** A conversation with its full message history + contact, for the detail pane. */
 export type ConversationDetail = ConversationWithContact & {
   messages: Message[]
   contact: Contact | null
+  /**
+   * This conversation's `calls` rows (AI Phone Receptionist, migration
+   * 0020), most recent first — only ever populated for `channel === "voice"`
+   * conversations; see src/lib/frontdesk.ts#getConversation. Powers the
+   * Inbox's call-header strip (src/components/inbox/call-header.tsx).
+   * Undefined (not just empty) for every other channel, so callers can tell
+   * "not a voice thread" apart from "a voice thread with no calls yet."
+   */
+  calls?: Call[]
 }
 
 /** One entry in a contact's merged chronological activity timeline. */
@@ -435,6 +596,7 @@ export type ContactTimelineEvent =
   | { type: "message"; at: string; message: Message; conversationId: string; channel: ConversationChannel }
   | { type: "appointment"; at: string; appointment: Appointment }
   | { type: "status_change"; at: string; status: ContactStatus }
+  | { type: "call"; at: string; call: Call }
 
 export type ContactWithTimeline = {
   contact: Contact
@@ -550,6 +712,54 @@ export interface Database {
         Row: EarlyAccessLead
         Insert: Partial<EarlyAccessLead> & Pick<EarlyAccessLead, "business_name" | "email">
         Update: Partial<EarlyAccessLead>
+        Relationships: []
+      }
+      webhook_receipts: {
+        Row: { id: string; source: string; payload: unknown; created_at: string }
+        Insert: { id?: string; source: string; payload: unknown; created_at?: string }
+        Update: { source?: string; payload?: unknown }
+        Relationships: []
+      }
+      social_connections: {
+        Row: SocialConnection
+        Insert: Partial<SocialConnection> & Pick<SocialConnection, "org_id" | "provider" | "page_id" | "access_token">
+        Update: Partial<SocialConnection>
+        Relationships: []
+      }
+      org_phone_numbers: {
+        Row: OrgPhoneNumber
+        Insert: Partial<OrgPhoneNumber> & Pick<OrgPhoneNumber, "org_id" | "phone_number">
+        Update: Partial<OrgPhoneNumber>
+        Relationships: []
+      }
+      watchdog_alerts: {
+        Row: WatchdogAlert
+        Insert: Partial<WatchdogAlert> & Pick<WatchdogAlert, "org_id" | "kind">
+        Update: Partial<WatchdogAlert>
+        Relationships: []
+      }
+      ai_style_examples: {
+        Row: AiStyleExample
+        Insert: Partial<AiStyleExample> & Pick<AiStyleExample, "org_id" | "ai_draft" | "owner_text">
+        Update: Partial<AiStyleExample>
+        Relationships: []
+      }
+      standing_orders: {
+        Row: StandingOrder
+        Insert: Partial<StandingOrder> & Pick<StandingOrder, "org_id" | "instruction">
+        Update: Partial<StandingOrder>
+        Relationships: []
+      }
+      org_voice_settings: {
+        Row: OrgVoiceSettings
+        Insert: Partial<OrgVoiceSettings> & Pick<OrgVoiceSettings, "org_id">
+        Update: Partial<OrgVoiceSettings>
+        Relationships: []
+      }
+      calls: {
+        Row: Call
+        Insert: Partial<Call> & Pick<Call, "org_id">
+        Update: Partial<Call>
         Relationships: []
       }
     }

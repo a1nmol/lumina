@@ -1,0 +1,196 @@
+// "Connected channels" card for the Settings hub — the Meta (Facebook/
+// Instagram) CONNECT layer (src/lib/social/meta.ts) plus the Page-less
+// Instagram Business Login CONNECT layer (src/lib/social/instagram.ts).
+// Connection layer only: lists this org's social_connections, lets the
+// owner start either OAuth dialog or disconnect a connection.
+// Publishing/insights against these connections are a later wave
+// (MASTER_PLAN.md §4.B/§4.E).
+//
+// Server component — reads directly via the service-role admin client
+// (social_connections has no `authenticated` SELECT-bypassing need here,
+// but every write to it is service-role only, so reads go through the same
+// trusted path for consistency; see supabase/migrations/0008_social_connections.sql).
+
+import { CheckCircle2, Link2, Share2, TriangleAlert } from "lucide-react"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
+import { getCurrentOrgId } from "@/lib/org"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { isSupabaseConfigured } from "@/lib/supabase/config"
+import type { SocialConnection } from "@/lib/types"
+import { cn } from "@/lib/utils"
+
+import { DisconnectChannelButton } from "./disconnect-channel-button"
+
+const META_ERROR_MESSAGES: Record<string, string> = {
+  not_configured: "Meta connect isn't set up yet.",
+  no_org: "Couldn't find your business to connect.",
+  denied: "You cancelled the Facebook sign-in.",
+  invalid_request: "That connection request wasn't valid — please try again.",
+  invalid_state: "That connection link expired — please try connecting again.",
+  org_mismatch: "That connection link doesn't match your account — please try again.",
+  no_pages: "No Facebook Pages were found on that account. Connect a Page you manage.",
+  connection_failed: "Something went wrong connecting to Facebook. Please try again.",
+}
+
+const INSTAGRAM_ERROR_MESSAGES: Record<string, string> = {
+  not_configured: "Instagram connect isn't set up yet.",
+  no_org: "Couldn't find your business to connect.",
+  denied: "You cancelled the Instagram sign-in.",
+  invalid_request: "That connection request wasn't valid — please try again.",
+  invalid_state: "That connection link expired — please try connecting again.",
+  org_mismatch: "That connection link doesn't match your account — please try again.",
+  connection_failed: "Something went wrong connecting to Instagram. Please try again.",
+}
+
+type ChannelsCardProps = {
+  /** From ?connected=meta|instagram on the settings URL (the meta/instagram callback routes' success redirects). */
+  connectedParam?: string
+  /** From ?metaError=<reason> on the settings URL (every failure redirect in the meta start/callback routes). */
+  errorParam?: string
+  /** From ?igError=<reason> on the settings URL (every failure redirect in the instagram start/callback routes). */
+  igErrorParam?: string
+}
+
+async function loadConnections(orgId: string): Promise<SocialConnection[]> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("social_connections")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    console.error("[settings/channels-card] failed to load social_connections", error.message)
+    return []
+  }
+
+  return data ?? []
+}
+
+function formatConnectedDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+}
+
+export async function ChannelsCard({ connectedParam, errorParam, igErrorParam }: ChannelsCardProps) {
+  const metaConfigured = Boolean(process.env.META_APP_ID)
+  const instagramConfigured = Boolean(process.env.INSTAGRAM_APP_ID)
+  const orgId = isSupabaseConfigured() ? await getCurrentOrgId() : null
+  const connections = orgId ? await loadConnections(orgId) : []
+
+  const status =
+    connectedParam === "meta"
+      ? { tone: "success" as const, text: "Facebook & Instagram connected." }
+      : connectedParam === "instagram"
+        ? { tone: "success" as const, text: "Instagram connected." }
+        : errorParam
+          ? {
+              tone: "error" as const,
+              text: META_ERROR_MESSAGES[errorParam] ?? "Something went wrong connecting to Facebook.",
+            }
+          : igErrorParam
+            ? {
+                tone: "error" as const,
+                text: INSTAGRAM_ERROR_MESSAGES[igErrorParam] ?? "Something went wrong connecting to Instagram.",
+              }
+            : null
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CardIcon>
+              <Share2 />
+            </CardIcon>
+            <CardTitle>Connected channels</CardTitle>
+          </div>
+          {!metaConfigured && !instagramConfigured && <Badge variant="outline">Not configured</Badge>}
+        </div>
+        <CardDescription>
+          Publish and reply from Lumina once you connect a Facebook Page (with Instagram) — or connect an
+          Instagram professional account on its own, no Page needed.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        {status && (
+          <div
+            role="status"
+            className={cn(
+              "flex items-start gap-2 rounded-lg border px-3 py-2 text-sm",
+              status.tone === "success"
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-destructive/30 bg-destructive/10 text-destructive"
+            )}
+          >
+            {status.tone === "success" ? (
+              <CheckCircle2 aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            )}
+            <span>{status.text}</span>
+          </div>
+        )}
+
+        {connections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Connect your Facebook Page (with Instagram) — or connect an Instagram professional account on its
+            own — to publish and reply from Lumina.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-foreground/10">
+            {connections.map((connection) => {
+              const isInstagramOnly = connection.provider === "instagram"
+              const title = isInstagramOnly
+                ? connection.ig_username
+                  ? `@${connection.ig_username}`
+                  : connection.page_id
+                : (connection.page_name ?? connection.page_id)
+              const subtitle = isInstagramOnly
+                ? `Instagram · no Page needed · Connected ${formatConnectedDate(connection.created_at)}`
+                : `${connection.ig_username ? `@${connection.ig_username} · ` : ""}Connected ${formatConnectedDate(connection.created_at)}`
+
+              return (
+                <li key={connection.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-sm font-medium text-foreground">{title}</span>
+                    <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+                  </div>
+                  <DisconnectChannelButton
+                    connectionId={connection.id}
+                    label={isInstagramOnly ? (connection.ig_username ? `@${connection.ig_username}` : "Instagram") : (connection.page_name ?? "this channel")}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {metaConfigured && (
+            <Button type="button" variant="flame" render={<a href="/api/social/meta/start" />} className="gap-1.5">
+              <Share2 aria-hidden="true" data-icon="inline-start" className="size-3.5" />
+              Connect Facebook & Instagram
+            </Button>
+          )}
+          {instagramConfigured && (
+            <Button type="button" variant="outline" render={<a href="/api/social/instagram/start" />} className="gap-1.5">
+              <Link2 aria-hidden="true" data-icon="inline-start" className="size-3.5" />
+              Connect Instagram only
+            </Button>
+          )}
+        </div>
+
+        {!metaConfigured && !instagramConfigured && (
+          <p className="text-xs text-muted-foreground">
+            Ask an admin to add Meta and/or Instagram app credentials (META_APP_ID / META_APP_SECRET,
+            INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET) to enable this.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

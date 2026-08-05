@@ -550,7 +550,7 @@ export function Composer({ businessName, templates = [] }: ComposerProps) {
                 value={hashtagsText}
                 onChange={(event) => setHashtagsText(event.target.value)}
                 disabled={status === "idle"}
-                placeholder="freshbaked, cinnamonrolls, sunrisebakery"
+                placeholder="shoplocal, weekendspecial, yourshopname"
               />
             )}
           </div>

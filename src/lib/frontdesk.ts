@@ -25,12 +25,14 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type {
   Appointment,
   AppointmentStatus,
+  Call,
   Contact,
   ContactSource,
   ContactStatus,
   ContactTimelineEvent,
   ContactWithTimeline,
   Conversation,
+  ConversationAiMode,
   ConversationAiState,
   ConversationChannel,
   ConversationDetail,
@@ -54,13 +56,14 @@ export interface ListConversationsFilter {
 
 function toConversationWithContact(
   conversation: Conversation,
-  contact: Pick<Contact, "name" | "phone" | "email"> | undefined
+  contact: Pick<Contact, "name" | "phone" | "email" | "is_vip"> | undefined
 ): ConversationWithContact {
   return {
     ...conversation,
     contact_name: contact?.name ?? null,
     contact_phone: contact?.phone ?? null,
     contact_email: contact?.email ?? null,
+    contact_is_vip: contact?.is_vip ?? false,
   }
 }
 
@@ -93,7 +96,7 @@ export async function listConversations(
 
   const { data: contacts, error: contactsError } = await supabase
     .from("contacts")
-    .select("id, name, phone, email")
+    .select("id, name, phone, email, is_vip")
     .eq("org_id", orgId)
     .in("id", contactIds)
 
@@ -148,11 +151,55 @@ export async function getConversation(orgId: string, conversationId: string): Pr
 
   const contact = contactResult.data
 
+  // Voice-only: the calls metadata spine (duration/outcome/summary) that
+  // backs the Inbox's call-header strip. Skipped for every other channel —
+  // no calls rows will ever exist for them, so this saves a query on the
+  // overwhelming majority of conversations.
+  const calls = conversation.channel === "voice" ? await getCallsForConversation(orgId, conversationId) : undefined
+
   return {
     ...toConversationWithContact(conversation, contact ?? undefined),
     messages: messagesResult.data ?? [],
     contact: contact ?? null,
+    ...(calls !== undefined ? { calls } : {}),
   }
+}
+
+/** This conversation's `calls` rows (RLS-scoped), most recent first. Empty array (not an error) when the conversation has no calls yet. */
+export async function getCallsForConversation(orgId: string, conversationId: string): Promise<Call[]> {
+  if (!isSupabaseConfigured()) return []
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("calls")
+    .select()
+    .eq("org_id", orgId)
+    .eq("conversation_id", conversationId)
+    .order("started_at", { ascending: false, nullsFirst: false })
+
+  if (error) {
+    throw new Error(`getCallsForConversation: failed to load calls for conversation ${conversationId}: ${error.message}`)
+  }
+
+  return data ?? []
+}
+
+/** Count of this org's calls that started at or after `sinceIso` — used by the "while you were away" digest (src/lib/digest.ts). RLS-scoped, so it only ever sees this org's rows. */
+export async function countCallsSince(orgId: string, sinceIso: string): Promise<number> {
+  if (!isSupabaseConfigured()) return 0
+
+  const supabase = await createClient()
+  const { count, error } = await supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .gte("started_at", sinceIso)
+
+  if (error) {
+    throw new Error(`countCallsSince: failed to count calls for org ${orgId}: ${error.message}`)
+  }
+
+  return count ?? 0
 }
 
 export interface SendMessageInput {
@@ -169,6 +216,8 @@ export interface SendMessageInput {
   direction?: MessageDirection
   model?: string | null
   costUsd?: number
+  /** Arbitrary jsonb tags (e.g. `{ whisper: true }`, `{ wind_down: "close" }`) — merged with the messages table's default `{}` when omitted. */
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -200,6 +249,7 @@ export async function sendMessage(
       ai_handled: input.aiHandled ?? false,
       model: input.model ?? null,
       cost_usd: input.costUsd ?? 0,
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     })
     .select()
     .single()
@@ -279,6 +329,36 @@ export async function setAiState(
   return data
 }
 
+/**
+ * Sets a conversation's per-thread AI autonomy (migration 0011). 'auto' =
+ * the AI may send replies on its own; 'off' = the AI still drafts, but only
+ * the owner sends — see src/app/api/frontdesk/chat/route.ts and
+ * src/app/api/twilio/sms/route.ts for the enforcement side of this contract.
+ * Demo-safe no-op when unconfigured.
+ */
+export async function setConversationAiMode(
+  orgId: string,
+  conversationId: string,
+  aiMode: ConversationAiMode
+): Promise<Conversation | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ ai_mode: aiMode })
+    .eq("id", conversationId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`setConversationAiMode: failed to update conversation ${conversationId}: ${error.message}`)
+  }
+
+  return data
+}
+
 /** Marks a conversation as read (clears the `unread` flag). Demo-safe no-op when unconfigured. */
 export async function markConversationRead(orgId: string, conversationId: string): Promise<Conversation | null> {
   if (!isSupabaseConfigured()) return null
@@ -308,9 +388,9 @@ export interface ListContactsFilter {
   status?: ContactStatus
 }
 
-/** Escapes ILIKE wildcards in a user-supplied search term before interpolating it into a `.or()` filter string. */
+/** Escapes ILIKE wildcards in a user-supplied search term before interpolating it into a `.or()` filter string. Parens too — PostgREST's .or() grammar treats them as structural (same fix as src/lib/memory-search.ts's sanitizeIlikeTerm). */
 function escapeIlikeTerm(term: string): string {
-  return term.replace(/[%_,]/g, (match) => `\\${match}`)
+  return term.replace(/[%_,()]/g, (match) => `\\${match}`)
 }
 
 /** Lists an org's contacts, most recently created first, with optional free-text search + status filter. */
@@ -376,7 +456,7 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     (conversations ?? []).map((conversation) => [conversation.id, conversation.channel])
   )
 
-  const [messagesResult, appointmentsResult] = await Promise.all([
+  const [messagesResult, appointmentsResult, callsResult] = await Promise.all([
     conversationIds.length > 0
       ? supabase
           .from("messages")
@@ -388,6 +468,9 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     supabase.from("appointments").select().eq("org_id", orgId).eq("contact_id", contactId).order("starts_at", {
       ascending: true,
     }),
+    conversationIds.length > 0
+      ? supabase.from("calls").select().eq("org_id", orgId).in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] as Call[], error: null }),
   ])
 
   if (messagesResult.error) {
@@ -399,6 +482,9 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
     throw new Error(
       `getContactWithTimeline: failed to load appointments for contact ${contactId}: ${appointmentsResult.error.message}`
     )
+  }
+  if (callsResult.error) {
+    throw new Error(`getContactWithTimeline: failed to load calls for contact ${contactId}: ${callsResult.error.message}`)
   }
 
   const timeline: ContactTimelineEvent[] = []
@@ -415,6 +501,10 @@ export async function getContactWithTimeline(orgId: string, contactId: string): 
 
   for (const appointment of appointmentsResult.data ?? []) {
     timeline.push({ type: "appointment", at: appointment.starts_at, appointment })
+  }
+
+  for (const call of callsResult.data ?? []) {
+    timeline.push({ type: "call", at: call.started_at ?? call.created_at, call })
   }
 
   // There is no dedicated status-history table yet (TODO: add one — e.g.
@@ -522,6 +612,33 @@ export async function updateContactStatus(
 
   if (error) {
     throw new Error(`updateContactStatus: failed to update contact ${contactId}: ${error.message}`)
+  }
+
+  return data
+}
+
+/**
+ * Sets a contact's VIP flag (Commander update wave B1, migration 0016
+ * contacts.is_vip). VIP true means the AI drafts but never auto-sends for
+ * this contact on any channel, and the owner gets an instant email alert —
+ * see the VIP gate in src/app/api/frontdesk/chat/route.ts,
+ * src/app/api/twilio/sms/route.ts, and src/app/api/webhooks/instagram/route.ts,
+ * plus src/lib/email.ts#sendVipAlertEmail.
+ */
+export async function updateContactVip(orgId: string, contactId: string, isVip: boolean): Promise<Contact | null> {
+  if (!isSupabaseConfigured()) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("contacts")
+    .update({ is_vip: isVip })
+    .eq("id", contactId)
+    .eq("org_id", orgId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`updateContactVip: failed to update contact ${contactId}: ${error.message}`)
   }
 
   return data

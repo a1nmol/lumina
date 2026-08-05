@@ -12,8 +12,14 @@
 // docs/design-briefs/phase-2-inbox-frontdesk-crm.md.
 
 import { AllowanceDeniedError } from "@/lib/ai/errors"
-import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { draftCustomerReply, draftWhisperMessage } from "@/lib/ai/frontdesk-reply"
 import { isOpenRouterConfigured } from "@/lib/ai/openrouter"
+import {
+  rewriteDraft as rewriteDraftInternal,
+  suggestReplies as suggestRepliesInternal,
+  type RewriteMode,
+} from "@/lib/ai/reply-assist"
+import { shouldCaptureStyleExample } from "@/lib/ai/style-examples"
 import { DEMO_APPOINTMENTS, DEMO_CONVERSATIONS, DEMO_ORG, type DemoConversationDetail } from "@/lib/demo"
 import {
   getContactWithTimeline,
@@ -22,17 +28,25 @@ import {
   markConversationRead,
   sendMessage,
   setAiState,
+  setConversationAiMode as persistConversationAiMode,
   setConversationStatus,
   updateContactStatus,
   upsertContact,
 } from "@/lib/frontdesk"
+import { answerSearch, extractSearchTerms, type MemorySearchCandidate } from "@/lib/memory-search"
 import { getCurrentOrgId } from "@/lib/org"
+import { sendInstagramMessage } from "@/lib/social/instagram-messaging"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
+import { createClient } from "@/lib/supabase/server"
+import { isTwilioConfigured, sendSms } from "@/lib/twilio"
 import type {
   Appointment,
   BusinessBrain,
   ContactStatus,
+  ConversationAiMode,
   ConversationAiState,
+  ConversationChannel,
   ConversationDetail,
   ConversationStatus,
   ConversationWithContact,
@@ -53,6 +67,41 @@ const GENERIC_DEMO_DRAFT =
 const AI_FAILURE_MESSAGE = "I couldn't answer this — flagging for you."
 const MAX_SERVICES_IN_FALLBACK = 3
 const MAX_HOURS_IN_FALLBACK = 3
+
+// AI-assist pair (suggested replies + tone rewriter) — demo-mode delay and
+// canned copy, matching GENERIC_DEMO_DRAFT's conventions above.
+const AI_ASSIST_DEMO_DELAY_MS = 700
+const DEMO_SUGGESTED_REPLIES = [
+  "Thanks so much for reaching out — happy to help with that! Let me pull the details together for you.",
+  "Good question! Could you tell me a bit more about what you're looking for so I point you in the right direction?",
+  "Appreciate your patience on this one — I'll get it sorted and follow up with you shortly!",
+]
+const MAX_REWRITE_TEXT_LENGTH = 1000
+const REWRITE_NOTHING_TO_REWRITE_MESSAGE = "Nothing to rewrite."
+const REWRITE_UNAVAILABLE_MESSAGE = "AI rewriting isn't available right now."
+const REWRITE_FAILED_MESSAGE = "Couldn't rewrite that — please try again."
+
+/** Small, deterministic demo-mode stand-in for rewriteDraft when Supabase/OpenRouter aren't configured — never calls a model. */
+function demoRewriteText(text: string, mode: RewriteMode): string {
+  switch (mode) {
+    case "friendlier":
+      return `${text.replace(/[.!]+$/, "")}! Happy to help however I can.`
+    case "shorter": {
+      const firstSentence = text.match(/^[^.!?]*[.!?]/)?.[0]?.trim()
+      return firstSentence && firstSentence.length < text.length ? firstSentence : text
+    }
+    case "more_formal":
+      return text
+        .replace(/\bwe're\b/gi, "we are")
+        .replace(/\byou'll\b/gi, "you will")
+        .replace(/\bthat's\b/gi, "that is")
+        .replace(/\bwe'll\b/gi, "we will")
+    case "translate_es":
+      return "Gracias por tu mensaje, en breve te confirmamos los detalles."
+    default:
+      return text
+  }
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -237,6 +286,275 @@ export async function draftReply(conversationId: string): Promise<DraftReplyResu
   }
 }
 
+export type SuggestRepliesResult =
+  | { suggestions: string[]; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+
+/**
+ * Suggests up to 3 quick-tap reply options for a conversation's most recent
+ * customer message (never auto-sent — the composer fills its textarea from
+ * whichever chip the human taps).
+ *
+ * - Supabase not configured (true demo mode) or no org resolved: canned
+ *   DEMO_SUGGESTED_REPLIES after a short simulated delay, mirroring draftReply.
+ * - Supabase configured but OpenRouter not: no model available, returns an
+ *   empty list rather than a fake draft (there's nothing grounded to offer
+ *   for 3 *alternative* replies the way groundedFallbackDraft can for one).
+ * - Both configured: delegates to suggestReplies (src/lib/ai/reply-assist.ts).
+ *   A parse failure there already degrades to an empty list; only a real
+ *   spend-guard/quota denial is surfaced as an error here.
+ */
+export async function suggestReplies(conversationId: string): Promise<SuggestRepliesResult> {
+  if (!isSupabaseConfigured()) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { suggestions: DEMO_SUGGESTED_REPLIES }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { suggestions: DEMO_SUGGESTED_REPLIES }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    return { suggestions: [] }
+  }
+
+  try {
+    const result = await suggestRepliesInternal({ orgId, conversationId })
+    return { suggestions: result?.suggestions ?? [], model: result?.model, costUsd: result?.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
+  }
+}
+
+export type RewriteDraftResult =
+  | { text: string; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+  | { error: "invalid" | "failed"; message: string }
+
+/**
+ * Rewrites a draft reply already sitting in the composer (friendlier /
+ * shorter / more formal / Spanish translation) — never auto-sent, only
+ * replaces the composer's text; the human still has to press Send.
+ */
+export async function rewriteDraft(text: string, mode: RewriteMode): Promise<RewriteDraftResult> {
+  const trimmed = text.trim()
+  if (!trimmed || trimmed.length > MAX_REWRITE_TEXT_LENGTH) {
+    return { error: "invalid", message: REWRITE_NOTHING_TO_REWRITE_MESSAGE }
+  }
+
+  if (!isSupabaseConfigured()) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { text: demoRewriteText(trimmed, mode) }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    await sleep(AI_ASSIST_DEMO_DELAY_MS)
+    return { text: demoRewriteText(trimmed, mode) }
+  }
+
+  if (!isOpenRouterConfigured()) {
+    return { error: "failed", message: REWRITE_UNAVAILABLE_MESSAGE }
+  }
+
+  try {
+    const result = await rewriteDraftInternal({ orgId, text: trimmed, mode })
+    if (!result) return { error: "failed", message: REWRITE_FAILED_MESSAGE }
+    return { text: result.text, model: result.model, costUsd: result.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delivery — the owner's manual-send counterpart to the AI auto-reply sends
+// already wired in src/app/api/webhooks/instagram/route.ts (Instagram) and
+// src/app/api/twilio/sms/route.ts (SMS). sendReply below calls deliverReply
+// BEFORE persisting the outbound message row: a failed delivery must never
+// be recorded as "sent" to the thread, so every helper here throws a clear,
+// human-readable Error on failure rather than returning a typed result —
+// sendReply lets it propagate, and persists nothing.
+// ---------------------------------------------------------------------------
+
+/** Meta's standard messaging window — a plain send is only allowed within this. */
+const INSTAGRAM_STANDARD_WINDOW_MS = 24 * 60 * 60 * 1000
+/**
+ * Meta's HUMAN_AGENT tag extends replies out to 7 days after the customer's
+ * last message, but ONLY for human-directed replies — never an unattended AI
+ * auto-send (the webhook routes never use this path; their sends happen
+ * inside the standard window a fresh inbound message just opened). Both
+ * senders here qualify as human-directed: sendReply is the owner's own
+ * composer, and whisperToConversation is the owner personally instructing
+ * the exact response moments before it goes out — the owner is in the loop
+ * for every tagged send. Deliberate decision (Commander wave B2 review).
+ */
+const INSTAGRAM_HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * Sends via the Instagram Graph API, honoring Meta's App-Review-mandated
+ * messaging windows: plain send inside 24h of the customer's last inbound
+ * message, HUMAN_AGENT-tagged send from 24h out to 7 days, and an honest
+ * failure past 7 days (or if the customer never messaged in) — there is no
+ * way to deliver, so this never fakes success.
+ */
+/** Returns the Instagram send's `message_id`, when returned — stored by callers as metadata.instagram_mid so the echo handler recognizes this as our own send (see src/app/api/webhooks/instagram/route.ts#handleEchoMessagingEvent). */
+async function deliverInstagramReply(orgId: string, conversation: ConversationDetail, body: string): Promise<string | null> {
+  const igsid =
+    typeof conversation.contact?.custom?.instagram_igsid === "string"
+      ? (conversation.contact.custom.instagram_igsid as string)
+      : null
+
+  const supabase = await createClient()
+  const { data: connection, error } = await supabase
+    .from("social_connections")
+    .select()
+    .eq("org_id", orgId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`sendReply: failed to load Instagram connection: ${error.message}`)
+  }
+  if (!connection || !igsid) {
+    throw new Error("This Instagram conversation isn't connected for sending.")
+  }
+
+  const lastInbound = [...conversation.messages].reverse().find((message) => message.direction === "inbound")
+  const ageMs = lastInbound ? Date.now() - new Date(lastInbound.created_at).getTime() : null
+
+  if (ageMs === null || ageMs > INSTAGRAM_HUMAN_AGENT_WINDOW_MS) {
+    throw new Error("Instagram only allows replies within 7 days of the customer's last message.")
+  }
+
+  try {
+    const result = await sendInstagramMessage(
+      connection.access_token,
+      igsid,
+      body,
+      ageMs >= INSTAGRAM_STANDARD_WINDOW_MS ? "HUMAN_AGENT" : undefined
+    )
+    return result.messageId
+  } catch {
+    // The underlying call already logs the HTTP status (never the token) —
+    // see src/lib/social/instagram-messaging.ts. Nothing more to log here.
+    throw new Error("Couldn't deliver to Instagram — try again.")
+  }
+}
+
+/** Sends via Twilio's SMS REST API, using the org's provisioned number as the "From". Returns null (SMS has no analogous mid to capture here). */
+async function deliverSmsReply(orgId: string, conversation: ConversationDetail, body: string): Promise<null> {
+  if (!isTwilioConfigured()) {
+    throw new Error("SMS sending isn't configured yet.")
+  }
+
+  const to = conversation.contact?.phone?.trim()
+  if (!to) {
+    throw new Error("This contact doesn't have a phone number on file.")
+  }
+
+  const supabase = await createClient()
+  const { data: numberRow, error } = await supabase
+    .from("org_phone_numbers")
+    .select("phone_number")
+    .eq("org_id", orgId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`sendReply: failed to load org phone number: ${error.message}`)
+  }
+  if (!numberRow) {
+    throw new Error("This business doesn't have a phone number connected for SMS yet.")
+  }
+
+  try {
+    await sendSms(to, numberRow.phone_number, body)
+  } catch (sendError) {
+    console.error("[inbox/actions] failed to send SMS reply", sendError)
+    throw new Error("Couldn't deliver the text message — try again.")
+  }
+
+  return null
+}
+
+/**
+ * Delivers a customer-facing reply on its channel. instagram and sms
+ * actually push the message out; web_chat (and any other/future channel)
+ * is a deliberate no-op — the widget conversation is request/response over
+ * the browser tab that's already open, so there's no separate channel to
+ * push a reply to, and the existing persist-only behavior is correct.
+ *
+ * Returns the channel's send id when one exists (Instagram's message_id) so
+ * the caller can stamp it onto the persisted message's metadata as
+ * instagram_mid — the same key the inbound/echo webhook dedupe matches on,
+ * so an echo of THIS send is recognized as our own and never double-recorded.
+ */
+async function deliverReply(orgId: string, conversation: ConversationDetail, body: string): Promise<string | null> {
+  switch (conversation.channel) {
+    case "instagram":
+      return deliverInstagramReply(orgId, conversation, body)
+    case "sms":
+      return deliverSmsReply(orgId, conversation, body)
+    case "voice":
+      // A voice thread is a finished call's transcript — there is no live
+      // channel to deliver text into (review fix: falling through to the
+      // web_chat-style no-op would persist the reply as "sent" when nothing
+      // reached the caller — silent fake success). Notes still work.
+      throw new Error("This is a call transcript — replies can't be delivered to a finished phone call. Add a note, or text them if they have SMS.")
+    default:
+      // web_chat and friends: the open widget itself is the delivery
+      // channel — persisting the message IS delivery.
+      return null
+  }
+}
+
+export interface DeliverAndPersistReplyInput {
+  orgId: string
+  conversationId: string
+  body: string
+  aiHandled?: boolean
+  model?: string | null
+  costUsd?: number
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * The shared channel-delivery core (Commander update wave B2): loads the
+ * conversation, delivers `body` on its channel (see deliverReply — throws a
+ * clear, human-readable Error on a real delivery failure, e.g. an Instagram
+ * messaging-window miss or SMS not configured, and persists NOTHING when it
+ * does), then persists the message via sendMessage once delivery succeeds.
+ * Used by BOTH sendReply (the owner's manual composer send) and
+ * whisperToConversation (the owner's whisper-to-AI send) so every reply that
+ * actually leaves Lumina — human-typed or AI-composed — goes through
+ * IDENTICAL Instagram-window/SMS delivery logic. Never used for internal
+ * notes, which never leave Lumina (see sendReply's own "note" branch).
+ */
+async function deliverAndPersistReply(input: DeliverAndPersistReplyInput): Promise<Message | null> {
+  const conversation = await getConversation(input.orgId, input.conversationId)
+  if (!conversation) {
+    throw new Error("This conversation could not be found.")
+  }
+  const sendId = await deliverReply(input.orgId, conversation, input.body)
+
+  return await sendMessage(input.orgId, input.conversationId, {
+    body: input.body,
+    kind: "message",
+    aiHandled: input.aiHandled,
+    model: input.model,
+    costUsd: input.costUsd,
+    metadata: sendId ? { ...input.metadata, instagram_mid: sendId } : input.metadata,
+  })
+}
+
 export interface SendReplyInput {
   conversationId: string
   body: string
@@ -245,9 +563,107 @@ export interface SendReplyInput {
   aiHandled?: boolean
   model?: string | null
   costUsd?: number
+  /**
+   * The AI-drafted text that originally prefilled the composer (from
+   * draftReply or a clicked suggestion chip — see ReplyComposer's
+   * originalAiDraftRef) BEFORE any owner edits. Only ever set for kind
+   * "message" (never for notes/whispers, which have their own paths). When
+   * present and it differs from the body actually sent, sendReply captures
+   * the pair as an edit-learning exemplar (migration 0018
+   * ai_style_examples) — see captureStyleExampleIfEdited below.
+   */
+  originalAiDraft?: string
 }
 
-/** Sends a reply or internal note. Demo mode synthesizes a Message for optimistic append; configured mode persists via sendMessage. */
+// ---------------------------------------------------------------------------
+// Edit-learning capture (Outlast wave 2, Part A) — every time the owner sends
+// something meaningfully different from the AI draft that prefilled the
+// composer, that pair is free training signal for src/lib/ai/style-examples.ts.
+// ---------------------------------------------------------------------------
+
+const MAX_STYLE_EXAMPLE_TEXT_LENGTH = 1000
+/** Keep only the newest N rows per org — a rolling window is plenty of signal, and this keeps the table (and every fetchStyleExamples query) cheap forever. */
+const STYLE_EXAMPLES_KEEP_COUNT = 50
+
+/**
+ * Fire-and-forget capture of one edit-learning exemplar. Captures NOTHING
+ * (no row) when the trimmed draft and trimmed sent text are identical — an
+ * unedited send has nothing to learn from — or when originalAiDraft is blank
+ * (a from-scratch reply, or a suggestion that was never actually used).
+ * Best-effort throughout: any query failure here is logged and swallowed,
+ * never surfaced to the caller — see sendReply's void call site, which never
+ * awaits this.
+ */
+async function captureStyleExampleIfEdited(
+  orgId: string,
+  conversationId: string,
+  originalAiDraft: string,
+  sentBody: string
+): Promise<void> {
+  if (!shouldCaptureStyleExample(originalAiDraft, sentBody)) return
+  const trimmedDraft = originalAiDraft.trim()
+  const trimmedSent = sentBody.trim()
+
+  const supabase = await createClient()
+
+  const { data: conversationRow } = await supabase
+    .from("conversations")
+    .select("channel")
+    .eq("org_id", orgId)
+    .eq("id", conversationId)
+    .maybeSingle()
+
+  const { error: insertError } = await supabase.from("ai_style_examples").insert({
+    org_id: orgId,
+    conversation_id: conversationId,
+    channel: conversationRow?.channel ?? null,
+    ai_draft: trimmedDraft.slice(0, MAX_STYLE_EXAMPLE_TEXT_LENGTH),
+    owner_text: trimmedSent.slice(0, MAX_STYLE_EXAMPLE_TEXT_LENGTH),
+  })
+
+  if (insertError) {
+    console.error("[inbox/actions] failed to capture style example", insertError.message)
+    return
+  }
+
+  // Cap table growth: prune everything past the newest STYLE_EXAMPLES_KEEP_COUNT
+  // rows for this org. Uses the service-role admin client, not the RLS-scoped
+  // client above — migration 0018 only grants org members SELECT/INSERT on
+  // this table, no DELETE policy, so a delete via the user-scoped client
+  // would be silently blocked by RLS and never actually prune anything.
+  // Best-effort — a failed prune just means the table grows a bit more than
+  // intended, never worth failing the capture over.
+  const admin = createAdminClient()
+  const { data: staleRows, error: staleError } = await admin
+    .from("ai_style_examples")
+    .select("id")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    // Secondary key: identical created_at values (fast concurrent inserts)
+    // must rank stably across executions, or the keep/prune boundary drifts.
+    .order("id", { ascending: false })
+    .range(STYLE_EXAMPLES_KEEP_COUNT, STYLE_EXAMPLES_KEEP_COUNT + 200)
+
+  if (staleError || !staleRows || staleRows.length === 0) return
+
+  const { error: deleteError } = await admin
+    .from("ai_style_examples")
+    .delete()
+    .in("id", staleRows.map((row) => row.id))
+
+  if (deleteError) {
+    console.error("[inbox/actions] failed to prune ai_style_examples", deleteError.message)
+  }
+}
+
+/**
+ * Sends a reply or internal note. Demo mode synthesizes a Message for
+ * optimistic append; configured mode delivers first (see
+ * deliverAndPersistReply — skipped for internal notes, which never leave
+ * Lumina) and only persists once delivery succeeds. A delivery failure
+ * throws and nothing is persisted — the composer's catch surfaces the thrown
+ * message as a toast.
+ */
 export async function sendReply(input: SendReplyInput): Promise<Message | null> {
   const trimmed = input.body.trim()
   if (!trimmed || trimmed.length > MAX_BODY_LENGTH) {
@@ -273,13 +689,137 @@ export async function sendReply(input: SendReplyInput): Promise<Message | null> 
   const orgId = await getCurrentOrgId()
   if (!orgId) return null
 
-  return await sendMessage(orgId, input.conversationId, {
+  if (input.kind === "note") {
+    return await sendMessage(orgId, input.conversationId, {
+      body: trimmed,
+      kind: "note",
+      aiHandled: input.aiHandled,
+      model: input.model,
+      costUsd: input.costUsd,
+    })
+  }
+
+  const message = await deliverAndPersistReply({
+    orgId,
+    conversationId: input.conversationId,
     body: trimmed,
-    kind: input.kind,
     aiHandled: input.aiHandled,
     model: input.model,
     costUsd: input.costUsd,
   })
+
+  if (message && input.originalAiDraft?.trim()) {
+    void captureStyleExampleIfEdited(orgId, input.conversationId, input.originalAiDraft, trimmed).catch((error) => {
+      console.error("[inbox/actions] style-example capture threw", error)
+    })
+  }
+
+  return message
+}
+
+// ---------------------------------------------------------------------------
+// Whisper commands (Commander update wave B2) — the owner privately tells the
+// AI what to say next (composer detects a draft starting with "@ai ", see
+// src/components/inbox/reply-composer.tsx) and the AI weaves it into the
+// conversation in its own voice (src/lib/ai/frontdesk-reply.ts#draftWhisperMessage).
+// ---------------------------------------------------------------------------
+
+const MAX_WHISPER_INSTRUCTION_LENGTH = 500
+const WHISPER_UNAVAILABLE_MESSAGE = "Whisper isn't available right now."
+const WHISPER_FAILED_MESSAGE = "Couldn't compose that — please try again."
+
+export type WhisperToConversationResult =
+  | { note: Message; reply: Message; text: string; model?: string; costUsd?: number }
+  | { error: "allowance"; message: string }
+  | { error: "invalid" | "failed" | "not_found"; message: string }
+
+/**
+ * The owner's private whisper flow: persists `instruction` as an internal
+ * note FIRST (kind "note", ai_handled false — so it's on record even if
+ * drafting/delivery fails next), then drafts a customer-facing message from
+ * it (draftWhisperMessage) and sends it through the exact same delivery path
+ * sendReply uses (deliverAndPersistReply above), persisted as outbound
+ * ai_handled true with `metadata: { whisper: true }`. Demo mode / no
+ * OpenRouter configured returns a typed "failed" error rather than faking a
+ * whisper reply — there's no honest canned line for "the AI composed
+ * whatever you privately asked it to."
+ */
+export async function whisperToConversation(
+  conversationId: string,
+  instruction: string
+): Promise<WhisperToConversationResult> {
+  const trimmedInstruction = instruction.trim()
+  if (!trimmedInstruction || trimmedInstruction.length > MAX_WHISPER_INSTRUCTION_LENGTH) {
+    return { error: "invalid", message: "Whisper instruction must be between 1 and 500 characters." }
+  }
+
+  if (!isSupabaseConfigured() || !isOpenRouterConfigured()) {
+    return { error: "failed", message: WHISPER_UNAVAILABLE_MESSAGE }
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    return { error: "failed", message: WHISPER_UNAVAILABLE_MESSAGE }
+  }
+
+  const conversation = await getConversation(orgId, conversationId)
+  if (!conversation) {
+    return { error: "not_found", message: "This conversation could not be found." }
+  }
+
+  // Persisted first and unconditionally — the owner's private instruction
+  // stays on record even if the AI can't compose or deliver a reply below.
+  const note = await sendMessage(orgId, conversationId, {
+    body: `Whisper to AI: ${trimmedInstruction}`,
+    kind: "note",
+    aiHandled: false,
+  })
+  if (!note) {
+    return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+  }
+
+  try {
+    const businessBrain = await getBusinessBrain()
+    const drafted = await draftWhisperMessage({
+      orgId,
+      instruction: trimmedInstruction,
+      businessBrain,
+      conversation,
+      messages: conversation.messages,
+      contact: conversation.contact,
+    })
+
+    if (!drafted) {
+      return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+    }
+
+    const reply = await deliverAndPersistReply({
+      orgId,
+      conversationId,
+      body: drafted.reply,
+      aiHandled: true,
+      model: drafted.model,
+      costUsd: drafted.costUsd,
+      metadata: { whisper: true },
+    })
+
+    if (!reply) {
+      return { error: "failed", message: WHISPER_FAILED_MESSAGE }
+    }
+
+    return { note, reply, text: reply.body ?? drafted.reply, model: drafted.model, costUsd: drafted.costUsd }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    // deliverAndPersistReply throws a clear, human-readable message for a
+    // real delivery failure (Instagram messaging-window miss, SMS not
+    // configured, etc.) — surface that instead of a generic failure.
+    if (error instanceof Error && error.message) {
+      return { error: "failed", message: error.message }
+    }
+    throw error
+  }
 }
 
 export interface ActionResult {
@@ -310,6 +850,29 @@ export async function setState(conversationId: string, aiState: ConversationAiSt
 
   try {
     await setAiState(orgId, conversationId, aiState)
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/**
+ * Sets a conversation's per-thread AI autonomy — 'auto' lets the AI send
+ * replies itself, 'off' makes it draft-only (see migration 0011 and the
+ * enforcement in src/app/api/frontdesk/chat/route.ts /
+ * src/app/api/twilio/sms/route.ts). Demo-safe no-op when unconfigured — the
+ * inbox UI itself skips calling this action in demo mode (see
+ * InboxShell#handleAiModeChange) and shows the standard "changes aren't
+ * saved" toast instead, matching src/app/(app)/settings/business/faq-card.tsx.
+ */
+export async function setConversationAiMode(conversationId: string, mode: ConversationAiMode): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: true }
+
+  try {
+    await persistConversationAiMode(orgId, conversationId, mode)
     return { ok: true }
   } catch {
     return { ok: false }
@@ -364,5 +927,124 @@ export async function markRead(conversationId: string): Promise<ActionResult> {
     return { ok: true }
   } catch {
     return { ok: false }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Natural-language memory search (Outlast wave 5, Part A) — see
+// src/lib/memory-search.ts for the keyword-prefilter + "memory_search" model
+// pass this wraps.
+// ---------------------------------------------------------------------------
+
+const MIN_SEARCH_QUERY_LENGTH = 2
+const MAX_SEARCH_QUERY_LENGTH = 200
+const MAX_DEMO_SEARCH_RESULTS = 10
+const SNIPPET_PREVIEW_LENGTH = 140
+const DEMO_SEARCH_ANSWER_SUFFIX = " (Demo mode — connect Supabase for real AI search.)"
+
+export interface InboxSearchResultRow {
+  conversationId: string
+  contactName: string | null
+  channel: ConversationChannel
+  snippet: string
+}
+
+export type SearchInboxResult =
+  | { answer: string | null; results: InboxSearchResultRow[] }
+  | { error: "allowance"; message: string }
+  | { error: "invalid"; message: string }
+
+function candidateToResultRow(candidate: MemorySearchCandidate): InboxSearchResultRow {
+  const snippet = candidate.snippets[0]?.body || candidate.memorySummary || ""
+  return {
+    conversationId: candidate.conversationId,
+    contactName: candidate.contactName,
+    channel: candidate.channel,
+    snippet: snippet.slice(0, SNIPPET_PREVIEW_LENGTH),
+  }
+}
+
+/**
+ * Demo-mode search: plain keyword matching over DEMO_CONVERSATIONS, no
+ * model call — a matched contact name OR a matched message body counts.
+ * `answer` is a short, deterministic, canned line (never model-generated)
+ * naming the top match, or null when nothing matched.
+ */
+function demoSearchInbox(terms: string[]): { answer: string | null; results: InboxSearchResultRow[] } {
+  const results: InboxSearchResultRow[] = []
+
+  for (const conversation of DEMO_CONVERSATIONS) {
+    const contactName = conversation.contact?.name ?? conversation.contact_name
+    const matchedMessage = conversation.messages.find(
+      (message) => message.body && terms.some((term) => message.body!.toLowerCase().includes(term))
+    )
+    const nameMatched = Boolean(contactName) && terms.some((term) => contactName!.toLowerCase().includes(term))
+
+    if (!matchedMessage && !nameMatched) continue
+
+    results.push({
+      conversationId: conversation.id,
+      contactName: contactName ?? null,
+      channel: conversation.channel,
+      snippet: (matchedMessage?.body ?? `via ${conversation.channel}`).slice(0, SNIPPET_PREVIEW_LENGTH),
+    })
+    if (results.length >= MAX_DEMO_SEARCH_RESULTS) break
+  }
+
+  if (results.length === 0) return { answer: null, results: [] }
+
+  const first = results[0]
+  const answer = `${first.contactName ?? "Someone"} has a conversation mentioning that${
+    results.length > 1 ? ` (and ${results.length - 1} other conversation${results.length > 2 ? "s" : ""})` : ""
+  }.${DEMO_SEARCH_ANSWER_SUFFIX}`
+
+  return { answer, results }
+}
+
+/**
+ * Searches this org's inbox history in natural language ("who asked about
+ * haircut prices last month?"). Demo mode (Supabase not configured, or no
+ * resolvable org) runs a plain keyword match over DEMO_CONVERSATIONS — no
+ * model call. Configured mode delegates to answerSearch (src/lib/memory-search.ts):
+ * a keyword prefilter always runs and `results` is always populated
+ * (keyword-ranked) from it, even when the model pass is unavailable or fails
+ * to produce a usable answer (`answer` is null in that case, matching
+ * draftReply's "grounded fallback" spirit — real data over nothing).
+ */
+export async function searchInbox(query: string): Promise<SearchInboxResult> {
+  const trimmed = query.trim()
+  if (trimmed.length < MIN_SEARCH_QUERY_LENGTH || trimmed.length > MAX_SEARCH_QUERY_LENGTH) {
+    return { error: "invalid", message: `Search must be between ${MIN_SEARCH_QUERY_LENGTH} and ${MAX_SEARCH_QUERY_LENGTH} characters.` }
+  }
+
+  const terms = extractSearchTerms(trimmed)
+
+  if (!isSupabaseConfigured()) {
+    return demoSearchInbox(terms)
+  }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) {
+    return demoSearchInbox(terms)
+  }
+
+  try {
+    const result = await answerSearch(orgId, trimmed)
+    // Surface the model's (hallucination-validated) picks by ranking them
+    // first (review fix) — the answer banner and the rows below it should
+    // agree on what the answer is about.
+    const picked = new Set(result.conversationIds)
+    const ranked =
+      picked.size > 0
+        ? [...result.candidates].sort(
+            (a, b) => Number(picked.has(b.conversationId)) - Number(picked.has(a.conversationId))
+          )
+        : result.candidates
+    return { answer: result.answer, results: ranked.map(candidateToResultRow) }
+  } catch (error) {
+    if (error instanceof AllowanceDeniedError) {
+      return { error: "allowance", message: error.message || "You're out of AI reply quota this month." }
+    }
+    throw error
   }
 }

@@ -26,10 +26,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { VipToggle } from "@/components/vip-toggle"
 import { cn } from "@/lib/utils"
 import type { Contact, ContactStatus } from "@/lib/types"
 
-import { saveContactAction, updateStatusAction } from "./actions"
+import { saveContactAction, toggleContactVip, updateStatusAction } from "./actions"
 import { CONTACT_STATUSES, CONTACT_STATUS_META, StatusPill } from "@/components/inbox/status-pill"
 import { displayName, initials, SOURCE_META } from "./utils"
 
@@ -74,6 +75,19 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
     if (!result.ok) {
       onContactChange(previous)
       toast.error("Couldn't update status", { description: "Reverted — please try again." })
+    }
+  }
+
+  async function handleToggleVip() {
+    if (!contact) return
+    const previous = contact
+    const nextIsVip = !contact.is_vip
+    onContactChange({ ...contact, is_vip: nextIsVip, updated_at: new Date().toISOString() })
+
+    const result = await toggleContactVip(contact.id, nextIsVip)
+    if (!result.ok) {
+      onContactChange(previous)
+      toast.error("Couldn't update VIP status", { description: "Reverted — please try again." })
     }
   }
 
@@ -138,8 +152,12 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
                 <SourceIcon aria-hidden="true" className="size-3.5" />
                 {SOURCE_META[contact.source].label}
               </SheetDescription>
-              <StatusPill status={contact.status} />
+              <div className="flex items-center gap-1">
+                <StatusPill status={contact.status} />
+                {contact.is_vip && <span className="text-xs font-medium text-warning">VIP</span>}
+              </div>
             </div>
+            <VipToggle isVip={contact.is_vip} onToggle={handleToggleVip} />
           </div>
         </SheetHeader>
 

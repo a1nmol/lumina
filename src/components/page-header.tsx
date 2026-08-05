@@ -19,7 +19,7 @@ export function PageHeader({ title, description, actions, className }: PageHeade
       )}
     >
       <div className="space-y-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
+        <h1 className="font-heading text-2xl font-normal tracking-tight text-foreground">
           {title}
         </h1>
         {description && (

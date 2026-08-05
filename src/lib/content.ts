@@ -12,8 +12,10 @@ import "server-only"
 // so future server actions can call these unconditionally and fall back to
 // demo data exactly like src/app/(app)/studio/actions.ts does today.
 
+import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import type { ContentItem, ContentRating, ContentStatus, ContentFormat, Template } from "@/lib/types"
@@ -263,31 +265,116 @@ export async function saveSlideshowMediaAsset(
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false
 
-  const supabase = await createClient()
+  // Service-role client: the "media" bucket is PRIVATE with no storage RLS
+  // policies for authenticated users — session-context uploads fail with
+  // "new row violates row-level security policy" (diagnosed live). This is
+  // a server-only path whose org is already authorized by the caller.
+  const supabase = createAdminClient()
   const bytes = await readFile(input.filePath)
   const storagePath = `${orgId}/slideshows/${input.id}.mp4`
 
+  // Blob, not Buffer: Next's patched fetch on Vercel UTF-8-mangles raw
+  // Node Buffer bodies (diagnosed live — every uploaded PNG's binary was
+  // riddled with EF BF BD replacement sequences; a local roundtrip with
+  // identical code was byte-clean). A standard web Blob survives.
   const { error: uploadError } = await supabase.storage
     .from("media")
-    .upload(storagePath, bytes, { contentType: "video/mp4", upsert: true })
+    .upload(storagePath, new Blob([new Uint8Array(bytes)], { type: "video/mp4" }), {
+      contentType: "video/mp4",
+      upsert: true,
+    })
 
   // Bucket may not be provisioned yet in this environment — see the TODO
   // above. Swallow so a missing bucket never breaks slideshow rendering.
   if (uploadError) return false
 
-  const { data: publicUrlData } = supabase.storage.from("media").getPublicUrl(storagePath)
+  // Signed URL, not getPublicUrl: public URLs 400 on a private bucket.
+  // One-year expiry for the pilot; revisit (public bucket or a proxy
+  // route) before assets need to outlive it.
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("media")
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+  if (signedError || !signedData?.signedUrl) return false
 
   const { error: insertError } = await supabase.from("media_assets").insert({
     org_id: orgId,
     content_id: input.contentId ?? null,
     kind: "video",
-    url: publicUrlData.publicUrl,
+    url: signedData.signedUrl,
     provider: "ffmpeg-local",
     cost_usd: 0,
     metadata: { durationSec: input.durationSec, source: "slideshow", renderId: input.id },
   })
 
   return !insertError
+}
+
+export interface SaveRenderedPosterAssetInput {
+  /** The flattened PNG bytes from src/lib/templates/render.ts#renderTemplate. */
+  bytes: Buffer
+  templateId: string
+  contentId?: string | null
+}
+
+/**
+ * Uploads a code-rendered poster PNG (src/lib/templates/render.ts) to the
+ * Supabase Storage bucket "media" and records a media_assets row, mirroring
+ * saveSlideshowMediaAsset's shape above. Unlike that function, this returns
+ * the public URL directly (not a boolean) — the Studio composer needs the
+ * URL immediately to show the rendered poster in the phone-mockup preview,
+ * exactly like it already does for a fal.ai-generated raw image
+ * (src/app/(app)/studio/actions.ts). Returns null on any failure (Supabase
+ * not configured, or the "media" bucket isn't provisioned yet — see the TODO
+ * on saveSlideshowMediaAsset above) so the caller can fall back to the old
+ * raw-image path rather than losing the draft entirely.
+ */
+export async function saveRenderedPosterAsset(
+  orgId: string,
+  input: SaveRenderedPosterAssetInput
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null
+
+  // Service-role + signed URL — same private-bucket reality as
+  // saveSlideshowMediaAsset above (RLS blocked session uploads, public
+  // URLs 400 on private buckets; both diagnosed live in production).
+  const supabase = createAdminClient()
+  const id = randomUUID()
+  const storagePath = `${orgId}/posters/${id}.png`
+
+  // Blob, not Buffer — see saveSlideshowMediaAsset's note (Vercel fetch
+  // patch corrupts Buffer bodies; diagnosed live on this exact path).
+  const { error: uploadError } = await supabase.storage
+    .from("media")
+    .upload(storagePath, new Blob([new Uint8Array(input.bytes)], { type: "image/png" }), {
+      contentType: "image/png",
+      upsert: true,
+    })
+
+  if (uploadError) return null
+
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("media")
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+  if (signedError || !signedData?.signedUrl) return null
+
+  const { error: insertError } = await supabase.from("media_assets").insert({
+    org_id: orgId,
+    content_id: input.contentId ?? null,
+    kind: "image",
+    url: signedData.signedUrl,
+    provider: "template-render",
+    cost_usd: 0,
+    metadata: { templateId: input.templateId, renderId: id },
+  })
+
+  // The upload itself succeeded either way — surface the URL so the
+  // composer can still show the poster even if this bookkeeping insert
+  // failed for some reason (RLS edge case, transient error, etc).
+  if (insertError) {
+    console.error(`saveRenderedPosterAsset: media_assets insert failed for org ${orgId}: ${insertError.message}`)
+  }
+
+  return signedData.signedUrl
 }
 
 /**

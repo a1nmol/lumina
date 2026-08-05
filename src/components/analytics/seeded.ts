@@ -1,8 +1,7 @@
-// Small deterministic-from-id helpers for Analytics card decoration
-// (thumbnail gradient hue + a presentational reach sparkline). Pure UI
-// dressing — never used for real metrics, which always come straight
-// through src/lib/analytics.ts. Mirrors the hashSeed pattern in
-// src/lib/analytics.ts and the thumbnailStyle helper in
+// Small deterministic-from-id helper for Analytics card decoration
+// (thumbnail gradient hue). Pure UI dressing — never used for real metrics,
+// which always come straight through src/lib/analytics.ts. Mirrors the
+// hashSeed pattern in src/lib/analytics.ts and the thumbnailStyle helper in
 // src/app/(app)/calendar/post-card.tsx, kept local since this is UI-only.
 
 export function hashSeed(value: string): number {
@@ -21,17 +20,4 @@ export function thumbnailStyle(id: string): React.CSSProperties {
       (hue + 45) % 360
     }) 100%)`,
   }
-}
-
-/** A short deterministic trend line (illustrative reach shape, not real per-day data) for the Loop source card's sparkline. */
-export function sparklineFromSeed(id: string, points = 8): number[] {
-  const seed = hashSeed(id)
-  const series: number[] = []
-  let value = 40 + (seed % 30)
-  for (let index = 0; index < points; index++) {
-    const step = ((seed >> (index % 24)) % 17) - 6
-    value = Math.max(8, value + step)
-    series.push(value)
-  }
-  return series
 }

@@ -19,6 +19,7 @@ import {
   getContactWithTimeline,
   listContacts,
   updateContactStatus,
+  updateContactVip,
   upsertContact,
   type UpsertContactInput,
 } from "@/lib/frontdesk"
@@ -77,6 +78,13 @@ function buildDemoTimeline(contactId: string): ContactWithTimeline | null {
   for (const appointment of DEMO_APPOINTMENTS) {
     if (appointment.contact_id !== contactId) continue
     timeline.push({ type: "appointment", at: appointment.starts_at, appointment })
+  }
+
+  for (const conversation of DEMO_CONVERSATIONS) {
+    if (conversation.contact_id !== contactId) continue
+    for (const call of conversation.calls ?? []) {
+      timeline.push({ type: "call", at: call.started_at ?? call.created_at, call })
+    }
   }
 
   // Mirrors getContactWithTimeline's best-effort "current status" marker.
@@ -152,6 +160,8 @@ export async function saveContactAction(input: UpsertContactInput): Promise<Save
       tags: input.tags ?? [],
       notes: input.notes ?? null,
       custom: {},
+      ai_memory: null,
+      is_vip: false,
       created_at: now,
       updated_at: now,
     }
@@ -184,6 +194,33 @@ export async function updateStatusAction(id: string, status: ContactStatus): Pro
 
   try {
     const updated = await updateContactStatus(orgId, id, status)
+    return { ok: updated !== null }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export interface ToggleVipResult {
+  ok: boolean
+}
+
+/**
+ * Toggles a contact's VIP flag (migration 0016 contacts.is_vip — see
+ * src/lib/frontdesk.ts#updateContactVip). Called from the VipToggle button
+ * wherever a contact's identity renders: the Inbox context pane and the
+ * Contacts quick-view drawer. Demo-safe no-op when unconfigured, mirroring
+ * updateStatusAction above.
+ */
+export async function toggleContactVip(id: string, isVip: boolean): Promise<ToggleVipResult> {
+  if (typeof id !== "string" || id.length === 0) return { ok: false }
+
+  if (!isSupabaseConfigured()) return { ok: true }
+
+  const orgId = await getCurrentOrgId()
+  if (!orgId) return { ok: false }
+
+  try {
+    const updated = await updateContactVip(orgId, id, isVip)
     return { ok: updated !== null }
   } catch {
     return { ok: false }

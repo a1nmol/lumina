@@ -3,13 +3,18 @@
 
 import {
   BarChart3,
+  Bot,
   BrainCircuit,
+  Building2,
   CalendarDays,
+  CircleDollarSign,
   Inbox,
   LayoutDashboard,
+  Share2,
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  UserRound,
   Users,
   type LucideIcon,
 } from "lucide-react"
@@ -43,8 +48,40 @@ export const ADMIN_NAV: NavItem = {
 
 export const SETTINGS_NAV: NavItem = {
   href: "/settings",
-  label: "Settings & Brain",
+  label: "Settings",
   icon: BrainCircuit,
 }
 
-export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, ADMIN_NAV, SETTINGS_NAV]
+/** Personal account settings — reached from the sidebar user menu, not the
+ *  nav lists; registered here so RouteBreadcrumb resolves its label. Also
+ *  listed (as an external link) in the Settings sub-nav for findability —
+ *  see src/app/(app)/settings/layout.tsx. */
+export const ACCOUNT_NAV: NavItem = {
+  href: "/account",
+  label: "Account",
+  icon: UserRound,
+}
+
+/** The Settings hub's sub-navigation (redesign R2) — 5 categories, rendered
+ *  by src/app/(app)/settings/layout.tsx's sub-nav and mirrored by
+ *  RouteBreadcrumb below so the two never drift. Account is last and links
+ *  outside this route's own tree (to /account, ACCOUNT_NAV above) — it's
+ *  listed here only for findability. */
+export const SETTINGS_SUB_NAV: NavItem[] = [
+  { href: "/settings/business", label: "Business profile", icon: Building2 },
+  { href: "/settings/ai", label: "AI behaviour", icon: Bot },
+  { href: "/settings/channels", label: "Channels & phone", icon: Share2 },
+  { href: "/settings/plan", label: "Plan & usage", icon: CircleDollarSign },
+  ACCOUNT_NAV,
+]
+
+/** Deep pages nested under a Settings category, for RouteBreadcrumb's
+ *  3-level "Settings / Category / Page" crumb — not part of the sub-nav
+ *  itself (they're reached from a card inside their parent category, not a
+ *  top-level nav link). */
+export const SETTINGS_DEEP_PAGES: { href: string; label: string; parentHref: string }[] = [
+  { href: "/settings/brain", label: "Business Brain", parentHref: "/settings/business" },
+  { href: "/settings/voice", label: "AI Receptionist", parentHref: "/settings/channels" },
+]
+
+export const ALL_NAV: NavItem[] = [PRIMARY_NAV, ...WORKSPACE_NAV, ADMIN_NAV, SETTINGS_NAV, ACCOUNT_NAV]

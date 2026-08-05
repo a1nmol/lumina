@@ -18,12 +18,16 @@
 
 import { NextResponse, type NextRequest } from "next/server"
 
+import { parseConversationMemory, shouldUpdateMemory, updateConversationMemory } from "@/lib/ai/conversation-memory"
 import { AllowanceDeniedError } from "@/lib/ai/errors"
 import { draftCustomerReply } from "@/lib/ai/frontdesk-reply"
+import { appendLuminaSignature, getIntroToSend } from "@/lib/ai/intro"
 import { recordAnalyticsEvent } from "@/lib/analytics"
 import { DEMO_BUSINESS_BRAIN } from "@/lib/demo"
+import { sendLeadAlertEmail, sendVipAlertEmail } from "@/lib/email"
+import { getEntitlements } from "@/lib/entitlements"
 import { createAdminClient } from "@/lib/supabase/admin"
-import type { Contact, Conversation, Message } from "@/lib/types"
+import type { Contact, Conversation, ConversationAiMode, Message } from "@/lib/types"
 
 import { ORG_SLUG_RE, resolveWidgetOrg } from "@/app/widget/resolve-org"
 
@@ -163,9 +167,14 @@ export async function POST(request: NextRequest) {
     const isNewConversation = !conversation
 
     if (!conversation) {
+      // New conversation's AI autonomy defaults from the org's Business
+      // Brain setting (migration 0011 `business_brain.frontdesk_auto_reply`,
+      // defaults true) — 'auto' unless the owner has explicitly turned org-
+      // wide auto-reply off. See src/app/(app)/settings/frontdesk-auto-reply-card.tsx.
+      const initialAiMode: ConversationAiMode = resolved.brain?.frontdesk_auto_reply === false ? "off" : "auto"
       const { data: createdConversation, error: conversationInsertError } = await admin
         .from("conversations")
-        .insert({ org_id: resolved.orgId, contact_id: contact.id, channel: "web_chat" })
+        .insert({ org_id: resolved.orgId, contact_id: contact.id, channel: "web_chat", ai_mode: initialAiMode })
         .select()
         .single()
 
@@ -191,6 +200,19 @@ export async function POST(request: NextRequest) {
       } catch (analyticsError) {
         console.error("[frontdesk/chat] failed to record lead_captured event", analyticsError)
       }
+
+      // Instant lead alert — fire-and-forget (never await): the customer is
+      // waiting on the AI reply below, an email round trip must not add to
+      // that latency, and email delivery problems must never surface to the
+      // widget. See src/lib/email.ts#sendLeadAlertEmail's own header.
+      sendLeadAlertEmail({
+        orgId: resolved.orgId,
+        channel: "web_chat",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: trimmedMessage,
+      }).catch((emailError) => console.error("[frontdesk/chat] failed to send lead alert email", emailError))
     }
     if (isNewConversation) {
       try {
@@ -239,13 +261,55 @@ export async function POST(request: NextRequest) {
 
     if (historyError) throw new Error(historyError.message)
 
+    // -----------------------------------------------------------------
+    // Rolling conversation memory (Commander update, migration 0015) —
+    // fire-and-forget, BEFORE the ai_mode/needsHuman branches below, so
+    // memory keeps updating even on a thread the AI isn't (or can't)
+    // currently reply on. Never awaited on the reply path.
+    // -----------------------------------------------------------------
+    const messagesSoFar = ((history ?? []) as Message[]).filter((message) => message.kind === "message")
+    if (shouldUpdateMemory(parseConversationMemory(conversation.ai_memory), messagesSoFar.length)) {
+      void updateConversationMemory({ orgId: resolved.orgId, conversationId: conversation.id }).catch((error) =>
+        console.error("[frontdesk/chat] failed to update conversation memory", error)
+      )
+    }
+
+    // -----------------------------------------------------------------
+    // VIP gate (Commander update wave B1, migration 0016 contacts.is_vip) —
+    // sits BEFORE drafting, not just before sending: a VIP contact never
+    // gets an AI auto-reply, so there's no point paying for a draft that can
+    // never be used. Treated like the ai_mode 'off' branch below (ai_state
+    // 'ai_draft', same {ai:false} response so the widget shows nothing),
+    // plus a best-effort owner alert distinct from the new-lead alert above.
+    // Memory still updates regardless (see the block above) — VIP only gates
+    // sending, never learning.
+    // -----------------------------------------------------------------
+    if (contact.is_vip) {
+      sendVipAlertEmail({
+        orgId: resolved.orgId,
+        channel: "web_chat",
+        contactName: contact.name,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+        messagePreview: trimmedMessage,
+      }).catch((emailError) => console.error("[frontdesk/chat] failed to send VIP alert email", emailError))
+
+      await admin
+        .from("conversations")
+        .update({ ai_state: "ai_draft" })
+        .eq("id", conversation.id)
+        .eq("org_id", resolved.orgId)
+
+      return NextResponse.json({ ai: false })
+    }
+
     // Whatever line the widget shows the customer must also exist in the
     // owner's transcript — an unrecorded promise ("we'll get back to you")
     // is a record-integrity gap. Persisted as ai_handled WITHOUT clearing
     // unread, so the thread still surfaces under "Needs you".
     const escalationOrgId = resolved.orgId
     const escalationConversationId = conversation.id
-    async function persistEscalationReply(body: string) {
+    async function persistEscalationReply(body: string, extraMetadata?: Record<string, unknown>) {
       await admin
         .from("messages")
         .insert({
@@ -255,7 +319,7 @@ export async function POST(request: NextRequest) {
           kind: "message",
           body,
           ai_handled: true,
-          metadata: { handoff: true },
+          metadata: { handoff: true, ...extraMetadata },
         })
       await admin
         .from("conversations")
@@ -296,9 +360,82 @@ export async function POST(request: NextRequest) {
       // The AI's own handoff line (e.g. "I couldn't answer this — flagging
       // for the team") is what the customer saw, so it's persisted too;
       // unread stays true so the thread surfaces under "Needs you".
-      await persistEscalationReply(draft.reply)
+      await persistEscalationReply(draft.reply, draft.windDown === "close" ? { wind_down: "close" } : undefined)
       return NextResponse.json({ reply: draft.reply, ai: true, escalated: true })
     }
+
+    if (conversation.ai_mode === "off") {
+      // This thread's AI autonomy is off (migration 0011 — the owner's
+      // per-conversation override, or the org default it was created with):
+      // the AI never sends on its own here. The draft above is discarded
+      // rather than persisted verbatim — there's no dedicated draft-text
+      // column, so "prepares a draft" means the thread surfaces as
+      // ai_state 'ai_draft' and the owner regenerates it on demand from the
+      // Inbox composer's "AI draft" button (same draftCustomerReply call,
+      // same conversation history), exactly like a manually-requested draft
+      // on any other thread. unread is already true from the inbound-
+      // message update above, so the thread surfaces under "Needs you".
+      await admin
+        .from("conversations")
+        .update({ ai_state: "ai_draft" })
+        .eq("id", conversation.id)
+        .eq("org_id", resolved.orgId)
+
+      return NextResponse.json({ ai: false })
+    }
+
+    // -------------------------------------------------------------------
+    // Honest-AI intro (migration 0013, src/lib/ai/intro.ts) — gated from the
+    // SERVER-side conversation history fetched above (the widget's own
+    // client-side history is per-pageload and unreliable for this), not the
+    // client. When gated in, persisted as its own outbound message and
+    // returned to the widget as a separate `intro` field so it renders above
+    // the reply. If persisting it fails, it's dropped from the response too
+    // (never show the visitor something that isn't in the durable record) —
+    // but the real reply below is unaffected either way.
+    // -------------------------------------------------------------------
+    const priorMessages = (history ?? []).filter((message) => message.id !== inboundMessage.id)
+    let introToSend = getIntroToSend({
+      aiIntroEnabled: resolved.brain?.ai_intro_enabled ?? false,
+      aiIntroText: resolved.brain?.ai_intro_text,
+      priorMessages,
+    })
+
+    // Free-tier fallback branding (src/lib/plans.ts's `remove_branding`) —
+    // appended to the intro text ONLY, never the real reply below.
+    if (introToSend) {
+      try {
+        const entitlements = await getEntitlements(resolved.orgId)
+        introToSend = appendLuminaSignature(introToSend, Boolean(entitlements.featureFlags.remove_branding))
+      } catch (entitlementsError) {
+        // Branding is cosmetic; the reply is not (review-caught): an
+        // entitlements blip must never drop the customer's answer. Send the
+        // intro unbranded and move on.
+        console.error("[frontdesk/chat] failed to resolve entitlements for intro branding, sending unbranded", entitlementsError)
+      }
+    }
+
+    if (introToSend) {
+      const { error: introInsertError } = await admin.from("messages").insert({
+        org_id: resolved.orgId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        kind: "message",
+        body: introToSend,
+        ai_handled: true,
+        metadata: { intro: true },
+      })
+      if (introInsertError) {
+        console.error("[frontdesk/chat] failed to persist honest-AI intro message", introInsertError)
+        introToSend = null
+      }
+    }
+
+    // A wind-down "close" reply (Commander update wave B2) still answers the
+    // widget for real — it's the AI's warm sign-off — but flips ai_state to
+    // 'escalated' instead of 'ai_answered' and tags the message so
+    // draftCustomerReply's own dedupe skips a repeat sign-off next time.
+    const isWindDownClose = draft.windDown === "close"
 
     const { data: outboundMessage, error: outboundError } = await admin
       .from("messages")
@@ -311,6 +448,7 @@ export async function POST(request: NextRequest) {
         ai_handled: true,
         model: draft.model,
         cost_usd: draft.costUsd,
+        metadata: isWindDownClose ? { wind_down: "close" } : {},
       })
       .select()
       .single()
@@ -322,7 +460,7 @@ export async function POST(request: NextRequest) {
     await admin
       .from("conversations")
       .update({
-        ai_state: "ai_answered",
+        ai_state: isWindDownClose ? "escalated" : "ai_answered",
         status: "open",
         unread: false,
         last_message_at: outboundMessage.created_at,
@@ -330,7 +468,7 @@ export async function POST(request: NextRequest) {
       .eq("id", conversation.id)
       .eq("org_id", resolved.orgId)
 
-    return NextResponse.json({ reply: draft.reply, ai: true })
+    return NextResponse.json({ intro: introToSend ?? undefined, reply: draft.reply, ai: true })
   } catch (error) {
     console.error("[frontdesk/chat] failed to handle message", error)
     return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 })

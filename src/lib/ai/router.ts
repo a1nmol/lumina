@@ -11,12 +11,20 @@ import "server-only"
 // module falls through to the next candidate, so it fails safe either way.
 
 import { checkAllowance, recordUsage } from "@/lib/usage"
+import { notifyOpenRouterOutOfCredits } from "@/lib/watchdog"
 import type { UsageFeature } from "@/lib/types"
 
 import { AllowanceDeniedError } from "./errors"
-import { chatComplete, type ChatMessage } from "./openrouter"
+import { OpenRouterRequestError, chatComplete, type ChatMessage } from "./openrouter"
 
-export type AiJob = "classify" | "content_gen" | "customer_reply" | "reasoning"
+export type AiJob =
+  | "classify"
+  | "content_gen"
+  | "customer_reply"
+  | "reasoning"
+  | "vision_describe"
+  | "conversation_memory"
+  | "memory_search"
 
 /**
  * Ordered candidate model ids per job. runTextJob tries them in order,
@@ -33,20 +41,51 @@ const MODEL_CANDIDATES: Record<AiJob, string[]> = {
   customer_reply: ["anthropic/claude-haiku-4.5", "google/gemini-2.5-flash"],
   // Analytics/hard reasoning → DeepSeek or Claude Haiku 4.5; escalate to Sonnet manually if needed.
   reasoning: ["deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
+  // Describing a customer-sent image attachment (FrontDesk DM vision) — real
+  // customer media, so PII-safe paid vision models only, same rule as
+  // customer_reply. Both candidates support image inputs on OpenRouter.
+  vision_describe: ["google/gemini-2.5-flash", "anthropic/claude-haiku-4.5"],
+  // Rolling conversation memory (Commander update, migration 0015) — the raw
+  // message history it summarizes is real customer content, so this stays on
+  // the same PII-safe-paid-only rule as every other customer-facing job
+  // above. Cheapest-effective first: Gemini 2.5 Flash-Lite is the cheapest
+  // paid model already proven reliable at strict-JSON summarization tasks,
+  // falling back to the DeepSeek/Haiku pair the other jobs already trust.
+  conversation_memory: ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
+  // Natural-language memory search ("who asked about haircut prices last
+  // month?") — the candidate context it grades is built from real customer
+  // message snippets + conversation memories, the same PII the
+  // conversation_memory job summarizes, so this mirrors that chain exactly
+  // (cheapest-effective paid model first, never a free tier).
+  memory_search: ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat", "anthropic/claude-haiku-4.5"],
 }
 
 /**
  * The usage_events feature bucket each job is metered under. There are only
  * four metered features in the data model (content_generations, images,
- * slideshows, ai_replies) — classify/customer_reply/reasoning are all
- * inbox/FrontDesk-adjacent jobs and share the ai_replies allowance, while
- * content_gen has its own bucket. See src/lib/types.ts PlanLimits.
+ * slideshows, ai_replies) — classify/customer_reply/reasoning/vision_describe
+ * are all inbox/FrontDesk-adjacent jobs and share the ai_replies allowance,
+ * while content_gen has its own bucket. See src/lib/types.ts PlanLimits.
+ * vision_describe deliberately reuses ai_replies rather than introducing a
+ * new PlanLimits/usage key: checkAllowance() (src/lib/usage.ts) fails CLOSED
+ * for any feature with no configured limit, so a brand-new key would need a
+ * schema/seed migration before it could ever be allowed — describing an
+ * attachment is squarely part of "answering this customer," so it shares the
+ * bucket instead. conversation_memory (Commander update) is the same call:
+ * it only ever runs as a byproduct of answering/holding a FrontDesk
+ * conversation, so it meters under ai_replies too rather than minting a new
+ * PlanLimits key. memory_search (Outlast wave 5) is the same story — an
+ * owner-triggered convenience search over the same inbox content, not a
+ * distinct product surface, so it shares ai_replies too.
  */
 const JOB_FEATURE: Record<AiJob, UsageFeature> = {
   classify: "ai_replies",
   content_gen: "content_generations",
   customer_reply: "ai_replies",
   reasoning: "ai_replies",
+  vision_describe: "ai_replies",
+  conversation_memory: "ai_replies",
+  memory_search: "ai_replies",
 }
 
 /** $/1M tokens (input, output). Estimates — verify against provider pricing pages before scale. */
@@ -57,6 +96,7 @@ const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: numbe
   "google/gemini-2.5-flash": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
   "deepseek/deepseek-chat": { inputPerMTok: 0.14, outputPerMTok: 0.28 },
   "anthropic/claude-haiku-4.5": { inputPerMTok: 1, outputPerMTok: 5 },
+  "google/gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
 }
 
 /** Conservative fallback estimate for any model id not in MODEL_PRICING. */
@@ -131,6 +171,23 @@ export async function runTextJob(input: RunTextJobInput): Promise<RunTextJobResu
 
       return { text: result.text, model: servedModel, costUsd }
     } catch (error) {
+      // 402 = the OpenRouter ACCOUNT is out of credits (discovered live
+      // 2026-08-02: replies died mid-conversation with a generic throw, so
+      // routes crash-logged instead of soft-escalating). It's account-wide —
+      // no other candidate can succeed either — so surface it as the same
+      // typed error the spend guard uses: every caller already knows how to
+      // fail gracefully on AllowanceDeniedError (silent escalate, no
+      // typing-then-ghosting, honest "out of quota" states in the UI).
+      if (error instanceof OpenRouterRequestError && error.status === 402) {
+        // Never-go-dark watchdog (2026-08-02 outage): fire the SAME
+        // dedupe-guarded admin email the 6h cron sends, but instantly — the
+        // owner hears about a real failure within seconds, not at the next
+        // tick. Fire-and-forget: must never delay or fail this throw.
+        void notifyOpenRouterOutOfCredits().catch((notifyError) =>
+          console.error("[router] failed to notify admin of OpenRouter 402", notifyError)
+        )
+        throw new AllowanceDeniedError(feature, "OpenRouter account is out of credits — top up at openrouter.ai/settings/credits.")
+      }
       lastError = error
       // Try the next candidate on any failure (network, 4xx/5xx, bad model id).
       continue

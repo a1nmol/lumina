@@ -75,6 +75,15 @@ const LINE_AWNING_BUILDING_INDICES = [2, 8]
  * the same 800-unit-wide street, just with more sky headroom for signage. */
 const LINE_BASELINE = 200
 
+/** Line-variant buildings — same street, roofs scaled down so the crisp HTML
+ * signage LineArtStreet overlays (plaques + OPEN/CLOSED chips) has real sky
+ * to sit in without clipping the strip's top edge. */
+const LINE_HEIGHT_SCALE = 0.72
+const LINE_BUILDINGS: Building[] = BUILDINGS.map((building) => ({
+  ...building,
+  height: Math.round(building.height * LINE_HEIGHT_SCALE),
+}))
+
 const INK_LINE_STYLE = { stroke: "var(--ink)", strokeOpacity: 0.35 } as const
 
 interface StreetSilhouetteProps {
@@ -151,7 +160,7 @@ export function StreetSilhouette({ className, variant = "scattered" }: StreetSil
  * windows) — a stroke-only rect plus a cross mullion per pane. */
 function renderWindowPanes() {
   const panes: React.ReactNode[] = []
-  BUILDINGS.forEach((building, buildingIndex) => {
+  LINE_BUILDINGS.forEach((building, buildingIndex) => {
     const windowW = building.width / (building.cols * 2.2)
     const windowH = building.height / (building.rows * 2.6)
     for (let row = 0; row < building.rows; row++) {
@@ -196,37 +205,21 @@ function LineAwning({ building }: { building: Building }) {
   )
 }
 
-/** The one door in the line-art strip, topped with the small OPEN sign — the
- * scene's single amber accent (brand-redesign-plan.md §3 amber-glow rule). */
+/** The one door in the line-art strip. Its old in-SVG OPEN sign moved into
+ * LineArtStreet's HTML overlay (the strip's amber accent now lives there,
+ * where type can't be stretched by preserveAspectRatio="none"). */
 function LineDoor({ building }: { building: Building }) {
   const doorW = 14
   const doorH = 30
   const cx = building.x + building.width / 2
   const doorX = cx - doorW / 2
   const doorY = LINE_BASELINE - doorH
-  const signW = 30
-  const signH = 12
-  const signX = cx - signW / 2
-  const signY = doorY - 20
 
   return (
     <g>
       <rect x={doorX} y={doorY} width={doorW} height={doorH} rx={2} fill="none" strokeWidth={1.4} style={INK_LINE_STYLE} />
       <line x1={cx} y1={doorY} x2={cx} y2={doorY + doorH} strokeWidth={1} style={INK_LINE_STYLE} />
       <circle cx={cx + doorW / 2 - 2.5} cy={doorY + doorH / 2} r={0.9} style={{ fill: "var(--ink)", opacity: 0.35 }} />
-      {/* .sign-buzz-soft: same neon-flicker shape as the night scenes' .sign-buzz, stretched to a slower/quieter cadence for the daylight hero (globals.css). */}
-      <g className="sign-buzz-soft" style={{ filter: "drop-shadow(0 0 3px var(--amber-glow))" }}>
-        <rect x={signX} y={signY} width={signW} height={signH} rx={2.5} style={{ fill: "var(--amber-glow)", opacity: 0.16 }} />
-        <rect x={signX} y={signY} width={signW} height={signH} rx={2.5} fill="none" strokeWidth={1} style={{ stroke: "var(--amber-glow)", opacity: 0.75 }} />
-        <text
-          x={cx}
-          y={signY + signH / 2 + 2.4}
-          textAnchor="middle"
-          style={{ fill: "var(--amber-glow)", fontFamily: "var(--font-mono)", fontSize: 6.5, letterSpacing: "0.05em" }}
-        >
-          OPEN
-        </text>
-      </g>
     </g>
   )
 }
@@ -234,7 +227,7 @@ function LineDoor({ building }: { building: Building }) {
 function renderLineArtStreet() {
   return (
     <>
-      {BUILDINGS.map((building, buildingIndex) => (
+      {LINE_BUILDINGS.map((building, buildingIndex) => (
         <rect
           key={buildingIndex}
           x={building.x}
@@ -248,188 +241,33 @@ function renderLineArtStreet() {
       ))}
       {renderWindowPanes()}
       {LINE_AWNING_BUILDING_INDICES.map((index) => (
-        <LineAwning key={index} building={BUILDINGS[index]} />
+        <LineAwning key={index} building={LINE_BUILDINGS[index]} />
       ))}
-      <LineDoor building={BUILDINGS[LINE_DOOR_BUILDING_INDEX]} />
-      {renderLineShopStories()}
+      <LineDoor building={LINE_BUILDINGS[LINE_DOOR_BUILDING_INDEX]} />
     </>
   )
 }
 
 /** Line-variant 7-shop story — same shops/order as the main-street
  * composition, mapped onto 7 of the 11 outline buildings (chosen for spacing
- * so neighbouring labels don't collide; #6 is the existing door/OPEN
- * building). Quieter register than main-street: no plaque boxes, small ink
- * text, one small stroke-only glyph per lacking shop — the café gets no
- * glyph (its door + OPEN sign already carry that role) plus its own
- * full-opacity, amber-accented line. */
+ * so neighbouring labels don't collide; #6 is the existing door building).
+ * Rendered as crisp HTML signage by LineArtStreet's overlay, never as SVG
+ * text (see the overlay comment there). */
 interface LineShopStory {
   buildingIndex: number
   lines: string[]
-  icon?: "person" | "phone" | "ghost" | "calendar" | "speech"
   emphasis?: boolean
 }
 
 const LINE_SHOP_STORIES: LineShopStory[] = [
   { buildingIndex: 0, lines: ["Closed since 6"] },
-  { buildingIndex: 2, lines: ["On vacation —", "back Monday"], icon: "person" },
-  { buildingIndex: 4, lines: ["Family emergency —", "couldn't pick up"], icon: "phone" },
-  { buildingIndex: LINE_DOOR_BUILDING_INDEX, lines: ["Open 24/7 —", "we use Lumina."], emphasis: true },
-  { buildingIndex: 7, lines: ["Haven't posted", "in months"], icon: "ghost" },
-  { buildingIndex: 8, lines: ["No idea what's", "booked"], icon: "calendar" },
-  { buildingIndex: 10, lines: ["Closed 6 PM —", "DMs waiting"], icon: "speech" },
+  { buildingIndex: 2, lines: ["On vacation —", "back Monday"] },
+  { buildingIndex: 4, lines: ["Family emergency —", "couldn't pick up"] },
+  { buildingIndex: LINE_DOOR_BUILDING_INDEX, lines: ["We use Lumina."], emphasis: true },
+  { buildingIndex: 7, lines: ["Haven't posted", "in months"] },
+  { buildingIndex: 8, lines: ["No idea what's", "booked"] },
+  { buildingIndex: 10, lines: ["Closed 6 PM —", "DMs waiting"] },
 ]
-
-/** Tiny stroke-only glyphs, ~0.5x the main-street versions — bottom-anchored
- * at `bottomY`, centered at `cx`. Same shapes as the main-street cues
- * (waiting customer / phone / dead-feed ghost card / blank calendar /
- * queued DM) so the two scenes read as one family. */
-function LineTinyIcon({ kind, cx, bottomY }: { kind: NonNullable<LineShopStory["icon"]>; cx: number; bottomY: number }) {
-  switch (kind) {
-    case "person": {
-      const bodyW = 5.5
-      const bodyH = 9
-      const headR = 2.3
-      const headCy = bottomY - bodyH - headR
-      return (
-        <g>
-          <circle cx={cx} cy={headCy} r={headR} fill="none" strokeWidth={0.7} style={INK_LINE_STYLE} />
-          <rect x={cx - bodyW / 2} y={headCy + headR} width={bodyW} height={bodyH} rx={bodyW / 2} fill="none" strokeWidth={0.7} style={INK_LINE_STYLE} />
-        </g>
-      )
-    }
-    case "phone": {
-      const s = 3
-      return (
-        <g>
-          <rect x={cx - 6} y={bottomY - 8.5} width={s} height={s} rx={0.6} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
-          <rect x={cx + 3} y={bottomY - 3.5} width={s} height={s} rx={0.6} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
-          <line x1={cx - 4.5} y1={bottomY - 7} x2={cx + 4.5} y2={bottomY - 2} strokeWidth={0.6} style={INK_LINE_STYLE} />
-        </g>
-      )
-    }
-    case "ghost": {
-      const w = 15
-      const h = 11
-      return (
-        <rect x={cx - w / 2} y={bottomY - h} width={w} height={h} rx={1.5} fill="none" strokeWidth={0.6} strokeDasharray="1.5 1.5" style={INK_LINE_STYLE} />
-      )
-    }
-    case "calendar": {
-      const w = 16
-      const h = 12
-      const x = cx - w / 2
-      const y = bottomY - h
-      return (
-        <g>
-          <rect x={x} y={y} width={w} height={h} rx={1} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
-          <line x1={x} y1={y + 3.5} x2={x + w} y2={y + 3.5} strokeWidth={0.6} style={INK_LINE_STYLE} />
-          <line x1={x + w / 2} y1={y + 3.5} x2={x + w / 2} y2={y + h} strokeWidth={0.5} style={INK_LINE_STYLE} />
-        </g>
-      )
-    }
-    case "speech": {
-      const w = 13
-      const h = 9
-      const x = cx - w / 2
-      const y = bottomY - h
-      return <rect x={x} y={y} width={w} height={h} rx={1.5} fill="none" strokeWidth={0.6} style={INK_LINE_STYLE} />
-    }
-  }
-}
-
-/** Renders each story's icon (if any) + 1-2 line caption, stacked in the
- * sky above that shop's own roofline — a consistent gap/rhythm across all 7
- * shops even though roof heights differ. */
-function renderLineShopStories() {
-  // Owner feedback (legibility): labels bumped to 8.75px semibold at 80%
-  // ink, each on a mini paper plaque (bare text over building strokes was
-  // what read as "confusing"); every lacking shop also gets a small red
-  // CLOSED chip just above its roofline — same red-sign/amber-sign grammar
-  // as the full main-street variant, in this strip's quieter register.
-  const labelFontSize = 8.75
-  const labelLineHeight = 10.5
-  const roofGap = 6
-  const iconGap = 5
-  const chipW = 32
-  const chipH = 9
-  const chipGap = 4
-
-  return LINE_SHOP_STORIES.map((story) => {
-    const building = BUILDINGS[story.buildingIndex]
-    const cx = building.x + building.width / 2
-    const roofTop = LINE_BASELINE - building.height
-
-    // Stack, bottom-up: red CLOSED chip (lacking shops only) → label plaque → icon.
-    const chipY = roofTop - roofGap - chipH
-    const labelBottomY = (story.emphasis ? roofTop - roofGap : chipY - chipGap) - 4
-    const labelTopY = labelBottomY - (story.lines.length - 1) * labelLineHeight
-    const iconBottomY = labelTopY - labelFontSize - iconGap
-
-    const textStyle = story.emphasis
-      ? { fill: "var(--amber-glow)", fontFamily: "var(--font-sans)", fontSize: 8.5, fontWeight: 600, letterSpacing: "0.01em" }
-      : { fill: "var(--ink)", fillOpacity: 0.8, fontFamily: "var(--font-sans)", fontSize: labelFontSize, fontWeight: 600, letterSpacing: "0.01em" }
-
-    const plaqueW = Math.max(...story.lines.map((line) => line.length * labelFontSize * 0.56)) + 10
-    const plaqueH = story.lines.length * labelLineHeight + 6
-    const plaqueY = labelTopY - labelFontSize * 0.85 - 3
-
-    return (
-      <g key={story.buildingIndex} style={story.emphasis ? { filter: "drop-shadow(0 0 3px var(--amber-glow))" } : undefined}>
-        {story.icon && <LineTinyIcon kind={story.icon} cx={cx} bottomY={iconBottomY} />}
-        {!story.emphasis && (
-          <rect
-            x={cx - plaqueW / 2}
-            y={plaqueY}
-            width={plaqueW}
-            height={plaqueH}
-            rx={2.5}
-            className="fill-background"
-            style={{ fillOpacity: 0.9 }}
-            stroke="var(--ink)"
-            strokeOpacity={0.18}
-            strokeWidth={0.6}
-          />
-        )}
-        {story.lines.map((line, i) => (
-          <text key={i} x={cx} y={labelTopY + i * labelLineHeight} textAnchor="middle" style={textStyle}>
-            {line}
-          </text>
-        ))}
-        {!story.emphasis && (
-          <g>
-            <rect
-              x={cx - chipW / 2}
-              y={chipY}
-              width={chipW}
-              height={chipH}
-              rx={2}
-              style={{ fill: "var(--destructive)", opacity: 0.1 }}
-            />
-            <rect
-              x={cx - chipW / 2}
-              y={chipY}
-              width={chipW}
-              height={chipH}
-              rx={2}
-              fill="none"
-              strokeWidth={0.75}
-              style={{ stroke: "var(--destructive)", strokeOpacity: 0.7 }}
-            />
-            <text
-              x={cx}
-              y={chipY + chipH / 2 + 2}
-              textAnchor="middle"
-              style={{ fill: "var(--destructive)", fontFamily: "var(--font-mono)", fontSize: 5.2, fontWeight: 600, letterSpacing: "0.08em" }}
-            >
-              CLOSED
-            </text>
-          </g>
-        )}
-      </g>
-    )
-  })
-}
 
 /** Wrapper for the "line" variant — same illustration as before plus the
  * 7-shop story text, so (unlike the bare `<svg>` the other window-grid
@@ -441,6 +279,61 @@ function LineArtStreet({ className }: { className?: string }) {
       <svg aria-hidden="true" viewBox={`0 0 ${VIEW_WIDTH} ${LINE_BASELINE}`} preserveAspectRatio="none" className="block h-full w-full">
         {renderLineArtStreet()}
       </svg>
+      {/* The story signage is real HTML, never SVG <text>: the art above
+          stretches non-uniformly (preserveAspectRatio="none"), and text
+          inside stretched with it — the "zoomed, distorted font" the owner
+          flagged. Fixed-pixel HTML type stays crisp at every viewport
+          width; each stack anchors over its building via viewBox-percentage
+          math, which "none" keeps exact on both axes. Mobile shows only the
+          café stack (7 stacks can't fit 375px); plaques join at lg, chips
+          at md. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        {LINE_SHOP_STORIES.map((story) => {
+          const building = LINE_BUILDINGS[story.buildingIndex]
+          const leftPct = ((building.x + building.width / 2) / VIEW_WIDTH) * 100
+          const bottomPct = ((building.height + 7) / LINE_BASELINE) * 100
+          return (
+            <div
+              key={story.buildingIndex}
+              className={cn(
+                "absolute -translate-x-1/2 flex-col items-center gap-1",
+                story.emphasis ? "flex" : "hidden md:flex"
+              )}
+              style={{ left: `${leftPct}%`, bottom: `${bottomPct}%` }}
+            >
+              {story.emphasis ? (
+                <>
+                  <span className="rounded-md border border-amber-glow/40 bg-card/95 px-2 py-0.5 text-[11px] leading-snug font-semibold whitespace-nowrap text-foreground shadow-soft">
+                    {story.lines.join(" ")}
+                  </span>
+                  {/* Text is flame, not amber: amber-on-amber failed the same
+                      legibility bar as the stretched SVG text did; amber stays
+                      as the border + glow only (daylight-register rule). */}
+                  <span
+                    className="sign-buzz-soft rounded-[4px] border border-amber-glow/80 bg-amber-glow/15 px-1.5 py-px font-mono text-[9px] font-bold tracking-[0.12em] whitespace-nowrap text-flame"
+                    style={{ textShadow: "0 0 8px var(--amber-glow)" }}
+                  >
+                    OPEN 24/7
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="hidden rounded-md border border-border bg-card/95 px-2 py-0.5 text-center text-[11px] leading-[1.35] font-medium text-foreground/85 shadow-soft lg:block">
+                    {story.lines.map((line, i) => (
+                      <span key={i} className="block whitespace-nowrap">
+                        {line}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="rounded-[4px] border border-destructive/60 bg-destructive/10 px-1.5 py-px font-mono text-[9px] font-semibold tracking-[0.12em] text-destructive">
+                    CLOSED
+                  </span>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
       <p className="sr-only">
         Illustration: seven shops along Main Street. A small red CLOSED sign hangs on every shop but one, each
         with a note explaining why — closed since six, on vacation, a missed family-emergency call, months

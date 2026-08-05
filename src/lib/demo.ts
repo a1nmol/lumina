@@ -7,6 +7,7 @@ import type {
   AnalyticsOverviewStats,
   Appointment,
   BusinessBrain,
+  Call,
   Contact,
   ConversationDetail,
   LoopPair,
@@ -122,6 +123,17 @@ export const DEMO_BUSINESS_BRAIN: BusinessBrain = {
     email: true,
     web_chat: true,
   },
+  frontdesk_auto_reply: true,
+  // Honest-AI intro (migration 0013) — off by default in the showcase org so
+  // the demo widget/inbox never shows an intro bubble unless someone opts in.
+  ai_intro_enabled: false,
+  ai_intro_text: null,
+  // Commander update (migration 0015) — off by default; the showcase org's
+  // demo threads already read as "always engaged" without it.
+  ai_always_on: false,
+  // Proactive follow-ups (migration 0022) — on by default, matching the
+  // column's own default so the showcase org demonstrates the feature.
+  follow_ups_enabled: true,
   onboarding_step: 5,
   completed: true,
   updated_at: "2026-07-01T00:00:00.000Z",
@@ -158,6 +170,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["birthday-cake"],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: true,
     created_at: "2026-07-14T15:02:00.000Z",
     updated_at: "2026-07-14T15:06:00.000Z",
   },
@@ -172,6 +186,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["follow-up", "subscription"],
     notes: "Missed our call on 7/13, followed up by text.",
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-13T18:41:00.000Z",
     updated_at: "2026-07-13T18:52:00.000Z",
   },
@@ -186,6 +202,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["catering", "vip"],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-15T20:10:00.000Z",
     updated_at: "2026-07-15T20:10:00.000Z",
   },
@@ -200,6 +218,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["review", "regular"],
     notes: "Left a 5-star Google review 7/12.",
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-12T13:15:00.000Z",
     updated_at: "2026-07-12T13:24:00.000Z",
   },
@@ -214,6 +234,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: [],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-11T09:30:00.000Z",
     updated_at: "2026-07-11T09:33:00.000Z",
   },
@@ -228,6 +250,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["allergy"],
     notes: "Severe tree nut allergy for his daughter — confirm ingredients personally before replying.",
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-16T11:05:00.000Z",
     updated_at: "2026-07-16T11:05:00.000Z",
   },
@@ -242,6 +266,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["kids-class"],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-10T16:20:00.000Z",
     updated_at: "2026-07-10T16:24:00.000Z",
   },
@@ -256,6 +282,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["reschedule"],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-09T08:00:00.000Z",
     updated_at: "2026-07-09T08:10:00.000Z",
   },
@@ -270,6 +298,8 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["regular", "coffee-subscription"],
     notes: "Added manually after an in-store conversation.",
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-06-28T12:00:00.000Z",
     updated_at: "2026-06-28T12:00:00.000Z",
   },
@@ -284,8 +314,28 @@ export const DEMO_CONTACTS: Contact[] = [
     tags: ["catering"],
     notes: null,
     custom: {},
+    ai_memory: null,
+    is_vip: false,
     created_at: "2026-07-08T17:45:00.000Z",
     updated_at: "2026-07-08T17:45:00.000Z",
+  },
+  {
+    // AI Phone Receptionist demo thread (wave V2) — see demo-conversation-9
+    // below for the call metadata this contact's timeline/inbox thread show.
+    id: "demo-contact-11",
+    org_id: DEMO_ORG.id,
+    name: "Marcus Webb",
+    phone: "+1 (555) 010-1011",
+    email: null,
+    source: "voice",
+    status: "contacted",
+    tags: ["custom-order"],
+    notes: null,
+    custom: {},
+    ai_memory: null,
+    is_vip: false,
+    created_at: "2026-07-08T09:12:00.000Z",
+    updated_at: "2026-07-12T11:04:00.000Z",
   },
 ]
 
@@ -315,6 +365,34 @@ function demoMessage(input: {
   }
 }
 
+/** AI Phone Receptionist demo call row (wave V2) — mirrors supabase/migrations/0020_voice_receptionist.sql's `calls` table shape. */
+function demoCall(input: {
+  id: string
+  conversationId: string
+  fromNumber: string
+  startedAt: string
+  durationSecs: number
+  outcome: string
+  summary?: string | null
+}): Call {
+  const startedMs = new Date(input.startedAt).getTime()
+  return {
+    id: input.id,
+    org_id: DEMO_ORG.id,
+    conversation_id: input.conversationId,
+    retell_call_id: `retell-${input.id}`,
+    from_number: input.fromNumber,
+    to_number: "+1 (555) 020-2000",
+    started_at: input.startedAt,
+    ended_at: new Date(startedMs + input.durationSecs * 1000).toISOString(),
+    duration_secs: input.durationSecs,
+    outcome: input.outcome,
+    summary: input.summary ?? null,
+    cost_usd: Number(((input.durationSecs / 60) * 0.0785).toFixed(4)),
+    created_at: input.startedAt,
+  }
+}
+
 export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
   {
     id: "demo-conversation-1",
@@ -323,6 +401,21 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "web_chat",
     status: "resolved",
     ai_state: "ai_answered",
+    ai_mode: "auto",
+    // Sample rolling memory (Commander update) so the Inbox's "AI memory"
+    // strip (src/components/inbox/ai-memory-strip.tsx) has something real to
+    // show in demo mode — shape matches src/lib/ai/conversation-memory.ts's
+    // ConversationMemory.
+    ai_memory: {
+      facts: ["wants a chocolate cake with a dinosaur theme", "pickup is Saturday morning"],
+      open_threads: [],
+      vibe: "excited, easygoing first-time customer",
+      summary:
+        "Emma asked about a custom birthday cake for her kid's 6th birthday this Saturday. We quoted $45 with 48h notice, she picked chocolate with a dinosaur theme, and we confirmed pickup for Saturday morning.",
+      updated_at: "2026-07-14T15:06:00.000Z",
+      message_count: 4,
+    },
+    last_follow_up_at: null,
     last_message_at: "2026-07-14T15:06:00.000Z",
     unread: false,
     created_at: "2026-07-14T15:02:00.000Z",
@@ -330,6 +423,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Emma Rodriguez",
     contact_phone: "+1 (555) 010-1001",
     contact_email: "emma.rodriguez@example.com",
+    contact_is_vip: DEMO_CONTACTS[0].is_vip,
     contact: DEMO_CONTACTS[0],
     messages: [
       demoMessage({
@@ -375,6 +469,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "sms",
     status: "pending",
     ai_state: "ai_answered",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-13T18:52:00.000Z",
     unread: true,
     created_at: "2026-07-13T18:41:00.000Z",
@@ -382,6 +479,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Marcus Chen",
     contact_phone: "+1 (555) 010-1002",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[1].is_vip,
     contact: DEMO_CONTACTS[1],
     messages: [
       demoMessage({
@@ -427,6 +525,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "instagram",
     status: "open",
     ai_state: "ai_draft",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-15T20:10:00.000Z",
     unread: true,
     created_at: "2026-07-15T20:10:00.000Z",
@@ -434,6 +535,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Priya Patel",
     contact_phone: "+1 (555) 010-1003",
     contact_email: "priya.patel@example.com",
+    contact_is_vip: DEMO_CONTACTS[2].is_vip,
     contact: DEMO_CONTACTS[2],
     messages: [
       demoMessage({
@@ -454,6 +556,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "email",
     status: "resolved",
     ai_state: "human",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-12T13:24:00.000Z",
     unread: false,
     created_at: "2026-07-12T13:15:00.000Z",
@@ -461,6 +566,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Daniel Okafor",
     contact_phone: null,
     contact_email: "daniel.okafor@example.com",
+    contact_is_vip: DEMO_CONTACTS[3].is_vip,
     contact: DEMO_CONTACTS[3],
     messages: [
       demoMessage({
@@ -486,6 +592,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "facebook",
     status: "resolved",
     ai_state: "ai_answered",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-11T09:33:00.000Z",
     unread: false,
     created_at: "2026-07-11T09:30:00.000Z",
@@ -493,6 +602,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Sofia Alvarez",
     contact_phone: "+1 (555) 010-1005",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[4].is_vip,
     contact: DEMO_CONTACTS[4],
     messages: [
       demoMessage({
@@ -521,6 +631,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "google",
     status: "pending",
     ai_state: "escalated",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-16T11:06:00.000Z",
     unread: true,
     created_at: "2026-07-16T11:05:00.000Z",
@@ -528,6 +641,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "James Whitfield",
     contact_phone: "+1 (555) 010-1006",
     contact_email: "james.whitfield@example.com",
+    contact_is_vip: DEMO_CONTACTS[5].is_vip,
     contact: DEMO_CONTACTS[5],
     messages: [
       demoMessage({
@@ -554,6 +668,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "web_chat",
     status: "resolved",
     ai_state: "ai_answered",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-10T16:24:00.000Z",
     unread: false,
     created_at: "2026-07-10T16:20:00.000Z",
@@ -561,6 +678,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Grace Kim",
     contact_phone: "+1 (555) 010-1007",
     contact_email: "grace.kim@example.com",
+    contact_is_vip: DEMO_CONTACTS[6].is_vip,
     contact: DEMO_CONTACTS[6],
     messages: [
       demoMessage({
@@ -589,6 +707,9 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     channel: "sms",
     status: "resolved",
     ai_state: "human",
+    ai_mode: "auto",
+    ai_memory: null,
+    last_follow_up_at: null,
     last_message_at: "2026-07-09T08:10:00.000Z",
     unread: false,
     created_at: "2026-07-09T08:00:00.000Z",
@@ -596,6 +717,7 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
     contact_name: "Tyler Brooks",
     contact_phone: "+1 (555) 010-1008",
     contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[7].is_vip,
     contact: DEMO_CONTACTS[7],
     messages: [
       demoMessage({
@@ -611,6 +733,107 @@ export const DEMO_CONVERSATIONS: DemoConversationDetail[] = [
         direction: "outbound",
         body: "Hi Tyler, no problem — I've moved your catering pickup to Monday at the same time. See you then!",
         createdAt: "2026-07-09T08:10:00.000Z",
+      }),
+    ],
+  },
+  {
+    // AI Phone Receptionist demo thread (wave V2) — three calls from the
+    // same caller so the Inbox's call-header strip (src/components/inbox/call-header.tsx)
+    // has a real "N calls" case to render in demo mode, not just a single
+    // call. Transcript below reflects the most recent (3rd) call.
+    id: "demo-conversation-9",
+    org_id: DEMO_ORG.id,
+    contact_id: "demo-contact-11",
+    channel: "voice",
+    status: "resolved",
+    ai_state: "ai_answered",
+    ai_mode: "auto",
+    ai_memory: {
+      facts: ["wants a 3-tier custom cake for a 50-person office party", "needs it by the 20th"],
+      open_threads: [],
+      vibe: "practical, calling on a lunch break",
+      summary:
+        "Marcus called about a large custom cake for a 50-person office party on the 20th. First call he hung up before we caught details; second call went to voicemail after hours; third call we got his name, number, and event date and let him know our cake specialist would follow up with pricing.",
+      updated_at: "2026-07-12T11:04:00.000Z",
+      message_count: 4,
+    },
+    last_follow_up_at: null,
+    last_message_at: "2026-07-12T11:04:00.000Z",
+    unread: false,
+    created_at: "2026-07-08T09:12:00.000Z",
+    updated_at: "2026-07-12T11:04:00.000Z",
+    contact_name: "Marcus Webb",
+    contact_phone: "+1 (555) 010-1011",
+    contact_email: null,
+    contact_is_vip: DEMO_CONTACTS[10].is_vip,
+    contact: DEMO_CONTACTS[10],
+    messages: [
+      demoMessage({
+        id: "demo-message-9-1",
+        conversationId: "demo-conversation-9",
+        direction: "outbound",
+        body: "Hi, this is Sunrise Bakery's AI assistant — this call may be recorded. How can I help you today?",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:02:00.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-2",
+        conversationId: "demo-conversation-9",
+        direction: "inbound",
+        body: "Hey, yeah — I need a custom cake for an office party, about 50 people, on the 20th. Do you guys do that?",
+        createdAt: "2026-07-12T11:02:30.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-3",
+        conversationId: "demo-conversation-9",
+        direction: "outbound",
+        body: "We do! A 3-tier custom cake would comfortably serve 50 — can I get your name and a callback number so our cake specialist can follow up with pricing and availability for the 20th?",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:03:10.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-4",
+        conversationId: "demo-conversation-9",
+        direction: "inbound",
+        body: "Sure, Marcus Webb, and this number is fine to call back.",
+        createdAt: "2026-07-12T11:03:45.000Z",
+      }),
+      demoMessage({
+        id: "demo-message-9-5",
+        conversationId: "demo-conversation-9",
+        kind: "note",
+        direction: "outbound",
+        body: "Call summary: Marcus Webb wants a 3-tier custom cake for a 50-person office party on the 20th. Took his name and callback number for the cake specialist to follow up with pricing.",
+        aiHandled: true,
+        createdAt: "2026-07-12T11:04:00.000Z",
+      }),
+    ],
+    calls: [
+      demoCall({
+        id: "demo-call-9-1",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-08T09:12:00.000Z",
+        durationSecs: 14,
+        outcome: "user_hangup",
+      }),
+      demoCall({
+        id: "demo-call-9-2",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-10T20:47:00.000Z",
+        durationSecs: 38,
+        outcome: "unsuccessful",
+      }),
+      demoCall({
+        id: "demo-call-9-3",
+        conversationId: "demo-conversation-9",
+        fromNumber: "+1 (555) 010-1011",
+        startedAt: "2026-07-12T11:02:00.000Z",
+        durationSecs: 124,
+        outcome: "successful",
+        summary:
+          "Marcus Webb wants a 3-tier custom cake for a 50-person office party on the 20th. Took his name and callback number for the cake specialist to follow up with pricing.",
       }),
     ],
   },

@@ -16,6 +16,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+    // The template-rendering sample script (scripts/render-sample-templates.test.ts)
+    // loads Satori/resvg/sharp + vendored TTFs and rasterizes real PNGs —
+    // slower than the rest of the (pure-function) suite, so it gets a longer
+    // per-test timeout rather than inflating the global default.
+    testTimeout: 20_000,
   },
 })

@@ -15,6 +15,7 @@ const LINKS = [
   { href: "#how-it-works", label: "How it works" },
   { href: "#faq", label: "FAQ" },
   { href: "/privacy", label: "Privacy" },
+  { href: "/credits", label: "Credits" },
   { href: "mailto:hello@lumina.app", label: "hello@lumina.app" },
 ]
 

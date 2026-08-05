@@ -18,7 +18,7 @@ import type { LoopOutcome, LoopOutcomeKind, LoopPair as LoopPairType } from "@/l
 import { ChannelGlyph } from "@/components/inbox/channel-glyphs"
 
 import { primaryPlatformMeta } from "./platform-meta"
-import { sparklineFromSeed, thumbnailStyle } from "./seeded"
+import { thumbnailStyle } from "./seeded"
 
 const FORMAT_ICON: Record<LoopPairType["post"]["format"], LucideIcon> = {
   single: LayoutGrid,
@@ -36,29 +36,6 @@ function snippet(caption: string | null, max: number): string {
   if (!caption) return "(no caption)"
   if (caption.length <= max) return caption
   return `${caption.slice(0, max).trimEnd()}…`
-}
-
-function MiniSparkline({ id }: { id: string }) {
-  const data = sparklineFromSeed(id)
-  const width = 72
-  const height = 20
-  const max = Math.max(...data)
-  const min = Math.min(...data)
-  const range = max - min || 1
-  const stepX = width / (data.length - 1)
-  const linePath = data
-    .map((point, index) => {
-      const x = index * stepX
-      const y = height - ((point - min) / range) * height
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(" ")
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-5 w-18 text-primary/60" aria-hidden="true">
-      <path d={linePath} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 }
 
 function SourceCard({ pair }: { pair: LoopPairType }) {
@@ -82,13 +59,10 @@ function SourceCard({ pair }: { pair: LoopPairType }) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="line-clamp-2 text-sm text-foreground">{snippet(pair.post.caption, 90)}</p>
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <FormatIcon aria-hidden="true" className="size-3" />
-            {publishedAt}
-          </span>
-          <MiniSparkline id={pair.post.id} />
-        </div>
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <FormatIcon aria-hidden="true" className="size-3" />
+          {publishedAt}
+        </span>
       </div>
     </div>
   )

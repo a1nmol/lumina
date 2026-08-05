@@ -1,8 +1,11 @@
 "use client"
 
-// Client form for section 14 · THE PILOT MENU (landing-copy.md §14). Calls
-// the saveEarlyAccessLead server action; success renders Wick celebrating
-// (one-shot) + a receipt-styled toast, per brand-redesign-plan.md §5.11.
+// Client form for the closing conversion zone (formerly section 14 · THE
+// PILOT MENU, landing-copy.md §14). Calls the saveEarlyAccessLead server
+// action; success renders Wick celebrating (one-shot) + a receipt-styled
+// toast, per brand-redesign-plan.md §5.11. Now rendered directly on the
+// chalkboard card (no white sub-card wrapper), so labels use
+// chalkboard-foreground for contrast and fields go side-by-side on sm+.
 
 import { useId, useState, type FormEvent } from "react"
 import { Loader2, Store } from "lucide-react"
@@ -70,9 +73,9 @@ export function PilotMenuForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+    <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2" noValidate>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={nameId} className="text-foreground">
+        <Label htmlFor={nameId} className="text-chalkboard-foreground">
           Business name
         </Label>
         <Input
@@ -85,11 +88,12 @@ export function PilotMenuForm() {
           onChange={(event) => setBusinessName(event.target.value)}
           placeholder="Sunrise Bakery"
           disabled={status === "submitting"}
+          className="bg-background"
         />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={emailId} className="text-foreground">
+        <Label htmlFor={emailId} className="text-chalkboard-foreground">
           Email
         </Label>
         <Input
@@ -103,11 +107,14 @@ export function PilotMenuForm() {
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@yourshop.com"
           disabled={status === "submitting"}
+          className="bg-background"
         />
       </div>
 
+      {/* text-chalkboard-destructive, not text-destructive: this form
+          renders directly on the chalkboard surface — see globals.css. */}
       {status === "error" && errorMessage && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-chalkboard-destructive sm:col-span-2">
           {errorMessage}
         </p>
       )}
@@ -116,7 +123,7 @@ export function PilotMenuForm() {
         type="submit"
         variant="flame"
         size="lg"
-        className="h-11"
+        className="h-11 sm:col-span-2"
         disabled={status === "submitting"}
       >
         {status === "submitting" ? (
@@ -131,6 +138,10 @@ export function PilotMenuForm() {
           </>
         )}
       </Button>
+
+      <p className="text-center text-xs text-chalkboard-foreground/60 sm:col-span-2">
+        Limited seats per city — free during the pilot.
+      </p>
     </form>
   )
 }

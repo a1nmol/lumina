@@ -11,14 +11,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { cn } from "@/lib/utils"
-import type { ConversationStatus, ContactStatus, Message } from "@/lib/types"
+import type { ConversationAiMode, ConversationStatus, ContactStatus, Message } from "@/lib/types"
 
+import { toggleContactVip } from "@/app/(app)/contacts/actions"
 import {
   addContactTag,
   getConversationDetail,
   markRead,
   setContactPipelineStatus,
+  setConversationAiMode,
   setState,
   setStatus,
   type InboxConversationDetail,
@@ -132,6 +135,39 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     }
   }
 
+  /**
+   * Sets the selected conversation's per-thread AI autonomy (Auto/Off).
+   * Optimistic like handleStatusChange above. Demo mode is a local-only
+   * no-op with the standard "changes aren't saved" toast (matching
+   * src/app/(app)/settings/business/faq-card.tsx) instead of round-tripping to the
+   * server action, which would otherwise silently no-op with no feedback.
+   */
+  async function handleAiModeChange(mode: ConversationAiMode) {
+    if (!selectedDetail) return
+    const conversationId = selectedDetail.id
+    const previousMode = selectedDetail.ai_mode
+    if (mode === previousMode) return
+
+    setSelectedDetail((prev) => (prev ? { ...prev, ai_mode: mode } : prev))
+    setConversations((current) => current.map((c) => (c.id === conversationId ? { ...c, ai_mode: mode } : c)))
+
+    if (!isSupabaseConfigured()) {
+      toast.success(mode === "auto" ? "AI replies set to Auto" : "AI replies set to Off", {
+        description: "Demo mode — changes aren't saved.",
+      })
+      return
+    }
+
+    const result = await setConversationAiMode(conversationId, mode)
+    if (!result.ok) {
+      setSelectedDetail((prev) => (prev && prev.id === conversationId ? { ...prev, ai_mode: previousMode } : prev))
+      setConversations((current) =>
+        current.map((c) => (c.id === conversationId ? { ...c, ai_mode: previousMode } : c))
+      )
+      toast.error("Couldn't update AI replies", { description: "Please try again." })
+    }
+  }
+
   // Keyed off message.conversation_id (not selectedDetail.id) — defense in
   // depth against the cross-conversation composer race: a reply sent from a
   // thread the user has since navigated away from must still land on ITS
@@ -197,6 +233,32 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     }
   }
 
+  async function handleToggleVip() {
+    if (!selectedDetail?.contact) return
+    const contactId = selectedDetail.contact.id
+    const previousIsVip = selectedDetail.contact.is_vip
+    const nextIsVip = !previousIsVip
+
+    setSelectedDetail((prev) => (prev && prev.contact ? { ...prev, contact: { ...prev.contact, is_vip: nextIsVip } } : prev))
+    // The thread list renders its own star off conversation.contact_is_vip —
+    // mirror the toggle there too (every conversation with this contact), or
+    // the left-pane badge goes stale until a reload.
+    setConversations((current) =>
+      current.map((c) => (c.contact_id === contactId ? { ...c, contact_is_vip: nextIsVip } : c))
+    )
+
+    const result = await toggleContactVip(contactId, nextIsVip)
+    if (!result.ok) {
+      setSelectedDetail((prev) =>
+        prev && prev.contact ? { ...prev, contact: { ...prev.contact, is_vip: previousIsVip } } : prev
+      )
+      setConversations((current) =>
+        current.map((c) => (c.contact_id === contactId ? { ...c, contact_is_vip: previousIsVip } : c))
+      )
+      toast.error("Couldn't update VIP status", { description: "Please try again." })
+    }
+  }
+
   async function handleAddTag(tag: string) {
     if (!selectedDetail?.contact) return
     const contactId = selectedDetail.contact.id
@@ -245,6 +307,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
       onStatusChange={handleContactStatusChange}
       onAddTag={handleAddTag}
       onAddNote={handleAddNote}
+      onToggleVip={handleToggleVip}
     />
   )
 
@@ -279,6 +342,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
           loading={detailLoading}
           onBack={handleBack}
           onStatusChange={handleStatusChange}
+          onAiModeChange={handleAiModeChange}
           onMessageSent={handleMessageSent}
           onEscalated={handleEscalated}
           onOpenContext={() => setContextSheetOpen(true)}

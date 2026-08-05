@@ -2,6 +2,7 @@
 
 import { eachDayOfInterval, endOfWeek, format, isToday, startOfWeek } from "date-fns"
 
+import { EmptyState } from "@/components/empty-state"
 import { cn } from "@/lib/utils"
 
 import { groupPostsByDayKey } from "./calendar-utils"
@@ -47,7 +48,7 @@ export function WeekView({ posts }: WeekViewProps) {
             </div>
             <div className="flex min-h-24 flex-col gap-2 rounded-xl border border-dashed border-border/70 p-2">
               {dayPosts.length === 0 ? (
-                <p className="px-1 py-3 text-center text-xs text-muted-foreground">No posts</p>
+                <EmptyState compact title="No posts" description="" className="flex-1 border-none py-3" />
               ) : (
                 dayPosts.map((post) => <PostCard key={post.id} post={post} variant="full" />)
               )}

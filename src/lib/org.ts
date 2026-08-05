@@ -62,6 +62,8 @@ export interface OrgSidebarContext {
   /** Friendly plan label — real plans.name when available, else prettifyPlanId(plan_id). */
   planName: string
   userEmail: string
+  /** user_metadata.full_name when set — null falls back to an email-derived name in the UI. */
+  userName: string | null
 }
 
 /**
@@ -102,6 +104,10 @@ export const getOrgSidebarContext = cache(async (): Promise<OrgSidebarContext | 
     orgSlug: org?.slug ?? "",
     planName: plan?.name ?? prettifyPlanId(planId),
     userEmail: user.email ?? "",
+    userName:
+      typeof user.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim() !== ""
+        ? user.user_metadata.full_name
+        : null,
   }
 })
 

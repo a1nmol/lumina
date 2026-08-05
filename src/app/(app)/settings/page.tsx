@@ -1,29 +1,11 @@
-import type { Metadata } from "next"
+import { redirect } from "next/navigation"
 
-import { PageHeader } from "@/components/page-header"
-import { isSupabaseConfigured } from "@/lib/supabase/config"
-
-import { getBusinessBrain } from "./brain/actions"
-import { computeBrainCompleteness } from "./brain-completeness"
-import { BrainSummaryCard } from "./brain-summary-card"
-import { FaqCard } from "./faq-card"
-import { UsageCard } from "./usage-card"
-
-export const metadata: Metadata = { title: "Settings & Brain" }
-
-export default async function SettingsPage() {
-  const brain = await getBusinessBrain()
-  const completeness = computeBrainCompleteness(brain)
-
-  return (
-    <div className="flex flex-1 flex-col gap-6">
-      <PageHeader
-        title="Settings & Brain"
-        description="Business info, team, channels, and the Business Brain that powers content and FrontDesk."
-      />
-      <BrainSummaryCard brain={brain} completeness={completeness} />
-      <FaqCard initialFaq={brain.faq} isLive={isSupabaseConfigured()} />
-      <UsageCard />
-    </div>
-  )
+/**
+ * Redesign R2 — /settings is no longer a page of its own; it redirects to
+ * the first category, Business profile. See ./layout.tsx for the shared
+ * sub-nav shell and the other four category routes (business, ai, channels,
+ * plan) for the actual content that used to all live on this one page.
+ */
+export default function SettingsPage() {
+  redirect("/settings/business")
 }

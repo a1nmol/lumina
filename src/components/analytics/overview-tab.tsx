@@ -8,8 +8,10 @@ import { deriveDailySeries } from "./derive-daily-series"
 import { LeadsBookingsChart } from "./leads-bookings-chart"
 import { PostMetricCard } from "./post-metric-card"
 
-function deltaFor(value: number): { direction: "up" | "down"; value: string } {
-  return { direction: value >= 0 ? "up" : "down", value: `${value >= 0 ? "+" : ""}${value}%` }
+/** Formats a percent-change delta honestly — omitted entirely when flat (0%) rather than faking a direction, mirroring dashboard/page.tsx's formatDelta. */
+function deltaFor(value: number): { direction: "up" | "down"; value: string } | undefined {
+  if (value === 0) return undefined
+  return { direction: value > 0 ? "up" : "down", value: `${value > 0 ? "+" : ""}${value}%` }
 }
 
 type OverviewTabProps = {

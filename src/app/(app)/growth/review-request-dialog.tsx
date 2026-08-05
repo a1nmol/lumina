@@ -57,11 +57,6 @@ const CHANNEL_OPTIONS: {
 
 const STEP_LABELS = ["Channel", "Message", "Send"]
 
-// Demo-scale placeholder — a real contact count from the CRM (filtered to
-// consented phone numbers) once SMS review requests are wired to a live
-// provider. buildReviewLink lives in src/lib/growth.ts so this dialog and
-// the Growth page's QR codes card always build the same link.
-const DEMO_RECIPIENT_COUNT = 24
 const COPIED_RESET_MS = 2000
 
 function buildDefaultMessage(businessName: string | null, link: string): string {
@@ -69,11 +64,20 @@ function buildDefaultMessage(businessName: string | null, link: string): string 
   return `Loved your visit to ${name}? We'd be grateful for a quick review: ${link}`
 }
 
-interface ReviewRequestDialogProps {
-  businessBrain: BusinessBrain
+/** "1 customer" / "3 customers". */
+function pluralizeCustomers(count: number): string {
+  return `${count} customer${count === 1 ? "" : "s"}`
 }
 
-export function ReviewRequestDialog({ businessBrain }: ReviewRequestDialogProps) {
+interface ReviewRequestDialogProps {
+  businessBrain: BusinessBrain
+  /** Real count of this org's contacts with a phone number on file (src/app/(app)/growth/page.tsx) — 24 in demo mode, matching isLive being false. */
+  recipientCount: number
+  /** False in demo mode — flips the SMS-step copy between the demo disclaimer and the live "no contacts yet" empty state. */
+  isLive: boolean
+}
+
+export function ReviewRequestDialog({ businessBrain, recipientCount, isLive }: ReviewRequestDialogProps) {
   const link = buildReviewLink(businessBrain.business_name)
 
   const [open, setOpen] = useState(false)
@@ -110,7 +114,8 @@ export function ReviewRequestDialog({ businessBrain }: ReviewRequestDialogProps)
 
   function handlePrimaryAction() {
     if (channel === "sms") {
-      toast.success(`Would send to ${DEMO_RECIPIENT_COUNT} customers`, {
+      if (recipientCount === 0) return // no reachable contacts — the Send button is disabled, this is just a guard
+      toast.success(`Would send to ${pluralizeCustomers(recipientCount)}`, {
         description: "SMS review requests aren't wired up to a live provider yet.",
       })
       setSent(true)
@@ -122,6 +127,7 @@ export function ReviewRequestDialog({ businessBrain }: ReviewRequestDialogProps)
 
   const canContinue = step === 0 ? channel !== null : step === 1 ? message.trim().length > 0 : true
   const isLastStep = step === STEP_LABELS.length - 1
+  const smsDisabled = channel === "sms" && recipientCount === 0
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -225,6 +231,8 @@ export function ReviewRequestDialog({ businessBrain }: ReviewRequestDialogProps)
                   copied={copied}
                   sent={sent}
                   onCopyLink={handleCopyLink}
+                  recipientCount={recipientCount}
+                  isLive={isLive}
                 />
               )}
             </motion.div>
@@ -244,7 +252,7 @@ export function ReviewRequestDialog({ businessBrain }: ReviewRequestDialogProps)
               Done
             </Button>
           ) : (
-            <Button type="button" onClick={handlePrimaryAction} className="gap-1.5">
+            <Button type="button" onClick={handlePrimaryAction} disabled={smsDisabled} className="gap-1.5">
               <Send aria-hidden="true" className="size-3.5" />
               {channel === "sms" ? "Send" : "Copy link"}
             </Button>
@@ -262,6 +270,8 @@ function ResultStep({
   copied,
   sent,
   onCopyLink,
+  recipientCount,
+  isLive,
 }: {
   channel: ReviewChannel
   message: string
@@ -269,6 +279,8 @@ function ResultStep({
   copied: boolean
   sent: boolean
   onCopyLink: () => void
+  recipientCount: number
+  isLive: boolean
 }) {
   if (channel === "qr") {
     async function handleDownload() {
@@ -301,17 +313,27 @@ function ResultStep({
   }
 
   if (channel === "sms") {
+    const noRecipients = recipientCount === 0
+
     return (
       <div className="flex flex-col gap-3">
         <div className="rounded-xl bg-muted/40 p-3 text-sm text-foreground">{message}</div>
-        <p className="text-xs text-muted-foreground">
-          Sending to <span className="font-medium text-foreground">{DEMO_RECIPIENT_COUNT} customers</span> with a
-          phone number on file (demo count — not wired to a live provider yet).
-        </p>
+        {noRecipients ? (
+          <p className="text-xs text-muted-foreground">
+            No customers with a phone number on file yet — they&apos;ll appear here as your front desk collects
+            them.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Sending to <span className="font-medium text-foreground">{pluralizeCustomers(recipientCount)}</span>{" "}
+            with a phone number on file
+            {isLive ? "" : " (demo count — not wired to a live provider yet)"}.
+          </p>
+        )}
         {sent && (
           <div className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-success">
             <Check aria-hidden="true" className="size-4" />
-            Sent (demo) — {DEMO_RECIPIENT_COUNT} customers would receive this text.
+            Sent{isLive ? "" : " (demo)"} — {pluralizeCustomers(recipientCount)} would receive this text.
           </div>
         )}
       </div>
