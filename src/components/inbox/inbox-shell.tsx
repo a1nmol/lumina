@@ -36,6 +36,18 @@ import { ThreadList } from "./thread-list"
 
 type InboxShellProps = {
   initialConversations: ThreadListConversation[]
+  /** Pre-validated (against `initialConversations`) by the server page — see src/app/(app)/inbox/page.tsx. Selects that thread on mount. */
+  initialSelectedId?: string
+  /**
+   * From the Contacts "Message" action (?contact=<id>). Resolved client-side
+   * (not server-validated like `initialSelectedId` — the loaded conversation
+   * list is already the source of truth here) to that contact's most recent
+   * conversation; when none exists, surfaces a toast rather than failing
+   * silently. Ignored when `initialSelectedId` is also present.
+   */
+  initialContactId?: string
+  /** From ?focus=search — focuses the thread-search input on mount. */
+  focusSearchOnMount?: boolean
 }
 
 // Debounce before firing the conversation-detail fetch after `selectedId`
@@ -45,7 +57,12 @@ type InboxShellProps = {
 // unaffected by this delay.
 const DETAIL_FETCH_DEBOUNCE_MS = 180
 
-export function InboxShell({ initialConversations }: InboxShellProps) {
+export function InboxShell({
+  initialConversations,
+  initialSelectedId,
+  initialContactId,
+  focusSearchOnMount,
+}: InboxShellProps) {
   const composerRef = useRef<ReplyComposerHandle>(null)
 
   const [conversations, setConversations] = useState<ThreadListConversation[]>(initialConversations)
@@ -111,6 +128,41 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
     },
     [conversations]
   )
+
+  // Deep-link preselection (Redesign wave R4) — applies `initialSelectedId`
+  // (already server-validated against the loaded list, see
+  // src/app/(app)/inbox/page.tsx) or resolves `initialContactId` (from the
+  // Contacts "Message" action) to that contact's most recent conversation
+  // client-side. `appliedDeepLinkRef` guards this to run exactly once: the
+  // effect's own deps (`conversations`, `handleSelect`) legitimately change
+  // after mount as messages arrive, and re-running the resolution on every
+  // such change would be wasted work (harmless, since re-selecting an
+  // already-selected id is a no-op in handleSelect, but pointless).
+  const appliedDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (appliedDeepLinkRef.current) return
+    appliedDeepLinkRef.current = true
+
+    // Deliberate setState-in-effect (via handleSelect, below): applying a
+    // one-time deep link from the URL is a one-time sync from an external
+    // system (the initial navigation), not state derivable from render —
+    // same rationale as the reviewed pattern in
+    // src/components/notifications-provider.tsx.
+    if (initialSelectedId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      handleSelect(initialSelectedId)
+      return
+    }
+
+    if (initialContactId) {
+      const target = conversations.find((conversation) => conversation.contact_id === initialContactId)
+      if (target) {
+        handleSelect(target.id)
+      } else {
+        toast.error("No conversation with them yet")
+      }
+    }
+  }, [conversations, handleSelect, initialContactId, initialSelectedId])
 
   function handleBack() {
     setSelectedId(null)
@@ -328,6 +380,7 @@ export function InboxShell({ initialConversations }: InboxShellProps) {
           onFilterChange={setFilter}
           onChannelFilterChange={setChannelFilter}
           onSelect={handleSelect}
+          focusSearchOnMount={focusSearchOnMount}
           className="h-full"
         />
       </div>

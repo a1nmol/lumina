@@ -138,7 +138,7 @@ async function loadDashboardData(): Promise<DashboardData> {
 
 export default async function DashboardPage() {
   const isLive = isSupabaseConfigured()
-  const [{ greetName, stats }, digestRows] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
+  const [{ greetName, stats }, digest] = await Promise.all([loadDashboardData(), getWhileYouWereAwayDigest()])
   // A live org with real activity shouldn't be told to "get started" —
   // only prompt to connect channels in demo mode or when the org's stats
   // are genuinely all zero (nothing to show yet).
@@ -151,8 +151,16 @@ export default async function DashboardPage() {
         description="Here's how your content and front desk loop performed this week."
       />
 
-      {digestRows && digestRows.length > 0 && (
-        <ReceiptCard title="While you were away" rows={digestRows} footer="Have a great day." />
+      {digest && digest.kind === "activity" && (
+        <ReceiptCard title="While you were away" rows={digest.rows} footer="Have a great day." />
+      )}
+      {digest && digest.kind === "caught_up" && (
+        <ReceiptCard
+          title="While you were away"
+          message="All caught up — nothing new since your last visit."
+          withWick
+          footer="Have a great day."
+        />
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

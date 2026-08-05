@@ -11,7 +11,7 @@
 // reuses the SAME conversation-select handler ThreadRow uses, then clears
 // and collapses back to the normal list.
 
-import { useCallback, useId, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { Search, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
@@ -37,12 +37,15 @@ type SearchState =
 type ThreadSearchProps = {
   /** The same handler ThreadRow's onSelect ultimately calls — a search result row picks a conversation exactly like clicking it in the list would. */
   onSelectConversation: (id: string) => void
+  /** From ?focus=search (see src/app/(app)/inbox/page.tsx via thread-list.tsx) — focuses the input once on mount. */
+  autoFocus?: boolean
   className?: string
 }
 
-export function ThreadSearch({ onSelectConversation, className }: ThreadSearchProps) {
+export function ThreadSearch({ onSelectConversation, autoFocus, className }: ThreadSearchProps) {
   const reduceMotion = useReducedMotion()
   const inputId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState("")
   const [state, setState] = useState<SearchState>({ status: "idle" })
   // Guards against a stale response landing after a newer search (or a
@@ -50,6 +53,13 @@ export function ThreadSearch({ onSelectConversation, className }: ThreadSearchPr
   // src/components/inbox/inbox-shell.tsx uses for its detail fetch, just as
   // a monotonic counter since multiple submits can overlap here.
   const requestIdRef = useRef(0)
+
+  // Deep-link focus (?focus=search — Redesign wave R4). Mount-only: no deps
+  // besides `autoFocus` itself, so a later re-render never steals focus back.
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const isOpen = state.status !== "idle"
   const isLoading = state.status === "loading"
@@ -125,6 +135,7 @@ export function ThreadSearch({ onSelectConversation, className }: ThreadSearchPr
           </label>
           <Input
             id={inputId}
+            ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}

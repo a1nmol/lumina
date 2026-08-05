@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { duration, easing } from "@/lib/motion"
+import { cn } from "@/lib/utils"
 import type { Contact, ContactStatus } from "@/lib/types"
 
 import { AddContactDialog } from "./add-contact-dialog"
@@ -290,10 +291,18 @@ function ContactRow({ contact, onOpen, onBook, onCopy }: RowProps) {
       </TableCell>
       <TableCell className="py-3.5 text-right">
         <div
-          className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 has-[[data-popup-open]]:opacity-100"
+          className={cn(
+            "flex items-center justify-end gap-1 opacity-70 transition-opacity",
+            // Fine-pointer desktop only: hidden until hover/focus reveals it.
+            // Touch/coarse-pointer devices (and anything below md, though the
+            // desktop table itself is md+-only — see the wrapper above) keep
+            // the reduced-emphasis opacity-70 above, since there's no hover
+            // to reveal them with.
+            "pointer-fine:md:opacity-0 pointer-fine:md:group-hover/row:opacity-100 pointer-fine:md:group-focus-within/row:opacity-100 pointer-fine:md:has-[[data-popup-open]]:opacity-100"
+          )}
           onClick={(event) => event.stopPropagation()}
         >
-          <Button variant="ghost" size="sm" render={<Link href="/inbox" />}>
+          <Button variant="ghost" size="sm" render={<Link href={`/inbox?contact=${contact.id}`} />}>
             <MessageCircle aria-hidden="true" data-icon="inline-start" />
             Message
           </Button>
@@ -367,7 +376,7 @@ function ContactCard({ contact, index, reduceMotion, onOpen, onBook }: CardProps
         </button>
         <TagChips tags={contact.tags} />
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="flex-1" render={<Link href="/inbox" />}>
+          <Button variant="outline" size="sm" className="flex-1" render={<Link href={`/inbox?contact=${contact.id}`} />}>
             <MessageCircle aria-hidden="true" data-icon="inline-start" />
             Message
           </Button>

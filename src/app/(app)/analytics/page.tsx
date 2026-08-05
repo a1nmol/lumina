@@ -90,6 +90,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         postMetrics={postMetrics}
         loopPairs={loopPairs}
         rangeDays={rangeDays}
+        defaultTab={loopPairs.length > 0 ? "loop" : "overview"}
       />
     </div>
   )

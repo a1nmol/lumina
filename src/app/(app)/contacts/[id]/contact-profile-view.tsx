@@ -81,7 +81,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
         actions={
           <div className="flex items-center gap-2">
             <StatusPill status={contact.status} />
-            <Button variant="outline" render={<Link href="/inbox" />}>
+            <Button variant="outline" render={<Link href={`/inbox?contact=${contact.id}`} />}>
               <MessageCircle aria-hidden="true" data-icon="inline-start" />
               Message
             </Button>

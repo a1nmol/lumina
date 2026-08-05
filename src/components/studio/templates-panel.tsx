@@ -6,6 +6,7 @@ import { ChevronDown, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { useMounted } from "@/hooks/use-mounted"
 import { duration, easing } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +20,34 @@ function snippet(text: string, max: number): string {
   const trimmed = text.trim()
   if (trimmed.length <= max) return trimmed
   return `${trimmed.slice(0, max).trimEnd()}…`
+}
+
+// Manual-collapse persistence (Redesign wave R4) — the strip defaults OPEN
+// whenever the user has templates (collapsed only when there are none, via
+// the early empty-state return below) but once the user manually toggles it,
+// that choice is remembered across sessions. Mirrors the read/write-
+// localStorage pattern in src/components/analytics/insight-banner.tsx: a
+// plain string flag ("true"/"false"), read directly during render (gated by
+// `useMounted`) rather than synced into state from an effect.
+const OPEN_STORAGE_KEY = "lumina:studio:templates-panel-open"
+
+function readStoredOpen(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(OPEN_STORAGE_KEY)
+    if (raw === "true") return true
+    if (raw === "false") return false
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(OPEN_STORAGE_KEY, String(open))
+  } catch {
+    // Best-effort — private browsing / storage quota shouldn't break the strip.
+  }
 }
 
 type TemplatesPanelProps = {
@@ -38,8 +67,24 @@ type TemplatesPanelProps = {
  */
 export function TemplatesPanel({ templates, onUse, disabled, className }: TemplatesPanelProps) {
   const reduceMotion = useReducedMotion()
+  const mounted = useMounted()
   const [items, setItems] = useState(templates)
-  const [open, setOpen] = useState(false)
+  // `openVersion` isn't read directly — it exists purely to force the
+  // render-time localStorage read below to re-run after a manual toggle.
+  const [openVersion, setOpenVersion] = useState(0)
+  void openVersion
+
+  const storedOpen = mounted ? readStoredOpen() : null
+  // Default OPEN whenever there are templates (this function only ever
+  // renders that strip when items.length > 0 — see the empty-state return
+  // below) unless the user has explicitly toggled it before.
+  const open = storedOpen ?? items.length > 0
+
+  function toggleOpen() {
+    const next = !open
+    writeStoredOpen(next)
+    setOpenVersion((version) => version + 1)
+  }
 
   async function handleDelete(id: string, name: string) {
     const previousItems = items
@@ -73,7 +118,7 @@ export function TemplatesPanel({ templates, onUse, disabled, className }: Templa
     <div className={cn("flex flex-col gap-2", className)}>
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
         aria-expanded={open}
         aria-controls="studio-templates-strip"
         className="inline-flex w-fit items-center gap-1.5 rounded-md px-0.5 py-1 text-sm font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/50"

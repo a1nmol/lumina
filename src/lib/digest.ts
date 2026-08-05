@@ -29,23 +29,37 @@ function daysSince(lastSeenMs: number): number {
 }
 
 /**
- * Rows for the Command Center's "while you were away" digest. Demo mode
- * always returns the illustrative fixed set (so the design is visible
- * without a live org or visit history). Live mode returns null when there's
- * no baseline (first-ever visit — no `last-seen` cookie yet) or nothing new
- * happened since the last visit; otherwise only the non-zero rows.
+ * The Command Center's "while you were away" digest — a discriminated
+ * result so the surface always exists (Redesign wave R4) instead of
+ * vanishing on quiet days/new users:
+ *   - "activity": real rows to itemize (the original receipt-list treatment).
+ *   - "caught_up": nothing new (or no baseline yet, e.g. a brand-new user's
+ *     first-ever visit) — a calm one-line "All caught up" variant, still
+ *     rendered so the surface teaches itself to first-time users.
+ *   - null: the org/user context genuinely isn't resolved yet (should
+ *     self-heal on the next request via ensureOrgBootstrap in the app
+ *     layout) — nothing honest to render either way, so this stays absent.
  */
-export async function getWhileYouWereAwayDigest(): Promise<ReceiptCardRow[] | null> {
-  if (!isSupabaseConfigured()) return DEMO_WHILE_YOU_WERE_AWAY_ROWS
+export type WhileYouWereAwayDigest = { kind: "activity"; rows: ReceiptCardRow[] } | { kind: "caught_up" } | null
+
+/**
+ * Demo mode always returns the illustrative fixed activity set (so the
+ * design is visible without a live org or visit history). Live mode returns
+ * "caught_up" when there's no baseline (first-ever visit — no `last-seen`
+ * cookie yet) or nothing new happened since the last visit; otherwise
+ * "activity" with only the non-zero rows.
+ */
+export async function getWhileYouWereAwayDigest(): Promise<WhileYouWereAwayDigest> {
+  if (!isSupabaseConfigured()) return { kind: "activity", rows: DEMO_WHILE_YOU_WERE_AWAY_ROWS }
 
   const context = await getOrgSidebarContext()
   if (!context) return null
 
   const lastSeenIso = await getLastSeenIso()
-  if (!lastSeenIso) return null
+  if (!lastSeenIso) return { kind: "caught_up" }
 
   const lastSeenMs = new Date(lastSeenIso).getTime()
-  if (Number.isNaN(lastSeenMs)) return null
+  if (Number.isNaN(lastSeenMs)) return { kind: "caught_up" }
 
   const [conversations, overview, newCallCount] = await Promise.all([
     listConversations(context.orgId, { unreadOnly: true }),
@@ -77,5 +91,5 @@ export async function getWhileYouWereAwayDigest(): Promise<ReceiptCardRow[] | nu
     rows.push({ label: `New call${newCallCount === 1 ? "" : "s"}`, value: String(newCallCount) })
   }
 
-  return rows.length > 0 ? rows : null
+  return rows.length > 0 ? { kind: "activity", rows } : { kind: "caught_up" }
 }

@@ -38,6 +38,8 @@ type ThreadListProps = {
   onFilterChange: (filter: ThreadFilter) => void
   onChannelFilterChange: (channel: ChannelFilterValue) => void
   onSelect: (id: string) => void
+  /** From ?focus=search (see src/app/(app)/inbox/page.tsx) — focuses the thread-search input on mount. */
+  focusSearchOnMount?: boolean
   className?: string
 }
 
@@ -49,6 +51,7 @@ export function ThreadList({
   onFilterChange,
   onChannelFilterChange,
   onSelect,
+  focusSearchOnMount,
   className,
 }: ThreadListProps) {
   const reduceMotion = useReducedMotion()
@@ -77,7 +80,7 @@ export function ThreadList({
 
   return (
     <div className={cn("flex h-full flex-col", className)}>
-      <ThreadSearch onSelectConversation={onSelect} />
+      <ThreadSearch onSelectConversation={onSelect} autoFocus={focusSearchOnMount} />
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5">
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {THREAD_FILTERS.map((option) => (
