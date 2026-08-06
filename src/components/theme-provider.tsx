@@ -19,6 +19,8 @@ import { useMounted } from "@/hooks/use-mounted"
 export type Theme = "light" | "dark" | "system"
 
 interface ThemeProviderState {
+  /** Scene-locks the resolved theme (marketing pages force daylight — see ThemeLock). Returns an unlock fn. While locked, stored/system theme is remembered but not painted. */
+  lockResolvedTheme: (locked: "light" | "dark") => () => void
   theme: Theme
   /** `undefined` until the provider has mounted and resolved a concrete theme. */
   resolvedTheme: "light" | "dark" | undefined
@@ -109,9 +111,14 @@ export function ThemeProvider({
   // useState+useEffect "mounted" flag as an unnecessary synchronous setState.
   const mounted = useMounted()
 
+  // Scene lock (ThemeLock): while set, every applyTheme paints the locked
+  // register instead of the stored/system one. A ref (not state) — locking
+  // paints imperatively and must never re-render the whole provider tree.
+  const lockRef = React.useRef<"light" | "dark" | null>(null)
+
   const applyTheme = React.useCallback(
     (next: Theme) => {
-      const resolved = next === "system" ? getSystemTheme() : next
+      const resolved = lockRef.current ?? (next === "system" ? getSystemTheme() : next)
       const paint = () => {
         applyResolvedTheme(resolved)
         setResolvedTheme(resolved)
@@ -171,13 +178,30 @@ export function ThemeProvider({
     [applyTheme, storageKey]
   )
 
+  const lockResolvedTheme = React.useCallback(
+    (locked: "light" | "dark") => {
+      lockRef.current = locked
+      applyTheme(locked)
+      return () => {
+        lockRef.current = null
+        // Restore whatever the user's real preference resolves to now.
+        setThemeState((current) => {
+          applyTheme(current)
+          return current
+        })
+      }
+    },
+    [applyTheme]
+  )
+
   const value = React.useMemo<ThemeProviderState>(
     () => ({
       theme,
       resolvedTheme: mounted ? resolvedTheme : undefined,
       setTheme,
+      lockResolvedTheme,
     }),
-    [theme, resolvedTheme, mounted, setTheme]
+    [theme, resolvedTheme, mounted, setTheme, lockResolvedTheme]
   )
 
   return (

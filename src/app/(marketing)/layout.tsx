@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { WickGuide } from "@/components/brand/wick-guide"
+import { ThemeLock } from "@/components/theme-lock"
 import { ShopExampleProvider } from "@/components/marketing/shop-context"
 import { MarketingFooter } from "@/components/marketing/footer"
 import { MarketingNav } from "@/components/marketing/nav"
@@ -22,6 +23,10 @@ import { MarketingNav } from "@/components/marketing/nav"
 export default function MarketingLayout({ children }: { children: ReactNode }) {
   return (
     <ShopExampleProvider>
+      {/* Marketing is ALWAYS the daylight register (owner directive) — the
+          street's light look for every visitor; dusk-locked story sections
+          inside keep their own scene lock. */}
+      <ThemeLock theme="light" />
       <MarketingNav />
       <main className="flex-1">{children}</main>
       <MarketingFooter />
