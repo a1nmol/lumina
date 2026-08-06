@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { useWickCelebration } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { Input } from "@/components/ui/input"
@@ -139,6 +140,7 @@ type ComposerProps = {
 
 export function Composer({ businessName, templates = [], aiAssistAvailable = true }: ComposerProps) {
   const reduceMotion = useReducedMotion()
+  const { celebrate } = useWickCelebration()
   const isMountedRef = useRef(true)
   const revealIntervalRef = useRef<RevealInterval | null>(null)
   // Synchronous re-entrancy guard — `status` is React state and can lag a
@@ -426,6 +428,7 @@ export function Composer({ businessName, templates = [], aiAssistAvailable = tru
             ? `Scheduled for ${describeScheduledAt(result.scheduledAt)}.`
             : "Find it in Calendar → Queue.",
         })
+        celebrate({ message: "Queued. The street will see it." })
       } else {
         toast.error("Couldn't add to queue", { description: "Please try again." })
       }

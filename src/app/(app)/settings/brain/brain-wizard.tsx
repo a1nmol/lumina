@@ -1,11 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { ArrowLeft, Check, CheckCircle2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { Wick, type WickState } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 import { duration, easing, fadeUp, springGentle } from "@/lib/motion"
 import type { BusinessBrain } from "@/lib/types"
@@ -18,6 +19,9 @@ import { ChannelsStep } from "./steps/channels-step"
 import { HoursServicesStep } from "./steps/hours-services-step"
 import { VoiceBrandStep } from "./steps/voice-brand-step"
 
+/** How long Wick's "step completed" reaction holds before settling back to idle — a quiet pulse, not a full celebration (that's reserved for the finish screen). */
+const WICK_STEP_REACTION_MS = 1400
+
 type BrainWizardProps = {
   initialBrain: BusinessBrain
 }
@@ -28,6 +32,23 @@ export function BrainWizard({ initialBrain }: BrainWizardProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [showCompletion, setShowCompletion] = useState(false)
   const reduceMotion = useReducedMotion()
+
+  // Wick perches beside the progress header and reacts to progress: a brief
+  // "curious" (happy/excited) pulse whenever the step index actually
+  // advances (Continue/Skip), settling back to idle after a beat. Never
+  // fires on stepping backward (Back / clicking an earlier pill) — only
+  // forward progress reads as an accomplishment. `prevStepIndexRef` starts
+  // equal to the initial `stepIndex` so mount never falsely triggers it.
+  const [wickState, setWickState] = useState<WickState>("idle")
+  const prevStepIndexRef = useRef(stepIndex)
+  useEffect(() => {
+    const advanced = stepIndex > prevStepIndexRef.current
+    prevStepIndexRef.current = stepIndex
+    if (!advanced) return
+    setWickState("curious")
+    const timer = setTimeout(() => setWickState("idle"), WICK_STEP_REACTION_MS)
+    return () => clearTimeout(timer)
+  }, [stepIndex])
 
   // Callback ref (instead of a stepIndex-keyed effect) so focus moves to the
   // new heading exactly when AnimatePresence mode="wait" actually mounts it
@@ -107,13 +128,16 @@ export function BrainWizard({ initialBrain }: BrainWizardProps) {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Business Brain setup
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Step {stepIndex + 1} of {WIZARD_STEPS.length}
-        </p>
+      <div className="flex items-center gap-3">
+        <Wick state={wickState} size={40} className="shrink-0" />
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Business Brain setup
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Step {stepIndex + 1} of {WIZARD_STEPS.length}
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -213,16 +237,23 @@ function CompletionState({
   headingRef: (node: HTMLHeadingElement | null) => void
   reduceMotion: boolean
 }) {
+  // Composes with the existing spring-in check icon (doesn't replace it) —
+  // Wick plays his one-shot "celebrating" loop-de-loop alongside it, then
+  // settles back to idle rather than freezing on the loop's last frame.
+  const [wickState, setWickState] = useState<WickState>("celebrating")
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl bg-card px-6 py-20 text-center shadow-soft ring-1 ring-foreground/10">
-      <motion.div
-        initial={reduceMotion ? false : { scale: 0.6, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={reduceMotion ? { duration: 0 } : springGentle}
-        className="flex size-16 items-center justify-center rounded-full bg-success/10 text-success ring-1 ring-success/20"
-      >
-        <CheckCircle2 aria-hidden="true" className="size-8" />
-      </motion.div>
+      <div className="flex items-center gap-3">
+        <motion.div
+          initial={reduceMotion ? false : { scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={reduceMotion ? { duration: 0 } : springGentle}
+          className="flex size-16 items-center justify-center rounded-full bg-success/10 text-success ring-1 ring-success/20"
+        >
+          <CheckCircle2 aria-hidden="true" className="size-8" />
+        </motion.div>
+        <Wick state={wickState} size={56} onComplete={() => setWickState("idle")} />
+      </div>
       <div className="flex max-w-sm flex-col gap-1.5">
         <h2
           ref={headingRef}

@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { getBusinessBrain } from "@/app/(app)/settings/brain/actions"
 import { createAppointmentAction } from "@/app/(app)/contacts/booking-actions"
 import { displayName } from "@/app/(app)/contacts/utils"
+import { useWickCelebration } from "@/components/brand/wick"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -47,6 +48,7 @@ type BookingDialogProps = {
 
 export function BookingDialog({ contact, open, onOpenChange, onBooked }: BookingDialogProps) {
   const formId = useId()
+  const { celebrate } = useWickCelebration()
   const [brain, setBrain] = useState<BusinessBrain | null>(null)
   const [loadingBrain, setLoadingBrain] = useState(false)
   const [service, setService] = useState("")
@@ -127,6 +129,7 @@ export function BookingDialog({ contact, open, onOpenChange, onBooked }: Booking
         minute: "2-digit",
       })
       toast.success(`Booked ${service} for ${label}`)
+      celebrate({ message: "Booked!" })
       onBooked?.(result.appointment)
       handleOpenChange(false)
     } else {

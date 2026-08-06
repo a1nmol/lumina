@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { CalendarCheck2, Link2, Send, Star, UserPlus } from "lucide-react"
 
 import { ReceiptCard } from "@/components/brand/receipt-card"
+import { DashboardHeroAccent } from "@/components/dashboard/dashboard-hero-accent"
 import { DigestSeenTracker } from "@/components/dashboard/digest-seen-tracker"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
@@ -170,27 +171,40 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <PageHeader
-        title={`${getGreeting()}, ${greetName}`}
-        description="Here's how your content and front desk loop performed this week."
-      />
+      {/* Command Center ambient dusk — the redesign's one signature hero
+          accent (DESIGN_SYSTEM.md). Contained to the greeting + digest +
+          stat strip only, never full-page. */}
+      <div className="relative isolate">
+        {/* Clip lives on the backdrop layer only (review fix): an
+            overflow-hidden ancestor over the stat grid chopped hover
+            shadows and lamplight focus rings on the edge cards. */}
+        <div aria-hidden="true" className="absolute inset-0 -z-10 overflow-hidden rounded-2xl">
+          <DashboardHeroAccent />
+        </div>
+        <div className="flex flex-col gap-6">
+          <PageHeader
+            title={`${getGreeting()}, ${greetName}`}
+            description="Here's how your content and front desk loop performed this week."
+          />
 
-      {digest && digest.kind === "activity" && (
-        <ReceiptCard title="While you were away" rows={digest.rows} footer="Have a great day." />
-      )}
-      {digest && digest.kind === "caught_up" && (
-        <ReceiptCard
-          title="While you were away"
-          message="All caught up — nothing new since your last visit."
-          withWick
-          footer="Have a great day."
-        />
-      )}
+          {digest && digest.kind === "activity" && (
+            <ReceiptCard title="While you were away" rows={digest.rows} footer="Have a great day." />
+          )}
+          {digest && digest.kind === "caught_up" && (
+            <ReceiptCard
+              title="While you were away"
+              message="All caught up — nothing new since your last visit."
+              withWick
+              footer="Have a great day."
+            />
+          )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat, index) => (
-          <StatCard key={stat.label} index={index} {...stat} />
-        ))}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {stats.map((stat, index) => (
+              <StatCard key={stat.label} index={index} {...stat} />
+            ))}
+          </div>
+        </div>
       </div>
 
       {showConnectPrompt && (

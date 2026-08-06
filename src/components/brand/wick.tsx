@@ -33,6 +33,7 @@ import {
 import { usePathname } from "next/navigation"
 import { motion, useAnimationControls, useReducedMotion, type Transition } from "framer-motion"
 
+import { WickBubble } from "@/components/brand/wick-bubble"
 import { cn } from "@/lib/utils"
 import { easing, springGentle } from "@/lib/motion"
 
@@ -102,6 +103,16 @@ export type WickProps = {
 const ONE_SHOT_STATES: ReadonlySet<WickState> = new Set(["celebrating", "oops"])
 
 const BANNED_PATH_FRAGMENTS = ["/admin", "/settings"]
+/**
+ * Carve-out from the banned fragments above — `/settings/brain` is the
+ * Business Brain setup WIZARD, which DESIGN_SYSTEM.md's "signature moments"
+ * and brand-redesign-plan.md's allowed-surface list (§4: "onboarding
+ * steps") both explicitly call out as a Wick surface, even though its route
+ * happens to nest under the otherwise-banned `/settings` prefix (dense
+ * account/billing/channel settings, which stay banned). Prefix-matched so
+ * the wizard's own sub-routes (if any) stay covered too.
+ */
+const ALLOWED_PATH_OVERRIDES = ["/settings/brain"]
 
 /** Route/instance-independent module-level cache so we only warn once per pathname per session, not once per re-render. */
 const warnedPaths = new Set<string>()
@@ -111,6 +122,7 @@ function useBannedSurfaceGuard() {
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return
     if (!pathname) return
+    if (ALLOWED_PATH_OVERRIDES.some((allowed) => pathname === allowed || pathname.startsWith(`${allowed}/`))) return
     const hit = BANNED_PATH_FRAGMENTS.find((fragment) => pathname.includes(fragment))
     if (hit && !warnedPaths.has(pathname)) {
       warnedPaths.add(pathname)
@@ -833,6 +845,9 @@ function WickMotionTrail() {
 type CelebrationOptions = {
   /** Which viewport corner Wick celebrates in. Defaults to "bottom-right". */
   corner?: "top-right" | "top-left" | "bottom-right" | "bottom-left"
+  /** Optional short in-voice line, shown in a WickBubble beside him for the
+   *  duration of the celebration (e.g. "Queued. The street will see it."). */
+  message?: string
 }
 
 type WickMomentsContextValue = {
@@ -848,17 +863,37 @@ const CORNER_CLASSNAMES: Record<NonNullable<CelebrationOptions["corner"]>, strin
   "bottom-left": "bottom-6 left-6",
 }
 
+/** Bubble opens toward whichever side has room — away from the viewport edge the corner is anchored to. */
+const CORNER_BUBBLE_SIDE: Record<NonNullable<CelebrationOptions["corner"]>, "left" | "right"> = {
+  "top-right": "left",
+  "bottom-right": "left",
+  "top-left": "right",
+  "bottom-left": "right",
+}
+
+/** Celebrating is a one-shot animated state (see `ONE_SHOT_STATES`/`onComplete` above) — under `prefers-reduced-motion` Wick renders statically and never fires `onAnimationComplete`, so nothing would ever clear `active`. This is the fallback: auto-dismiss after a fixed beat long enough to read a short message. */
+const REDUCED_MOTION_CELEBRATION_MS = 2200
+
 /** Mount once, near the app root (see src/components/providers.tsx). */
 export function WickMomentsProvider({ children }: { children: ReactNode }) {
-  const [active, setActive] = useState<{ id: number; corner: NonNullable<CelebrationOptions["corner"]> } | null>(
-    null
-  )
+  const [active, setActive] = useState<{
+    id: number
+    corner: NonNullable<CelebrationOptions["corner"]>
+    message?: string
+  } | null>(null)
   const nextId = useRef(0)
+  const reduceMotion = useReducedMotion()
 
   function celebrate(options?: CelebrationOptions) {
     nextId.current += 1
-    setActive({ id: nextId.current, corner: options?.corner ?? "bottom-right" })
+    setActive({ id: nextId.current, corner: options?.corner ?? "bottom-right", message: options?.message })
   }
+
+  useEffect(() => {
+    if (!active || !reduceMotion) return
+    const timer = setTimeout(() => setActive(null), REDUCED_MOTION_CELEBRATION_MS)
+    return () => clearTimeout(timer)
+  }, [active, reduceMotion])
 
   const value = useMemo<WickMomentsContextValue>(() => ({ celebrate }), [])
 
@@ -871,7 +906,18 @@ export function WickMomentsProvider({ children }: { children: ReactNode }) {
           aria-hidden="true"
           className={cn("pointer-events-none fixed z-50", CORNER_CLASSNAMES[active.corner])}
         >
-          <Wick state="celebrating" size={64} onComplete={() => setActive(null)} />
+          <div className="relative">
+            <Wick state="celebrating" size={64} onComplete={() => setActive(null)} />
+            {active.message && (
+              <WickBubble
+                text={active.message}
+                side={CORNER_BUBBLE_SIDE[active.corner]}
+                reduceMotion={!!reduceMotion}
+                instant
+                maxWidthPx={200}
+              />
+            )}
+          </div>
         </div>
       )}
     </WickMomentsContext.Provider>
