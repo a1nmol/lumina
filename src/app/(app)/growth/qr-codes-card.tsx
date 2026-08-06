@@ -41,7 +41,9 @@ export function QrCodesCard({ reviewLink, bookingLink, chatLink }: QrCodesCardPr
   ] as const
 
   return (
-    <Card>
+    // Companion C3 — same faint-edge-ring + raised-elevation override every
+    // other room's cards get; the shared Card primitive itself is untouched.
+    <Card className="rounded-2xl ring-border/40 shadow-raised">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>
@@ -84,7 +86,7 @@ function QrCodeItem({
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-border p-4 text-center transition-colors hover:bg-muted/30">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 p-4 text-center transition-colors hover:bg-muted/30">
       <QrCode value={value} size={112} ariaLabel={`QR code linking to ${label.toLowerCase()}: ${value}`} />
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-medium text-foreground">{label}</span>

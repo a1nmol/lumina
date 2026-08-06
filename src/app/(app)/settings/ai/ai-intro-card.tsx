@@ -83,7 +83,7 @@ export function AiIntroCard({ initialIntroEnabled, initialIntroText, isLive, cla
   }
 
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card size="sm" className={cn("gap-3 rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
@@ -92,8 +92,8 @@ export function AiIntroCard({ initialIntroEnabled, initialIntroText, isLive, cla
           <CardTitle className="text-sm">Honest AI intro</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          Sent once at the start of a new conversation (or after 2+ quiet hours), in your own words, so people know
-          when it&apos;s the AI talking. Never added to every message.
+          I&apos;ll send this once, at the start of a new conversation (or after 2+ quiet hours) — in your own words,
+          so people know it&apos;s me they&apos;re talking to. Never added to every message.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">

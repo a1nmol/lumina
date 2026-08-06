@@ -141,9 +141,12 @@ export function ContactsView({ initialContacts, isLive }: ContactsViewProps) {
         />
       ) : (
         <>
-          {/* Desktop / tablet: real table */}
-          <div className="hidden overflow-hidden rounded-xl ring-1 ring-foreground/10 md:block">
-            <Table>
+          {/* Desktop / tablet: real table — Companion C3's "warm ledger
+              panel": faint edge ring + raised elevation instead of a flat
+              hard ring, softer row separators via the descendant override
+              below (table semantics/a11y unchanged). */}
+          <div className="hidden overflow-hidden rounded-2xl bg-card shadow-raised ring-1 ring-border/40 md:block">
+            <Table className="[&_tr]:border-border/50">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="py-3">Contact</TableHead>
@@ -356,7 +359,7 @@ function ContactCard({ contact, index, reduceMotion, onOpen, onBook }: CardProps
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: duration.base, ease: easing.out, delay: reduceMotion ? 0 : index * 0.03 }}
     >
-      <div className="flex flex-col gap-2.5 rounded-xl bg-card p-3.5 ring-1 ring-foreground/10 transition-colors hover:bg-muted/40">
+      <div className="flex flex-col gap-2.5 rounded-2xl bg-card p-3.5 ring-1 ring-border/40 shadow-soft transition-colors hover:bg-muted/40">
         <button
           type="button"
           onClick={onOpen}
@@ -403,7 +406,7 @@ function EmptyContactsState({ onAdd }: { onAdd: () => void }) {
 
 function NoSearchResults({ onClear }: { onClear: () => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card/40 px-6 py-14 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/60 bg-card/40 px-6 py-14 text-center">
       <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Search aria-hidden="true" className="size-4" />
       </span>

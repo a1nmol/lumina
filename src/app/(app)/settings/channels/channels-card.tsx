@@ -98,7 +98,7 @@ export async function ChannelsCard({ connectedParam, errorParam, igErrorParam }:
             : null
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export async function ChannelsCard({ connectedParam, errorParam, igErrorParam }:
             own — to publish and reply from Lumina.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-foreground/10">
+          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-border/40">
             {connections.map((connection) => {
               const isInstagramOnly = connection.provider === "instagram"
               const title = isInstagramOnly

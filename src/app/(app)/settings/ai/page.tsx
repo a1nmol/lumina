@@ -29,7 +29,7 @@ export default async function SettingsAiPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title="AI behaviour"
-        description="How Lumina's FrontDesk AI introduces itself, replies, and follows up on its own."
+        description="How I introduce myself, reply, and follow up on my own."
       />
 
       <div className="grid gap-4 sm:grid-cols-2">

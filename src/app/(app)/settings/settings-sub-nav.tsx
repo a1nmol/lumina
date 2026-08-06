@@ -33,7 +33,7 @@ export function SettingsSubNav() {
 
   return (
     <nav aria-label="Settings" className="hidden w-56 shrink-0 lg:block">
-      <div className="sticky top-20 flex flex-col gap-1">
+      <div className="sticky top-20 flex flex-col gap-1 rounded-2xl bg-card/70 p-2 ring-1 ring-border/40 shadow-raised backdrop-blur-sm">
         <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Settings</h2>
         {SETTINGS_SUB_NAV.map((item) => (
           <DesktopNavLink key={item.href} item={item} isActive={isItemActive(pathname, item)} />

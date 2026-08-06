@@ -37,7 +37,11 @@ export function RangeSegmented({ className }: { className?: string }) {
       options={SEGMENTED_OPTIONS}
       aria-label="Time range"
       className={cn(
-        "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+        // Companion C3 — "range/tab controls into the room header line": a
+        // lifted card pill (faint edge ring + soft shadow) instead of a flat
+        // muted well, so this reads as chrome continuing the slim room
+        // header above rather than dense-UI filler.
+        "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-card p-1 text-muted-foreground ring-1 ring-border/40 shadow-soft",
         className
       )}
       itemClassName={() => "h-[calc(100%-1px)] rounded-md px-3 py-0.5 text-sm font-medium"}

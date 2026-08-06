@@ -17,6 +17,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import { formatForwardingCodes } from "@/lib/voice/forwarding-codes"
 
 const COPY_RESET_MS = 1500
@@ -29,7 +30,7 @@ type VoicePhoneNumberCardProps = {
 export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumberCardProps) {
   if (phoneNumber) {
     return (
-      <Card className={className}>
+      <Card className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
         <CardHeader>
           <div className="flex items-center gap-2">
             <CardIcon>
@@ -49,7 +50,7 @@ export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumbe
   }
 
   return (
-    <Card className={className}>
+    <Card className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>
@@ -60,7 +61,7 @@ export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumbe
         <CardDescription>Your AI Receptionist needs a number to answer. Here&apos;s how it works.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2 rounded-xl bg-muted/30 p-4 ring-1 ring-foreground/10">
+        <div className="flex flex-col gap-2 rounded-xl bg-muted/30 p-4 ring-1 ring-border/40">
           <div className="flex items-center gap-2">
             <ShoppingBag aria-hidden="true" className="size-4 text-muted-foreground" />
             <p className="text-sm font-medium text-foreground">Get a Lumina number</p>
@@ -73,7 +74,7 @@ export function VoicePhoneNumberCard({ phoneNumber, className }: VoicePhoneNumbe
           </Button>
         </div>
 
-        <div className="flex flex-col gap-2 rounded-xl bg-muted/30 p-4 ring-1 ring-foreground/10">
+        <div className="flex flex-col gap-2 rounded-xl bg-muted/30 p-4 ring-1 ring-border/40">
           <div className="flex items-center gap-2">
             <PhoneIncoming aria-hidden="true" className="size-4 text-muted-foreground" />
             <p className="text-sm font-medium text-foreground">Keep your own number</p>
@@ -107,7 +108,7 @@ function ForwardingInstructions({ luminaNumber }: { luminaNumber: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl bg-muted/30 p-4 ring-1 ring-foreground/10">
+    <div className="flex flex-col gap-2.5 rounded-xl bg-muted/30 p-4 ring-1 ring-border/40">
       <div className="flex items-center gap-2">
         <PhoneIncoming aria-hidden="true" className="size-4 text-muted-foreground" />
         <p className="text-sm font-medium text-foreground">Forward your own number here</p>

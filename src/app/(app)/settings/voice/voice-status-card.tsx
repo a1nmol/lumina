@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { cn } from "@/lib/utils"
 
 import { disableVoice, enableVoice } from "../voice-actions"
 
@@ -74,7 +75,7 @@ export function VoiceStatusCard({ initialEnabled, phoneNumber, retellConfigured,
   }
 
   return (
-    <Card className={className}>
+    <Card className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>
@@ -83,8 +84,8 @@ export function VoiceStatusCard({ initialEnabled, phoneNumber, retellConfigured,
           <CardTitle>AI Receptionist</CardTitle>
         </div>
         <CardDescription>
-          Answers every call with the AI-assistant disclosure up front, texts back missed ones, and takes messages
-          or books appointments — 24/7.
+          I answer every call with the AI-assistant disclosure up front, text back missed ones, and take messages
+          or book appointments — 24/7.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -102,10 +103,11 @@ export function VoiceStatusCard({ initialEnabled, phoneNumber, retellConfigured,
         </div>
 
         {!retellConfigured && (
-          <Alert>
+          <Alert className="rounded-2xl shadow-raised ring-1 ring-border/40">
             <TriangleAlert aria-hidden="true" />
             <AlertDescription>
-              Lumina&apos;s calling platform isn&apos;t configured yet — this switch arms automatically once it is.
+              When my calling line is set up, I answer with a required &quot;this call may be recorded&quot;
+              opening. This switch arms automatically once that&apos;s ready.
             </AlertDescription>
           </Alert>
         )}

@@ -61,7 +61,8 @@ export function WeekView({ posts, onPostsChange }: WeekViewProps) {
                 {format(day, "d")}
               </span>
             </div>
-            <div className="flex min-h-24 flex-col gap-2 rounded-xl border border-dashed border-border/70 p-2">
+            {/* Companion C3 — softened to the room's floating-panel language: a fainter dashed edge over a faint card wash instead of a flat bordered slot. */}
+            <div className="flex min-h-24 flex-col gap-2 rounded-2xl border border-dashed border-border/50 bg-card/40 p-2">
               {dayPosts.length === 0 ? (
                 <EmptyState compact title="No posts" description="" className="flex-1 border-none py-3" />
               ) : (

@@ -26,7 +26,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col gap-6">
       {!isSupabaseConfigured() && (
-        <Alert>
+        <Alert className="rounded-2xl shadow-raised ring-1 ring-border/40">
           <Info aria-hidden="true" />
           <AlertTitle>Demo mode</AlertTitle>
           <AlertDescription>

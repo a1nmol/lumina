@@ -182,7 +182,7 @@ export function BrainWizard({ initialBrain }: BrainWizardProps) {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-card p-6 shadow-soft ring-1 ring-foreground/10 sm:p-8">
+      <div className="rounded-2xl bg-card p-6 shadow-raised ring-1 ring-border/40 sm:p-8">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={stepIndex}
@@ -242,7 +242,7 @@ function CompletionState({
   // settles back to idle rather than freezing on the loop's last frame.
   const [wickState, setWickState] = useState<WickState>("celebrating")
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl bg-card px-6 py-20 text-center shadow-soft ring-1 ring-foreground/10">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl bg-card px-6 py-20 text-center shadow-raised ring-1 ring-border/40">
       <div className="flex items-center gap-3">
         <motion.div
           initial={reduceMotion ? false : { scale: 0.6, opacity: 0 }}

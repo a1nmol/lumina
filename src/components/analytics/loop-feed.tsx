@@ -43,7 +43,11 @@ export function LoopFeed({ pairs }: LoopFeedProps) {
   )
 
   return (
-    <div className="flex flex-col gap-6">
+    // Companion C3 — the Loop is the room's hero: the whole feed sits on one
+    // raised stage panel (faint edge ring, soft card wash) instead of
+    // floating loose against the page background, same center-stage
+    // elevation Studio gave the phone pedestal in C2.
+    <div className="flex flex-col gap-6 rounded-3xl bg-card/40 p-4 ring-1 ring-border/30 sm:p-6">
       <p className="text-sm text-muted-foreground">
         This {pairs.length === 1 ? "post" : "week"}:{" "}
         <span className="font-medium tabular-nums text-foreground">{pairs.length}</span>{" "}

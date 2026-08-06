@@ -1,5 +1,13 @@
 "use client"
 
+// "What I remember about them" (Companion C3 review fix): contacts DO carry
+// person-level AI memory (contacts.ai_memory, migration 0016 — see
+// src/lib/ai/conversation-memory.ts's PersonMemory) and listContacts already
+// fetches the full row, so surfacing it here is display-only. The parse below
+// is a local, defensive display parse — same deliberate pattern as
+// src/components/inbox/ai-memory-strip.tsx, because the shared parser lives
+// in a server-only module a client component can't import.
+
 import Link from "next/link"
 import { useState, type KeyboardEvent } from "react"
 import { X } from "lucide-react"
@@ -32,6 +40,22 @@ import type { Contact, ContactStatus } from "@/lib/types"
 
 import { saveContactAction, toggleContactVip, updateStatusAction } from "./actions"
 import { CONTACT_STATUSES, CONTACT_STATUS_META, StatusPill } from "@/components/inbox/status-pill"
+
+type PersonMemoryDisplay = { facts: string[]; relationship: string; topics: string[] }
+
+/** Defensive display-only parse of contacts.ai_memory (never throws; null when nothing renderable). */
+function parsePersonMemoryForDisplay(json: Record<string, unknown> | null): PersonMemoryDisplay | null {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null
+  const facts = Array.isArray(json.facts)
+    ? json.facts.filter((f): f is string => typeof f === "string" && f.trim().length > 0).slice(0, 6)
+    : []
+  const topics = Array.isArray(json.topics)
+    ? json.topics.filter((t): t is string => typeof t === "string" && t.trim().length > 0).slice(0, 4)
+    : []
+  const relationship = typeof json.relationship === "string" ? json.relationship.trim() : ""
+  if (facts.length === 0 && topics.length === 0 && !relationship) return null
+  return { facts, relationship, topics }
+}
 import { displayName, initials, SOURCE_META } from "./utils"
 
 type ContactDrawerProps = {
@@ -141,7 +165,7 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="flex flex-col gap-0 sm:max-w-md">
-        <SheetHeader className="border-b border-border">
+        <SheetHeader className="border-b border-border/60">
           <div className="flex items-start gap-3">
             <Avatar size="lg">
               <AvatarFallback>{initials(contact.name)}</AvatarFallback>
@@ -215,6 +239,33 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
             />
           </div>
 
+          {(() => {
+            const memory = parsePersonMemoryForDisplay(contact.ai_memory)
+            if (!memory) return null
+            return (
+              <div className="flex flex-col gap-1.5 rounded-xl bg-muted/40 p-3 ring-1 ring-border/40">
+                <p className="text-xs font-medium text-foreground">What I remember about them</p>
+                {memory.relationship && <p className="text-xs text-muted-foreground">{memory.relationship}</p>}
+                {memory.facts.length > 0 && (
+                  <ul className="flex list-disc flex-col gap-0.5 pl-4 text-xs text-muted-foreground">
+                    {memory.facts.map((fact) => (
+                      <li key={fact}>{fact}</li>
+                    ))}
+                  </ul>
+                )}
+                {memory.topics.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {memory.topics.map((topic) => (
+                      <span key={topic} className="rounded-full bg-card px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border/40">
+                        {topic}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="contact-notes">Notes</Label>
             <Textarea
@@ -228,7 +279,7 @@ export function ContactDrawer({ contact, open, onOpenChange, onContactChange }: 
           </div>
         </div>
 
-        <SheetFooter className="border-t border-border">
+        <SheetFooter className="border-t border-border/60">
           <Button variant="outline" onClick={() => setBookingOpen(true)}>
             Book appointment
           </Button>

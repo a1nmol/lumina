@@ -73,7 +73,7 @@ export async function UsageCard() {
   const spendCap = entitlements.limits.spend_cap_usd ?? null
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

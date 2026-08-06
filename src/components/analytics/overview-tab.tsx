@@ -24,6 +24,12 @@ type OverviewTabProps = {
 export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: OverviewTabProps) {
   const dailySeries = deriveDailySeries(loopPairs, rangeDays)
 
+  // Companion C3 — same "faint edge ring + raised elevation" override every
+  // room's stat/post cards get, applied via className (StatCard is a shared
+  // primitive also used by Command Center/Admin, which aren't in scope for
+  // this pass — so it stays untouched itself; only these call sites opt in).
+  const statCardClassName = "rounded-2xl ring-border/40 shadow-raised hover:shadow-overlay"
+
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -33,6 +39,7 @@ export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: Ove
           value={overview.postsPublished}
           delta={deltaFor(overview.deltas.postsPublished)}
           icon={<FileText aria-hidden="true" className="size-3.5" />}
+          className={statCardClassName}
         />
         <StatCard
           index={1}
@@ -40,6 +47,7 @@ export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: Ove
           value={overview.reach.toLocaleString()}
           delta={deltaFor(overview.deltas.reach)}
           icon={<Radio aria-hidden="true" className="size-3.5" />}
+          className={statCardClassName}
         />
         <StatCard
           index={2}
@@ -47,6 +55,7 @@ export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: Ove
           value={overview.leads}
           delta={deltaFor(overview.deltas.leads)}
           icon={<UserPlus aria-hidden="true" className="size-3.5" />}
+          className={statCardClassName}
         />
         <StatCard
           index={3}
@@ -54,6 +63,7 @@ export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: Ove
           value={overview.bookings}
           delta={deltaFor(overview.deltas.bookings)}
           icon={<MessageSquareHeart aria-hidden="true" className="size-3.5" />}
+          className={statCardClassName}
         />
         <StatCard
           index={4}
@@ -61,6 +71,7 @@ export function OverviewTab({ overview, postMetrics, loopPairs, rangeDays }: Ove
           value={overview.reviewsCount}
           delta={deltaFor(overview.deltas.reviewsCount)}
           icon={<Star aria-hidden="true" className="size-3.5" />}
+          className={statCardClassName}
         />
       </div>
 

@@ -34,7 +34,7 @@ export function BrainSummaryCard({ brain, completeness }: BrainSummaryCardProps)
   const offset = CIRCUMFERENCE * (1 - percent / 100)
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>

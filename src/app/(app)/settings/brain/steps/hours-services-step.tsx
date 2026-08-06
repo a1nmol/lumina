@@ -47,7 +47,7 @@ export function HoursServicesStep({ brain, onChange }: HoursServicesStepProps) {
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-medium text-foreground">Weekly hours</h3>
-        <div className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-foreground/10">
+        <div className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-border/40">
           {DAY_ORDER.map(({ key, label }) => {
             const day = brain.hours[key]
             const closed = day?.closed ?? false

@@ -41,7 +41,7 @@ export function VoiceBrandStep({ brain, onChange }: VoiceBrandStepProps) {
                   "relative flex flex-col gap-1.5 rounded-xl p-4 text-left ring-1 outline-none transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2",
                   isSelected
                     ? "bg-primary/5 ring-2 ring-primary"
-                    : "bg-card ring-foreground/10 hover:bg-muted/50"
+                    : "bg-card ring-border/40 hover:bg-muted/50"
                 )}
               >
                 {isSelected && (

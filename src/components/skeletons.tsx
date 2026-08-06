@@ -31,7 +31,7 @@ export function StatGridSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {Array.from({ length: count }).map((_, index) => (
-        <div key={index} className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+        <div key={index} className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-border/40 shadow-raised">
           <div className="flex items-center justify-between gap-2">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="size-7 rounded-lg" />
@@ -55,7 +55,7 @@ export function CardSkeleton({
   className?: string
 }) {
   return (
-    <div className={cn("flex flex-col gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10", className)}>
+    <div className={cn("flex flex-col gap-4 rounded-2xl bg-card p-4 ring-1 ring-border/40 shadow-raised", className)}>
       <div className="flex items-center gap-2">
         <Skeleton className="size-8 shrink-0 rounded-lg" />
         <div className="flex flex-col gap-1.5">
@@ -80,7 +80,7 @@ export function CardSkeleton({
 /** Mirrors a Table: header row + N body rows of even-width cells. */
 export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+    <div className="overflow-hidden rounded-2xl ring-1 ring-border/40 shadow-raised">
       <div className="flex items-center gap-4 border-b border-border bg-muted/40 px-4 py-3">
         {Array.from({ length: cols }).map((_, index) => (
           <Skeleton key={index} className="h-3 flex-1" />
@@ -104,7 +104,7 @@ export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: nu
 export function ThreePaneSkeleton() {
   return (
     <div className="flex flex-1 gap-4 overflow-hidden">
-      <div className="hidden w-80 shrink-0 flex-col gap-3 rounded-xl border border-border bg-card/40 p-3 md:flex">
+      <div className="hidden w-80 shrink-0 flex-col gap-3 rounded-2xl bg-card/40 ring-1 ring-border/40 p-3 md:flex">
         <Skeleton className="h-8 w-full rounded-lg" />
         {Array.from({ length: 6 }).map((_, index) => (
           <div key={index} className="flex items-center gap-2.5">
@@ -116,7 +116,7 @@ export function ThreePaneSkeleton() {
           </div>
         ))}
       </div>
-      <div className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-card/40 p-4">
+      <div className="flex flex-1 flex-col gap-3 rounded-2xl bg-card/40 ring-1 ring-border/40 p-4">
         <div className="flex items-center gap-2.5 border-b border-border pb-3">
           <Skeleton className="size-9 shrink-0 rounded-full" />
           <Skeleton className="h-4 w-32" />
@@ -128,7 +128,7 @@ export function ThreePaneSkeleton() {
           />
         ))}
       </div>
-      <div className="hidden w-72 shrink-0 flex-col gap-3 rounded-xl border border-border bg-card/40 p-4 lg:flex">
+      <div className="hidden w-72 shrink-0 flex-col gap-3 rounded-2xl bg-card/40 ring-1 ring-border/40 p-4 lg:flex">
         <Skeleton className="mx-auto size-14 rounded-full" />
         <Skeleton className="mx-auto h-4 w-32" />
         <Skeleton className="h-20 w-full rounded-lg" />

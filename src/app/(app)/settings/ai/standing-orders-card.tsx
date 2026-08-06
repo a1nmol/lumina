@@ -154,7 +154,7 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
   }
 
   return (
-    <Card className={cn("max-w-2xl", className)}>
+    <Card className={cn("max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>
@@ -163,8 +163,8 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
           <CardTitle>Standing orders</CardTitle>
         </div>
         <CardDescription>
-          Running instructions the AI follows in every reply while active — &quot;I&apos;m at a wedding till Sunday,
-          tell people I&apos;ll be slow&quot; or &quot;registrations are closed, stop taking signups.&quot;
+          Running instructions I follow in every reply while they&apos;re active — &quot;I&apos;m at a wedding till
+          Sunday, tell people I&apos;ll be slow&quot; or &quot;registrations are closed, stop taking signups.&quot;
         </CardDescription>
       </CardHeader>
 
@@ -174,7 +174,7 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
             No standing orders yet — add one to give the AI a running instruction to follow.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-foreground/10">
+          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-border/40">
             <AnimatePresence initial={false}>
               {orders.map((order) => (
                 <motion.li
@@ -211,7 +211,7 @@ export function StandingOrdersCard({ initialOrders, isLive, className }: Standin
         )}
 
         {adding ? (
-          <div className="flex flex-col gap-2 rounded-xl bg-muted/30 px-4 py-3 ring-1 ring-foreground/10">
+          <div className="flex flex-col gap-2 rounded-xl bg-muted/30 px-4 py-3 ring-1 ring-border/40">
             <div className="flex flex-col gap-1">
               <Textarea
                 value={draftInstruction}

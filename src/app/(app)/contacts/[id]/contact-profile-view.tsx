@@ -99,7 +99,11 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,320px)_1fr]">
         <div className="flex flex-col gap-6">
-          <Card>
+          {/* Companion C3 — same warm-ledger panel language as the Contacts
+              table/cards: faint edge ring + raised elevation instead of the
+              shared Card's default flat ring (className override only, the
+              shared primitive itself is untouched). */}
+          <Card className="rounded-2xl ring-border/40 shadow-raised">
             <CardHeader>
               <CardTitle>Details</CardTitle>
             </CardHeader>
@@ -144,7 +148,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl ring-border/40 shadow-raised">
             <CardHeader>
               <CardTitle>Appointments</CardTitle>
             </CardHeader>
@@ -179,7 +183,7 @@ export function ContactProfileView({ initialContact, timeline: initialTimeline }
           </Card>
         </div>
 
-        <Card>
+        <Card className="rounded-2xl ring-border/40 shadow-raised">
           <CardHeader>
             <CardTitle>Activity</CardTitle>
           </CardHeader>

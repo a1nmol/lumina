@@ -74,7 +74,7 @@ export function PostCard({ post, variant, isDragging, className, actions, onOpen
           <div
             style={thumbnailStyle(post.thumbnailHue)}
             className={cn(
-              "relative size-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10 transition-shadow duration-150",
+              "relative size-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-border/40 transition-shadow duration-150",
               isDraft && "border-2 border-dashed border-muted-foreground/60 ring-0",
               isDragging && "shadow-raised"
             )}
@@ -129,9 +129,12 @@ export function PostCard({ post, variant, isDragging, className, actions, onOpen
       }
       aria-label={onOpenDetail ? `Open post details: ${snippet(post.caption, 60)}` : undefined}
       className={cn(
-        "group/post flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left shadow-soft transition-shadow duration-150 hover:shadow-raised",
-        isDraft && "border-dashed",
-        isDragging && "shadow-raised",
+        // Companion C3 — "queue cards adopt the floating-panel language":
+        // faint edge ring + raised shadow instead of a flat hard border,
+        // same treatment as the month grid's own panel above.
+        "group/post flex w-full items-start gap-3 rounded-2xl bg-card p-3 text-left shadow-raised ring-1 ring-border/40 transition-shadow duration-150 hover:shadow-overlay",
+        isDraft && "border border-dashed border-muted-foreground/40",
+        isDragging && "shadow-overlay",
         onOpenDetail &&
           "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         className
@@ -140,7 +143,7 @@ export function PostCard({ post, variant, isDragging, className, actions, onOpen
       <div
         style={thumbnailStyle(post.thumbnailHue)}
         className={cn(
-          "relative size-14 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10",
+          "relative size-14 shrink-0 overflow-hidden rounded-lg ring-1 ring-border/40",
           isDraft && "border-2 border-dashed border-muted-foreground/60 ring-0"
         )}
       >

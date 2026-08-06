@@ -33,7 +33,7 @@ export function ChannelsStep({ brain, onChange }: ChannelsStepProps) {
                 "flex cursor-pointer items-start gap-3 rounded-xl p-4 ring-1 transition-colors",
                 checked
                   ? "bg-primary/5 ring-2 ring-primary"
-                  : "bg-card ring-foreground/10 hover:bg-muted/50"
+                  : "bg-card ring-border/40 hover:bg-muted/50"
               )}
             >
               <Checkbox

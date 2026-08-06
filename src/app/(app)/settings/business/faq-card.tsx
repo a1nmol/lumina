@@ -123,7 +123,7 @@ export function FaqCard({ initialFaq, isLive }: FaqCardProps) {
   }
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>
@@ -140,7 +140,7 @@ export function FaqCard({ initialFaq, isLive }: FaqCardProps) {
         {faq.length === 0 && !adding ? (
           <p className="text-sm text-muted-foreground">No FAQ yet — add the questions customers ask most.</p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-foreground/10">
+          <ul className="flex flex-col divide-y divide-border rounded-xl ring-1 ring-border/40">
             <AnimatePresence initial={false}>
               {faq.map((item, index) => (
                 <motion.li
@@ -268,7 +268,7 @@ function FaqEditForm({
   const canSave = question.trim().length > 0 && answer.trim().length > 0
 
   return (
-    <div className={cn("flex flex-col gap-2 px-4 py-3", isNew && "rounded-xl bg-muted/30 ring-1 ring-foreground/10")}>
+    <div className={cn("flex flex-col gap-2 px-4 py-3", isNew && "rounded-xl bg-muted/30 ring-1 ring-border/40")}>
       <div className="flex flex-col gap-1">
         <Input
           value={question}

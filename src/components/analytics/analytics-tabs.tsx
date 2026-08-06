@@ -30,7 +30,9 @@ export function AnalyticsTabs({ overview, postMetrics, loopPairs, rangeDays, def
 
   return (
     <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-      <TabsList>
+      {/* Companion C3 — same lifted-pill treatment as RangeSegmented above, so
+          the range and tab controls read as one room-header-line family. */}
+      <TabsList className="bg-card ring-1 ring-border/40 shadow-soft">
         <TabsTrigger value="loop">Loop</TabsTrigger>
         <TabsTrigger value="overview">Overview</TabsTrigger>
       </TabsList>

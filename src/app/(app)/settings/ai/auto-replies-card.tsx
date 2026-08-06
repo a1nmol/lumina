@@ -66,7 +66,7 @@ export function AutoRepliesCard({ initialEnabled, isLive, className }: AutoRepli
   }
 
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card size="sm" className={cn("gap-3 rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
@@ -75,8 +75,8 @@ export function AutoRepliesCard({ initialEnabled, isLive, className }: AutoRepli
           <CardTitle className="text-sm">AI auto-replies</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          When a new conversation starts, Lumina can reply on its own — or just draft a reply and wait for you to
-          send it. You can always override this for any single conversation from the Inbox.
+          When someone new writes in, I can answer on my own — or draft and wait for you. You can always override
+          this for any single conversation from the Inbox.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-2">

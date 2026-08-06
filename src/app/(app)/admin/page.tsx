@@ -110,7 +110,7 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      <Card>
+      <Card className="rounded-2xl shadow-raised ring-1 ring-border/40">
         <CardHeader>
           <CardTitle>Accounts</CardTitle>
           <CardDescription>
@@ -123,7 +123,7 @@ export default async function AdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl shadow-raised ring-1 ring-border/40">
         <CardHeader>
           <CardTitle>Plans</CardTitle>
           <CardDescription>
@@ -196,7 +196,7 @@ export default async function AdminPage() {
         </CardContent>
       </Card>
 
-      <Alert>
+      <Alert className="rounded-2xl shadow-raised ring-1 ring-border/40">
         <Info aria-hidden="true" className="size-4 text-muted-foreground" />
         <AlertTitle>Usage metering is live server-side</AlertTitle>
         <AlertDescription>

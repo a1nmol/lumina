@@ -57,7 +57,7 @@ export function AutoReplySettingsCard({ initialSettings, className }: AutoReplyS
   }
 
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card size="sm" className={cn("gap-3 rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
@@ -66,7 +66,7 @@ export function AutoReplySettingsCard({ initialSettings, className }: AutoReplyS
           <CardTitle className="text-sm">Auto-reply with AI</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          Auto-send AI-drafted replies at or above this rating; lower ratings always wait for you.
+          I can send my reply automatically at or above this rating — lower ratings always wait for you.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center justify-between gap-3">

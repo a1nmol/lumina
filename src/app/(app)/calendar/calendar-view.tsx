@@ -33,10 +33,15 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
         title="Calendar"
         description="Plan, drag-drop, and schedule posts across every channel."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <EnablePushButton />
+          // Companion C3 — "view tabs + reminders button restyle into the
+          // room header line": both controls sit inside one floating chrome
+          // cluster (soft card fill, faint edge ring) so they read as a
+          // continuation of the slim room header above, rather than two
+          // stray controls, e.g. src/components/companion/room-header.tsx.
+          <div className="flex flex-wrap items-center gap-2 rounded-full bg-card/70 p-1 ring-1 ring-border/40 shadow-soft">
+            <EnablePushButton className="rounded-full" />
             <Tabs value={view} onValueChange={(value) => setView(value as ViewMode)}>
-              <TabsList aria-label="Calendar view">
+              <TabsList aria-label="Calendar view" className="bg-muted/70">
                 <TabsTrigger value="month">Month</TabsTrigger>
                 <TabsTrigger value="week">Week</TabsTrigger>
                 <TabsTrigger value="queue">Queue</TabsTrigger>
@@ -55,12 +60,21 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
           actionHref="/studio"
           withWick
         />
-      ) : view === "month" ? (
-        <MonthView posts={posts} onPostsChange={setPosts} isLive={isLive} />
-      ) : view === "week" ? (
-        <WeekView posts={posts} onPostsChange={setPosts} />
       ) : (
-        <QueueView posts={posts} onPostsChange={setPosts} />
+        // Companion C3 — the room canvas: a barely-there morning wash
+        // (.room-canvas-morning, tokens-only — see globals.css) behind
+        // whichever view is active, so the month grid / week columns /
+        // queue list all read as floating panels on Calendar's own surface,
+        // the same method Inbox's three panes use in C2.
+        <div className="room-canvas-morning flex-1 rounded-3xl p-2 sm:p-3">
+          {view === "month" ? (
+            <MonthView posts={posts} onPostsChange={setPosts} isLive={isLive} />
+          ) : view === "week" ? (
+            <WeekView posts={posts} onPostsChange={setPosts} />
+          ) : (
+            <QueueView posts={posts} onPostsChange={setPosts} />
+          )}
+        </div>
       )}
     </div>
   )

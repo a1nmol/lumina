@@ -26,7 +26,7 @@ export function VoiceEntryCard({ settings, retellConfigured }: VoiceEntryCardPro
       : { label: "Off", className: "border-border bg-muted text-muted-foreground" }
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

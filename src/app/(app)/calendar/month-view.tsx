@@ -272,8 +272,12 @@ export function MonthView({ posts, onPostsChange, isLive = false }: MonthViewPro
         }}
       >
         <div className="overflow-x-auto">
-          <div className="min-w-[640px] overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
-            <div className="grid grid-cols-7 border-b border-border">
+          {/* Companion C3 — the month grid as the room's floating centerpiece
+              panel: dropped the hard border for a faint edge ring + a
+              stronger raised shadow, same language as Inbox's panes/Studio's
+              phone pedestal (C2). */}
+          <div className="min-w-[640px] overflow-hidden rounded-2xl bg-card shadow-overlay ring-1 ring-border/40">
+            <div className="grid grid-cols-7 border-b border-border/70">
               {WEEKDAY_LABELS.map((label) => (
                 <div
                   key={label}
@@ -359,7 +363,7 @@ const DayCell = memo(function DayCell({
     <div
       ref={setNodeRef}
       className={cn(
-        "group/day relative flex min-h-28 flex-col gap-1.5 border-r border-b border-border p-1.5 transition-colors duration-150 last:border-r-0 sm:min-h-32",
+        "group/day relative flex min-h-28 flex-col gap-1.5 border-r border-b border-border/70 p-1.5 transition-colors duration-150 last:border-r-0 sm:min-h-32",
         !isCurrentMonth && "bg-muted/30",
         isOver && "bg-primary/5"
       )}

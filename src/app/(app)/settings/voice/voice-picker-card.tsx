@@ -58,7 +58,7 @@ export function VoicePickerCard({ initialVoiceId, isLive, className }: VoicePick
   }
 
   return (
-    <Card className={className}>
+    <Card className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader>
         <CardTitle>Voice</CardTitle>
         <CardDescription>Who your AI Receptionist sounds like on the phone.</CardDescription>
@@ -104,7 +104,7 @@ export function VoicePickerCard({ initialVoiceId, isLive, className }: VoicePick
                 onClick={() => selectVoice(entry.id)}
                 className={cn(
                   "relative flex flex-col gap-1 rounded-xl p-3.5 text-left ring-1 outline-none transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
-                  isSelected ? "bg-primary/5 ring-2 ring-primary" : "bg-card ring-foreground/10 hover:bg-muted/50"
+                  isSelected ? "bg-primary/5 ring-2 ring-primary" : "bg-card ring-border/40 hover:bg-muted/50"
                 )}
               >
                 {isSelected && (
@@ -125,7 +125,7 @@ export function VoicePickerCard({ initialVoiceId, isLive, className }: VoicePick
 
           <div
             aria-disabled="true"
-            className="flex flex-col gap-1 rounded-xl p-3.5 text-left ring-1 ring-foreground/10 opacity-60"
+            className="flex flex-col gap-1 rounded-xl p-3.5 text-left ring-1 ring-border/40 opacity-60"
           >
             <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               Your own voice

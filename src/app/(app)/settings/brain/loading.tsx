@@ -11,7 +11,7 @@ export default function BrainWizardLoading() {
           ))}
         </div>
       </div>
-      <div className="flex flex-col gap-6 rounded-2xl bg-card p-6 ring-1 ring-foreground/10 sm:p-8">
+      <div className="flex flex-col gap-6 rounded-2xl bg-card p-6 shadow-raised ring-1 ring-border/40 sm:p-8">
         <Skeleton className="h-6 w-56" />
         <div className="flex flex-col gap-3">
           <Skeleton className="h-9 w-full rounded-lg" />

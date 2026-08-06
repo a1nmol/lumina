@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 import { UsageBar } from "../usage-bar"
 import { saveVoiceSettings } from "../voice-actions"
@@ -127,7 +128,7 @@ export function VoiceTransferBudgetCard({
   const nearLimit = cap > 0 && usedMinutesThisMonth / cap >= 0.9
 
   return (
-    <Card size="sm" className={className}>
+    <Card size="sm" className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">

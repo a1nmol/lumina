@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { AI_STATE_META } from "@/components/inbox/ai-state-chip"
 import { ChannelGlyph } from "@/components/inbox/channel-glyphs"
 import { formatRelativeTime } from "@/components/inbox/relative-time"
 import { StatusPill, type StatusPillTone } from "@/components/inbox/status-pill"
@@ -236,25 +237,57 @@ function ReplyStatusControl({
   isExpanded: boolean
   onToggle: () => void
 }) {
-  if (review.reply_status === "replied" || review.reply_status === "auto_replied") {
+  // Companion C3 — reuses the exact Inbox AI-state chip language (C2) for
+  // the two states that map 1:1 onto Inbox's own AI-transparency states:
+  // auto_replied === "the AI answered this on its own" (AI_STATE_META.ai_answered),
+  // ai_draft === "the AI drafted a reply, waiting on the owner" (AI_STATE_META.ai_draft).
+  // "replied" (authorship ambiguous — could've started as an edited AI
+  // draft) and the default no-reply-yet state have no clean Inbox
+  // equivalent, so they keep their existing neutral copy.
+  if (review.reply_status === "auto_replied") {
+    const meta = AI_STATE_META.ai_answered
+    const Icon = meta.icon
+    return (
+      <span
+        title={meta.sentence}
+        className={cn(
+          "inline-flex h-7 w-fit shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap",
+          meta.className
+        )}
+      >
+        <Icon aria-hidden="true" className="size-3.5" />
+        {meta.label}
+        <span className="sr-only"> — {meta.sentence}</span>
+      </span>
+    )
+  }
+
+  if (review.reply_status === "replied") {
     return (
       <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground">
         <Check aria-hidden="true" className="size-3.5" />
-        {review.reply_status === "auto_replied" ? "Auto-replied" : "Replied"}
+        Replied
       </span>
     )
   }
 
   if (review.reply_status === "ai_draft") {
+    const meta = AI_STATE_META.ai_draft
+    const Icon = meta.icon
     return (
       <button
         type="button"
         aria-expanded={isExpanded}
         onClick={onToggle}
-        className="inline-flex h-7 items-center gap-1.5 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary outline-none transition-colors hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+        title={meta.sentence}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium outline-none transition-colors hover:bg-warning/15 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2",
+          meta.className
+        )}
       >
-        <Sparkles aria-hidden="true" className="size-3.5" />
-        AI draft ready
+        <Icon aria-hidden="true" className="size-3.5" />
+        {meta.label}
+        <span className="sr-only"> — {meta.sentence}</span>
       </button>
     )
   }
@@ -281,7 +314,7 @@ function ReviewRow({
   recovered?: RecoveredDraft
 }) {
   return (
-    <li className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors">
+    <li className="rounded-2xl bg-card p-4 shadow-soft ring-1 ring-border/40 transition-shadow duration-200 hover:shadow-raised">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
@@ -500,7 +533,7 @@ function EmptyReviewsState() {
 
 function NoFilterResults({ onClear }: { onClear: () => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card/40 px-6 py-14 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/60 bg-card/40 px-6 py-14 text-center">
       <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Filter aria-hidden="true" className="size-4" />
       </span>

@@ -45,7 +45,7 @@ export function PostMetricCard({ metrics, className }: PostMetricCardProps) {
   return (
     <div
       className={cn(
-        "group/post-card flex flex-col gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 hover:shadow-raised",
+        "group/post-card flex flex-col gap-3 rounded-2xl bg-card p-3 shadow-raised ring-1 ring-border/40 transition-shadow duration-200 hover:shadow-overlay",
         className
       )}
     >

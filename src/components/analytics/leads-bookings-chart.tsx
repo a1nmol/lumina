@@ -59,7 +59,7 @@ export function LeadsBookingsChart({ data }: LeadsBookingsChartProps) {
   const totalBookings = data.reduce((sum, point) => sum + point.bookings, 0)
 
   return (
-    <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 shadow-soft">
+    <div className="rounded-2xl bg-card p-4 shadow-raised ring-1 ring-border/40">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium text-foreground">Leads &amp; bookings over time</h3>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">

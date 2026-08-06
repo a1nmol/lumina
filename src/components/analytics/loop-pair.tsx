@@ -45,7 +45,7 @@ function SourceCard({ pair }: { pair: LoopPairType }) {
   const publishedAt = format(parseISO(pair.post.publishedAt), "MMM d, h:mm a")
 
   return (
-    <div className="flex flex-1 items-start gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30">
+    <div className="flex flex-1 items-start gap-3 rounded-2xl bg-card p-3 shadow-raised ring-1 ring-border/40 transition-shadow duration-200 group-hover/pair:ring-primary/30">
       <div
         style={thumbnailStyle(pair.post.id)}
         className="relative size-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10"
@@ -74,7 +74,7 @@ function OutcomeChip({ outcome }: { outcome: LoopOutcome }) {
   const time = format(parseISO(outcome.occurredAt), "MMM d, h:mm a")
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-card p-2.5 ring-1 ring-foreground/10 shadow-soft transition-shadow duration-200 group-hover/pair:ring-primary/30">
+    <div className="flex items-center gap-2 rounded-2xl bg-card p-2.5 shadow-raised ring-1 ring-border/40 transition-shadow duration-200 group-hover/pair:ring-primary/30">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <ChannelGlyph channel={outcome.channel} className="size-4" />
       </span>

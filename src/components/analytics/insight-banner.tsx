@@ -92,7 +92,7 @@ export function InsightBanner({ insights, className }: InsightBannerProps) {
         transition={{ duration: duration.base, ease: easing.out }}
         className={className}
       >
-        <div className="relative flex items-start gap-3 overflow-hidden rounded-xl border-l-4 border-l-primary bg-primary/5 py-3 pr-3 pl-4 ring-1 ring-primary/10">
+        <div className="relative flex items-start gap-3 overflow-hidden rounded-2xl border-l-4 border-l-primary bg-primary/5 py-3 pr-3 pl-4 shadow-soft ring-1 ring-primary/10">
           <span
             aria-hidden="true"
             className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
@@ -100,7 +100,12 @@ export function InsightBanner({ insights, className }: InsightBannerProps) {
             <Sparkles aria-hidden="true" className="size-4" />
           </span>
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
-            <p className="min-w-0 flex-1 text-sm text-foreground">{current.text}</p>
+            {/* Companion C3 — the AI voice: this is Lumina's own read of the
+                data, not a neutral system label, so it says so. */}
+            <p className="min-w-0 flex-1 text-sm text-foreground">
+              <span className="font-medium">Here&apos;s what I noticed: </span>
+              {current.text}
+            </p>
             <Button size="sm" render={<Link href={current.cta.href} />}>
               {current.cta.label}
             </Button>

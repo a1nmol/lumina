@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 import { requestTestCall } from "../voice-actions"
 
@@ -60,7 +61,7 @@ export function VoiceTestCallCard({ canTestCall, isLive, className }: VoiceTestC
   }
 
   return (
-    <Card className={className}>
+    <Card className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>

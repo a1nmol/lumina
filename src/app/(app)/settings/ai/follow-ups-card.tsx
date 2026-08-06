@@ -62,7 +62,7 @@ export function FollowUpsCard({ initialEnabled, isLive, className }: FollowUpsCa
   }
 
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card size="sm" className={cn("gap-3 rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
@@ -71,8 +71,8 @@ export function FollowUpsCard({ initialEnabled, isLive, className }: FollowUpsCa
           <CardTitle className="text-sm">Proactive follow-ups</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          Once a day, Lumina checks for conversations you answered that went quiet for a few days and drafts a
-          short check-in — always a draft in your Inbox, never sent without you.
+          Once a day, I check for conversations you answered that went quiet for a few days and draft a short
+          check-in — always a draft in your Inbox, never sent without you.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-2">

@@ -61,7 +61,7 @@ export function AlwaysOnCard({ initialAlwaysOn, isLive, className }: AlwaysOnCar
   }
 
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card size="sm" className={cn("gap-3 rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
@@ -70,8 +70,7 @@ export function AlwaysOnCard({ initialAlwaysOn, isLive, className }: AlwaysOnCar
           <CardTitle className="text-sm">Always on</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          The AI never goes quiet. It can still flag topics for you, but it keeps the conversation going instead of
-          stopping.
+          I never go quiet. I can still flag topics for you, but I keep the conversation going instead of stopping.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-2">

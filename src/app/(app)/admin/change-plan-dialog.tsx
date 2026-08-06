@@ -80,7 +80,7 @@ export function ChangePlanDialog({
             No non-overridden limits or flags would change — this org&apos;s overrides cover everything that differs.
           </p>
         ) : (
-          <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3">
+          <div className="flex flex-col gap-1.5 rounded-xl bg-muted/50 p-3 ring-1 ring-border/40">
             {diff.capDiffs.map((entry) => (
               <div key={entry.key} className="flex items-center justify-between gap-2 text-sm">
                 <span className="text-foreground">{entry.label}</span>

@@ -41,7 +41,7 @@ export function WidgetEmbedCard({ origin, orgSlug }: WidgetEmbedCardProps) {
   }
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl rounded-2xl shadow-raised ring-1 ring-border/40">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardIcon>

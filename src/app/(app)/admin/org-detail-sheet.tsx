@@ -427,7 +427,7 @@ export function OrgDetailSheet({ orgId, open, onOpenChange }: OrgDetailSheetProp
                 </div>
                 {capSaveError && <p className="text-sm text-destructive">{capSaveError}</p>}
                 {dirtyKeys.length > 0 && (
-                  <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 p-2.5">
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/50 p-2.5 ring-1 ring-border/40">
                     <span className="text-xs text-muted-foreground">
                       {dirtyKeys.length} change{dirtyKeys.length === 1 ? "" : "s"}
                     </span>

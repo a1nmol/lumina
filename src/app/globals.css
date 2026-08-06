@@ -511,6 +511,29 @@
     );
 }
 
+/* Companion Calendar room canvas (C3) — a sibling wash to .room-canvas-dusk
+   above, same method (static color-mix radial gradients, never animated,
+   never painted directly on a pane), just re-anchored top-left and tilted
+   warmer/brighter for Calendar's "morning planning" register instead of
+   Inbox's dusk one. Sits behind the month grid / week columns / queue list
+   (src/app/(app)/calendar/calendar-view.tsx) — restraint kept deliberately:
+   Contacts, Analytics, and Growth elevate their own panels (rounded-2xl /
+   shadow-raised / ring-border/40) without a canvas wash of their own, same
+   as Studio in C2. */
+.room-canvas-morning {
+  background-image:
+    radial-gradient(
+      700px circle at 8% -10%,
+      color-mix(in oklch, var(--amber-glow) 6%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      620px circle at 100% 0%,
+      color-mix(in oklch, var(--primary) 4%, transparent),
+      transparent 72%
+    );
+}
+
 /* Fine, static paper-grain texture — SVG fractal noise blended at ~3%
    opacity so it reads as tooth on the paper rather than a visible pattern.
    Never animates (grain is a texture, not a motion effect), so it's

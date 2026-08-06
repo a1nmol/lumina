@@ -5,6 +5,14 @@
 // actually go post it by hand (MASTER_PLAN.md §4.B "push → caption copied →
 // deep-link → paste"). No social APIs — every action here is client-side or
 // a status update the org already owns.
+//
+// Companion C3 — no "I wrote this one" AI attribution here on purpose:
+// content_items.model (src/lib/types.ts) is set on every row this app ever
+// creates (either a real routed model, or "template-render" for a saved
+// template — see src/app/(app)/studio/actions.ts), and CalendarPost/DemoPost
+// (this sheet's own display shape) doesn't carry the field at all. There's
+// no clean "AI-authored vs not" flag to hang a claim on, so per the brief
+// this attribution is skipped rather than added dishonestly to every post.
 
 import { Check, ExternalLink, Loader2, Download } from "lucide-react"
 import { toast } from "sonner"
@@ -108,7 +116,7 @@ export function PostDetailSheet({ post, open, onOpenChange, onMarkedPosted }: Po
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4">
-          <div className="aspect-square w-full overflow-hidden rounded-2xl ring-1 ring-foreground/10">
+          <div className="aspect-square w-full overflow-hidden rounded-2xl ring-1 ring-border/40">
             {post.imageUrl ? (
               // Real fal.ai/rendered-template URLs are remote and arbitrary —
               // a plain <img> is the simplest safe choice, same call as

@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardIcon, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
 
 import { saveVoiceSettings } from "../voice-actions"
 
@@ -90,7 +91,7 @@ export function VoiceScriptsCard({ initialGreeting, initialAfterHoursScript, isL
   const afterHoursDirty = afterHours.trim() !== savedAfterHours.trim()
 
   return (
-    <Card size="sm" className={className}>
+    <Card size="sm" className={cn("rounded-2xl shadow-raised ring-1 ring-border/40", className)}>
       <CardHeader className="gap-1">
         <div className="flex items-center gap-2">
           <CardIcon size="sm">
