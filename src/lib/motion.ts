@@ -38,6 +38,16 @@ export const springGentle = {
   damping: 30,
 } as const;
 
+/** Room transition (Companion shell) — the cinematic rise+scale a summoned
+ *  room enters with (src/components/companion/room-transition.tsx). A
+ *  bespoke, slightly slower-than-`base` duration for this one signature
+ *  moment — mirrors how `wordRevealMs`/`microCopyCycleMs` above already live
+ *  here as named constants outside the fast/base/slow scale. */
+export const roomEnter = {
+  duration: 0.28,
+  ease: easing.out,
+} as const;
+
 /** Standard enter: fade + rise. */
 export const fadeUp = {
   initial: { opacity: 0, y: 8 },

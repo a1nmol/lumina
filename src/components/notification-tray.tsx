@@ -33,7 +33,14 @@ const ALERT_TYPE_META: Record<
  * app header, top-right, next to the breadcrumb. See "Instant lead alert" in
  * docs/design-briefs/phase-2-inbox-frontdesk-crm.md.
  */
-export function NotificationTray() {
+type NotificationTrayProps = {
+  /** Which side the popover opens toward — "bottom" (original header placement) by default; the Companion dock (bottom-center) passes "top" so the panel opens upward instead of off-screen. */
+  side?: "top" | "bottom" | "left" | "right"
+  align?: "start" | "center" | "end"
+  className?: string
+}
+
+export function NotificationTray({ side = "bottom", align = "end", className }: NotificationTrayProps) {
   const { alerts, unreadCount, markAllRead } = useNotifications()
   const reduceMotion = useReducedMotion()
   const [open, setOpen] = useState(false)
@@ -46,7 +53,8 @@ export function NotificationTray() {
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
         className={cn(
           buttonVariants({ variant: "ghost", size: "icon-sm" }),
-          "relative text-muted-foreground hover:text-foreground"
+          "relative text-muted-foreground hover:text-foreground",
+          className
         )}
       >
         <Bell aria-hidden="true" className="size-4" />
@@ -64,7 +72,7 @@ export function NotificationTray() {
         )}
       </PopoverTrigger>
 
-      <PopoverContent align="end" sideOffset={8} className="w-80 gap-0 p-0">
+      <PopoverContent side={side} align={align} sideOffset={8} className="w-80 gap-0 p-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5">
           <span className="text-sm font-medium text-foreground">Notifications</span>
           <button

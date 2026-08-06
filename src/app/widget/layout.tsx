@@ -3,8 +3,8 @@ import type { ReactNode } from "react"
 
 import "./widget.css"
 
-// Standalone widget shell — intentionally NO app chrome (no AppSidebar, no
-// SidebarProvider/header/breadcrumb from src/app/(app)/layout.tsx). This is
+// Standalone widget shell — intentionally NO app chrome (no Companion dock,
+// no room header/transition from src/app/(app)/layout.tsx). This is
 // nested under the single shared root layout (src/app/layout.tsx), which
 // still supplies <html>/<body>, fonts, and next-themes — see the header
 // comment in ./widget.css for why widget color tokens deliberately do NOT

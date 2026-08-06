@@ -103,7 +103,7 @@ function ProfileCard({ configured, initialFullName }: { configured: boolean; ini
         data: { full_name: fullName.trim() },
       })
       if (error) throw error
-      toast.success("Name saved", { description: "The sidebar and greeting now use it." })
+      toast.success("Name saved", { description: "The dock and your greeting now use it." })
       // Sidebar chip + Command Center greeting are server-rendered from
       // user_metadata — refresh so they pick the new name up immediately.
       router.refresh()

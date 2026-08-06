@@ -105,7 +105,7 @@ Frontend/app: Next.js (App Router) + TypeScript + Tailwind + shadcn/ui, deploy V
 
 ## 10. UI per screen (summary — full detail in the plan)
 
-App shell: left sidebar (Command Center · Content Studio · Calendar · Inbox · Contacts · Analytics · Growth · Settings/Brain) + business switcher + "＋ Create".
+App shell (Companion direction, owner-selected 2026-08-05): conversational Home with Wick + a floating bottom dock (Wick orb · Studio · Calendar · Inbox · Contacts · Analytics · Growth · ⌘K · bell · overflow with Settings/Account/Admin/theme); sections open as full-screen rooms.
 - **Content Studio:** hybrid — structured Composer main surface (prompt bar → format picker → live phone-mockup preview → editable caption/hashtags → 👍 Save-as-template / 👎 Regenerate → Add to Queue) with an **AI Assist side panel** for conversational refinement; plus a "Generate my week" wizard. NOT a raw chatbot.
 - **Calendar/Queue, Unified Inbox (3-pane), Contacts/CRM, Analytics loop dashboard, Business Brain setup, Admin control panel** — per full plan.
 

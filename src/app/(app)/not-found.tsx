@@ -1,5 +1,5 @@
 // Shared 404 for every route under the (app) group — also what renders
-// (inside the app shell, sidebar intact) whenever a page calls Next's
+// (inside the app shell, dock intact) whenever a page calls Next's
 // notFound(), e.g. /admin and /wick-preview's isPlatformAdmin() gate.
 
 import { Compass } from "lucide-react"

@@ -1,20 +1,17 @@
 import type { ReactNode } from "react"
 
-import { AppSidebar } from "@/components/app-sidebar"
-import { CommandPaletteProvider, CommandPaletteTrigger } from "@/components/command-palette"
+import { CommandPaletteProvider } from "@/components/command-palette"
+import { Dock } from "@/components/companion/dock"
+import { RoomHeader } from "@/components/companion/room-header"
+import { RoomTransition } from "@/components/companion/room-transition"
 import { NotificationsProvider } from "@/components/notifications-provider"
-import { NotificationTray } from "@/components/notification-tray"
-import { RouteBreadcrumb } from "@/components/route-breadcrumb"
-import { RouteTransition } from "@/components/route-transition"
-import { Separator } from "@/components/ui/separator"
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { isPlatformAdmin } from "@/lib/admin"
 import { DEMO_ORG } from "@/lib/demo"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { createClient } from "@/lib/supabase/server"
 import { ensureOrgBootstrap, getOrgSidebarContext } from "@/lib/org"
 
-const DEMO_SIDEBAR_CONTEXT = {
+const DEMO_DOCK_CONTEXT = {
   orgName: DEMO_ORG.name,
   orgSlug: DEMO_ORG.slug,
   planName: "Free test plan",
@@ -22,6 +19,18 @@ const DEMO_SIDEBAR_CONTEXT = {
   userName: "Demo User",
 }
 
+/**
+ * The Companion shell (C1) — the app opens into a conversation with Wick;
+ * every section is a summoned full-screen "room". This layout owns exactly
+ * the chrome every room shares: the floating bottom dock (replaces the old
+ * left sidebar + its header bar entirely — see src/components/companion/
+ * dock.tsx for the parity mapping of every control that used to live there),
+ * a slim self-labeling room header (replaces the old sticky breadcrumb), and
+ * the cinematic room-to-room transition. CommandPaletteProvider and
+ * NotificationsProvider stay mounted here unchanged — ⌘K and the
+ * instant-lead-alert tray are both still app-wide, just reached from the
+ * dock now instead of the header bar.
+ */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   // Repair path: a signed-in user can end up orphaned (no org_members row)
   // if the signup trigger's own bootstrap swallowed a failure — see
@@ -40,18 +49,18 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     }
   }
 
-  const [isAdmin, sidebarContext] = await Promise.all([
+  const [isAdmin, orgContext] = await Promise.all([
     isPlatformAdmin(),
     isSupabaseConfigured() ? getOrgSidebarContext() : Promise.resolve(null),
   ])
 
-  const sidebarProps = sidebarContext
+  const dockProps = orgContext
     ? {
-        orgName: sidebarContext.orgName,
-        orgSlug: sidebarContext.orgSlug,
-        planName: sidebarContext.planName,
-        userEmail: sidebarContext.userEmail,
-        userName: sidebarContext.userName ?? undefined,
+        orgName: orgContext.orgName,
+        orgSlug: orgContext.orgSlug,
+        planName: orgContext.planName,
+        userEmail: orgContext.userEmail,
+        userName: orgContext.userName ?? undefined,
       }
     : isSupabaseConfigured()
       ? {
@@ -61,35 +70,27 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           userEmail: authedUserEmail ?? "",
           userName: undefined,
         }
-      : DEMO_SIDEBAR_CONTEXT
+      : DEMO_DOCK_CONTEXT
 
   return (
     <CommandPaletteProvider isAdmin={isAdmin}>
       <NotificationsProvider>
-        <SidebarProvider>
-          <AppSidebar isAdmin={isAdmin} {...sidebarProps} />
-          {/* h-svh + min-h-0 bounds this to exactly the viewport height, so the
-              header stays put and ONLY the content region below scrolls — the
-              app-shell pattern most dashboard tools use. This replaces the old
-              model where the whole document scrolled (SidebarInset had no
-              height cap), which is what forced pages like Inbox to hard-code a
-              `calc(100svh-...)` height to fake a fixed-height canvas. Now any
-              page can just do `flex-1 min-h-0` and get real, correct sizing. */}
-          <SidebarInset className="h-svh overflow-hidden">
-            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
-              <SidebarTrigger />
-              <Separator orientation="vertical" className="h-5" />
-              <RouteBreadcrumb />
-              <div className="ml-auto flex items-center gap-1.5">
-                <CommandPaletteTrigger />
-                <NotificationTray />
-              </div>
-            </header>
-            <div className="flex flex-1 flex-col overflow-y-auto p-6 min-h-0">
-              <RouteTransition>{children}</RouteTransition>
+        {/* h-svh + min-h-0 bounds this to exactly the viewport height so only
+            the room content below scrolls — same app-shell contract the old
+            sidebar layout established (pages like Inbox depend on `flex-1
+            min-h-0` resolving to a real, bounded height). The dock is a
+            sibling of the scrolling region, positioned `fixed` — see
+            room-transition.tsx's file doc for why it must never be a
+            descendant of the animated room wrapper. */}
+        <div className="relative flex h-svh min-h-0 flex-col overflow-hidden bg-background">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <RoomHeader />
+            <div className="flex min-h-0 flex-1 flex-col px-4 pb-28 sm:px-6 lg:px-8">
+              <RoomTransition>{children}</RoomTransition>
             </div>
-          </SidebarInset>
-        </SidebarProvider>
+          </div>
+          <Dock isAdmin={isAdmin} {...dockProps} />
+        </div>
       </NotificationsProvider>
     </CommandPaletteProvider>
   )

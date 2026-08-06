@@ -15,7 +15,7 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 }
 
 // No PageHeader here on purpose (Redesign wave R3 — Inbox as canvas): the
-// breadcrumb in the app header already reads "Inbox", and a title+description
+// RoomHeader already reads "Inbox", and a title+description
 // row above the densest, most-used surface in the app was pure overhead
 // eating vertical space. The shell below fills the rest of the viewport
 // directly via flex-1 min-h-0 (see src/app/(app)/layout.tsx for the

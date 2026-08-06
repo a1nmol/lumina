@@ -98,6 +98,17 @@ export type WickProps = {
    * flight. Defaults to false — a no-op for every existing call site.
    */
   moving?: boolean
+  /**
+   * True when this instance is persistent app CHROME — the Companion dock's
+   * Home orb (src/components/companion/dock.tsx, C1) — rather than a
+   * page-content whimsy moment. Chrome is mounted on every route by design
+   * (Home must be reachable from Settings/Admin too), so it's exempt from
+   * the banned-surface dev warning below: that guard exists to catch Wick
+   * dropped into a dense settings/billing page as decoration, not a small
+   * wordless nav icon that's structurally identical to any other dock glyph.
+   * Defaults to false — every existing call site is unaffected.
+   */
+  chrome?: boolean
 }
 
 const ONE_SHOT_STATES: ReadonlySet<WickState> = new Set(["celebrating", "oops"])
@@ -117,9 +128,10 @@ const ALLOWED_PATH_OVERRIDES = ["/settings/brain"]
 /** Route/instance-independent module-level cache so we only warn once per pathname per session, not once per re-render. */
 const warnedPaths = new Set<string>()
 
-function useBannedSurfaceGuard() {
+function useBannedSurfaceGuard(chrome: boolean) {
   const pathname = usePathname()
   useEffect(() => {
+    if (chrome) return
     if (process.env.NODE_ENV === "production") return
     if (!pathname) return
     if (ALLOWED_PATH_OVERRIDES.some((allowed) => pathname === allowed || pathname.startsWith(`${allowed}/`))) return
@@ -130,7 +142,7 @@ function useBannedSurfaceGuard() {
         `[Wick] rendered under "${pathname}" (matches "${hit}"). Wick is banned from pricing/billing/settings/dense-table/security surfaces per docs/design-briefs/brand-redesign-plan.md §4. Remove this usage or move it to an allowed surface.`
       )
     }
-  }, [pathname])
+  }, [pathname, chrome])
 }
 
 /** Loop-de-loop flight keyframes for the "celebrating" one-shot: a full circular loop that returns to the origin, sampled at 11 steps. Computed once at module load — no per-render trig cost. */
@@ -259,8 +271,9 @@ export function Wick({
   path,
   trail = "auto",
   moving: movingProp = false,
+  chrome = false,
 }: WickProps) {
-  useBannedSurfaceGuard()
+  useBannedSurfaceGuard(chrome)
   const reduceMotion = useReducedMotion()
   const filterId = useId()
   const wingBlurId = `wick-wing-blur-${filterId}`

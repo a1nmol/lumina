@@ -676,3 +676,20 @@
   background-repeat: repeat-x;
   background-size: 14px 14px;
 }
+
+/* Companion dock (C1) — dusk-glass material for the floating bottom-center
+   nav (src/components/companion/dock.tsx). Composes existing tokens only:
+   --popover for the base surface, --border for the hairline ring, a
+   color-mix of --amber-glow for a faint lamplight cast, and the shared
+   shadow scale — no new hex/oklch literals. Kept out of Tailwind utility
+   classes only because the layered box-shadow needs a token-mixed color the
+   utility layer can't express inline. */
+.dock-glass {
+  background-color: color-mix(in oklch, var(--popover) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--border) 90%, transparent),
+    0 0 24px color-mix(in oklch, var(--amber-glow) 8%, transparent),
+    var(--shadow-overlay);
+}

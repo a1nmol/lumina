@@ -7,8 +7,9 @@ import "server-only"
 // compare against AND at least one row is non-zero.
 
 import { getOverviewStats } from "@/lib/analytics"
-import { DEMO_WHILE_YOU_WERE_AWAY_ROWS } from "@/lib/demo"
+import { DEMO_CONVERSATIONS, DEMO_WHILE_YOU_WERE_AWAY_ROWS } from "@/lib/demo"
 import { countCallsSince, listConversations } from "@/lib/frontdesk"
+import { createClient } from "@/lib/supabase/server"
 import { getLastSeenIso } from "@/lib/last-seen"
 import { getOrgSidebarContext } from "@/lib/org"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
@@ -40,7 +41,30 @@ function daysSince(lastSeenMs: number): number {
  *     self-heal on the next request via ensureOrgBootstrap in the app
  *     layout) — nothing honest to render either way, so this stays absent.
  */
-export type WhileYouWereAwayDigest = { kind: "activity"; rows: ReceiptCardRow[] } | { kind: "caught_up" } | null
+/** Raw per-metric counts behind the "activity" digest — additive alongside
+ *  `rows` (the pre-formatted receipt lines) so a consumer that wants to
+ *  compose its own prose (e.g. the Companion Home conversation's "while you
+ *  were away" bubble, src/components/companion/home-conversation.tsx) has
+ *  the real numbers instead of parsing formatted strings back apart. */
+export interface WhileYouWereAwayCounts {
+  conversations: number
+  leads: number
+  bookings: number
+  calls: number
+}
+
+export type WhileYouWereAwayDigest =
+  | { kind: "activity"; rows: ReceiptCardRow[]; counts: WhileYouWereAwayCounts }
+  | { kind: "caught_up" }
+  | null
+
+/** Demo counts mirroring DEMO_WHILE_YOU_WERE_AWAY_ROWS exactly (leads 2, bookings 1, unread conversations 3, no calls yet). */
+const DEMO_WHILE_YOU_WERE_AWAY_COUNTS: WhileYouWereAwayCounts = {
+  conversations: 3,
+  leads: 2,
+  bookings: 1,
+  calls: 0,
+}
 
 /**
  * Demo mode always returns the illustrative fixed activity set (so the
@@ -50,7 +74,8 @@ export type WhileYouWereAwayDigest = { kind: "activity"; rows: ReceiptCardRow[] 
  * "activity" with only the non-zero rows.
  */
 export async function getWhileYouWereAwayDigest(): Promise<WhileYouWereAwayDigest> {
-  if (!isSupabaseConfigured()) return { kind: "activity", rows: DEMO_WHILE_YOU_WERE_AWAY_ROWS }
+  if (!isSupabaseConfigured())
+    return { kind: "activity", rows: DEMO_WHILE_YOU_WERE_AWAY_ROWS, counts: DEMO_WHILE_YOU_WERE_AWAY_COUNTS }
 
   const context = await getOrgSidebarContext()
   if (!context) return null
@@ -91,5 +116,43 @@ export async function getWhileYouWereAwayDigest(): Promise<WhileYouWereAwayDiges
     rows.push({ label: `New call${newCallCount === 1 ? "" : "s"}`, value: String(newCallCount) })
   }
 
-  return rows.length > 0 ? { kind: "activity", rows } : { kind: "caught_up" }
+  const counts: WhileYouWereAwayCounts = {
+    conversations: newConversationCount,
+    leads: overview.leads,
+    bookings: overview.bookings,
+    calls: newCallCount,
+  }
+
+  return rows.length > 0 ? { kind: "activity", rows, counts } : { kind: "caught_up" }
+}
+
+/**
+ * "Needs your voice" — a live (not time-windowed) count of conversations the
+ * AI couldn't fully close on its own: `escalated` (flagged for a human) plus
+ * `ai_draft` (drafted a reply but wants review before it sends). Powers the
+ * Companion Home conversation's nudge bubble
+ * (src/components/companion/home-conversation.tsx) — the same two states
+ * src/components/notifications-provider.tsx already treats as "needs a
+ * human" for the notification tray, so the two surfaces never disagree.
+ */
+export async function getNeedsYouCount(orgId: string | null): Promise<number> {
+  if (!isSupabaseConfigured()) {
+    return DEMO_CONVERSATIONS.filter((c) => c.ai_state === "escalated" || c.ai_state === "ai_draft").length
+  }
+  if (!orgId) return 0
+
+  // One lightweight head-count query (review fix: two full-row fetches with
+  // contact joins were hydrated just to be counted, on the most-visited page).
+  const supabase = await createClient()
+  const { count, error } = await supabase
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .in("ai_state", ["escalated", "ai_draft"])
+
+  if (error) {
+    console.error("[digest] needs-you count failed", error.message)
+    return 0
+  }
+  return count ?? 0
 }

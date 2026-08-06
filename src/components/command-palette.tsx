@@ -84,8 +84,8 @@ const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(n
  * Mount once, wrapping the whole authenticated app shell (see
  * src/app/(app)/layout.tsx). Owns the open/closed state, the global
  * cmd+k/ctrl+k listener, and renders the dialog itself — `isAdmin` mirrors
- * the exact signal already passed to AppSidebar (src/app/(app)/layout.tsx),
- * never re-derived client-side.
+ * the exact signal already passed to the Companion dock (src/components/
+ * companion/dock.tsx), never re-derived client-side.
  */
 export function CommandPaletteProvider({
   isAdmin,
@@ -123,7 +123,8 @@ export function CommandPaletteProvider({
   )
 }
 
-function useCommandPalette(): CommandPaletteContextValue {
+/** Exposed so other trigger affordances (e.g. the Companion dock's spark button) can open the palette without re-implementing the context plumbing. */
+export function useCommandPalette(): CommandPaletteContextValue {
   const ctx = useContext(CommandPaletteContext)
   if (!ctx) {
     throw new Error("useCommandPalette must be used within a CommandPaletteProvider")
