@@ -38,6 +38,13 @@ export const springGentle = {
   damping: 30,
 } as const;
 
+/** Studio "generate moment" lamplight pulse (Companion C2) — a single 600ms
+ *  amber flash on the phone frame when a generation lands, layered
+ *  alongside the existing brand `shadow-glow` pulse. A bespoke duration
+ *  (not on the fast/base/slow scale) for this one signature moment — same
+ *  rationale as `wordRevealMs`/`microCopyCycleMs`/`roomEnter` above. */
+export const lamplightPulseS = 0.6;
+
 /** Room transition (Companion shell) — the cinematic rise+scale a summoned
  *  room enters with (src/components/companion/room-transition.tsx). A
  *  bespoke, slightly slower-than-`base` duration for this one signature

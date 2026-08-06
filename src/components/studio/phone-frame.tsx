@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { duration, easing } from "@/lib/motion"
+import { duration, easing, lamplightPulseS } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import type { PostFormat } from "@/app/(app)/studio/types"
 
@@ -79,7 +79,12 @@ export function PhoneFrame({
 
   return (
     <div className={cn("mx-auto w-full max-w-[300px]", className)}>
-      <div className="relative">
+      {/* Pedestal treatment (Companion C2's "workbench" — item 5): a soft
+          cast shadow the phone appears to sit on, plus a gentle perspective
+          tilt on hover only (never on load, never looping) — skipped
+          entirely under reduced motion via `motion-reduce:`. */}
+      <div className="relative transition-transform duration-[var(--duration-slow)] ease-out will-change-transform hover:[transform:perspective(900px)_rotateX(2deg)_rotateY(-4deg)] motion-reduce:transition-none motion-reduce:hover:transform-none">
+
         <motion.div
           layout
           transition={{ duration: duration.slow, ease: easing.out }}
@@ -159,9 +164,33 @@ export function PhoneFrame({
             className="pointer-events-none absolute -inset-1 rounded-[2.25rem] shadow-glow"
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 1, 0] }}
-            transition={{ duration: duration.slow, ease: easing.out }}
+            // Same duration as the lamplight layer below (review fix) — the
+            // two flashes read as ONE generate moment, not staggered blinks.
+            transition={{ duration: lamplightPulseS, ease: easing.out }}
           />
         )}
+
+        {/* Lamplight pulse (Companion C2's "generate moment" — item 6): a
+            second, brief amber flash layered over the brand glow above when
+            a generation lands — "the shop's own light switching on."
+            One-shot, never loops; skipped entirely under reduced motion. */}
+        {status === "ready" && !reduceMotion && (
+          <motion.div
+            key={`lamplight-${format}-${resultKey}`}
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-1 rounded-[2.25rem] shadow-lamplight"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: lamplightPulseS, ease: easing.out }}
+          />
+        )}
+
+        {/* Pedestal cast shadow — a soft, static ellipse the phone appears
+            to rest on. Purely decorative. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-3 left-1/2 h-4 w-4/5 -translate-x-1/2 rounded-full bg-foreground/10 blur-md"
+        />
       </div>
     </div>
   )

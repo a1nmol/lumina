@@ -179,6 +179,18 @@ export function ConversationPane({
               </SelectContent>
             </Select>
             <AiModeToggle mode={detail.ai_mode} onChange={onAiModeChange} />
+            {/* Wick presence (Companion C2): a small glyph beside his own
+                sentence exactly when he's waiting on the owner — drafted
+                (needs review) or escalated (handed off entirely). Never
+                shown for ai_answered/human — those states don't need Wick
+                standing next to them, only the ones asking for a beat of
+                the owner's attention. /inbox isn't on Wick's banned-surface
+                list (src/components/brand/wick.tsx — only /admin and
+                /settings are banned), so this uses the real component
+                rather than a sparkle-icon substitute. */}
+            {(detail.ai_state === "ai_draft" || detail.ai_state === "escalated") && (
+              <Wick state={detail.ai_state === "ai_draft" ? "curious" : "idle"} size={16} />
+            )}
             <AiStateChip state={detail.ai_state} />
           </div>
         </div>

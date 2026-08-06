@@ -453,49 +453,50 @@ export function Composer({ businessName, templates = [], aiAssistAvailable = tru
         {announcement}
       </div>
 
-      {/* Saved templates — ★ save-as-template / regenerate-from-template */}
-      <TemplatesPanel templates={templates} onUse={handleUseTemplate} disabled={status === "generating"} />
+      {/*
+        Companion C2 — the workbench triptych (item 5): composer controls in
+        a left rail ("Your prompt" — item 7), the live phone-mockup preview
+        center stage ("The post"), and the tools for personalizing the draft
+        in a right rail ("Make it yours"). Below `xl` this collapses to a
+        single stacked column in the same left→center→right DOM order, so a
+        generated draft still lands BETWEEN the prompt controls and the
+        editing fields — "preview-first" relative to what you'd edit next,
+        exactly like the prior two-zone layout already did.
+      */}
+      <div className="grid flex-1 items-start gap-6 xl:grid-cols-[300px_minmax(0,320px)_1fr]">
+        {/* Left rail — "Your prompt" */}
+        <div className="flex flex-col gap-3 xl:sticky xl:top-4">
+          <h2 className="px-0.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Your prompt</h2>
 
-      {/* Zone 1 — prompt bar */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft">
-        <label htmlFor="studio-prompt" className="sr-only">
-          Describe the post
-        </label>
-        <Textarea
-          id="studio-prompt"
-          autoFocus
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Describe the post…"
-          className="min-h-20 resize-none border-none px-0 text-base shadow-none focus-visible:ring-0"
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <FormatSegmented value={format} onChange={handleFormatChange} disabled={status === "generating"} />
-          <div aria-hidden="true" className="h-5 w-px bg-border" />
-          <div className="flex flex-wrap gap-1.5">
-            {PLATFORMS.map((platform) => (
-              <PlatformChip
-                key={platform}
-                platform={platform}
-                active={platforms.includes(platform)}
-                showDot={status === "ready"}
-                disabled={status === "generating"}
-                onToggle={() => togglePlatform(platform)}
-              />
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setRailOpen(true)}
-              className="gap-1.5"
-            >
-              <SlidersHorizontal aria-hidden="true" className="size-3.5" />
-              AI Assist
-            </Button>
-            <Button type="button" onClick={() => handleGenerate()} disabled={!canGenerate} className="gap-1.5">
+          {/* Saved templates — ★ save-as-template / regenerate-from-template */}
+          <TemplatesPanel templates={templates} onUse={handleUseTemplate} disabled={status === "generating"} />
+
+          <div className="flex flex-col gap-3 rounded-2xl bg-card p-4 shadow-raised">
+            <label htmlFor="studio-prompt" className="sr-only">
+              Describe the post
+            </label>
+            <Textarea
+              id="studio-prompt"
+              autoFocus
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Describe the post…"
+              className="min-h-20 resize-none border-none px-0 text-base shadow-none focus-visible:ring-0"
+            />
+            <FormatSegmented value={format} onChange={handleFormatChange} disabled={status === "generating"} />
+            <div className="flex flex-wrap gap-1.5">
+              {PLATFORMS.map((platform) => (
+                <PlatformChip
+                  key={platform}
+                  platform={platform}
+                  active={platforms.includes(platform)}
+                  showDot={status === "ready"}
+                  disabled={status === "generating"}
+                  onToggle={() => togglePlatform(platform)}
+                />
+              ))}
+            </div>
+            <Button type="button" onClick={() => handleGenerate()} disabled={!canGenerate} className="w-full gap-1.5">
               {status === "generating" ? (
                 <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
               ) : (
@@ -505,85 +506,97 @@ export function Composer({ businessName, templates = [], aiAssistAvailable = tru
             </Button>
           </div>
         </div>
-      </div>
 
-      {/* Zone 2 — content */}
-      <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,320px)_1fr]">
-        {status === "idle" ? (
-          // Before the first generation, teach the flow instead of showing a
-          // blank phone mockup — the phone frame's own gutted "idle" state
-          // was too quiet to double as the page's real empty state.
-          <EmptyState
-            compact
-            icon={<Sparkles aria-hidden="true" className="size-4" />}
-            title="Describe it, generate it, queue it"
-            description="Type what you're posting about above, hit Generate for a caption and image, then add the draft to your queue when it looks right."
-            className="mx-auto flex h-full min-h-[360px] w-full max-w-[300px] flex-col justify-center"
-          />
-        ) : (
-          <PhoneFrame
-            format={format}
-            status={phoneFrameStatus}
-            resultKey={resultKey}
-            businessName={businessName}
-            caption={caption}
-            hashtags={hashtagsList}
-            imageDescription={draft?.imageDescription ?? ""}
-            imageUrl={imageUrl}
-            videoUrl={format === "slideshow" ? slideshowVideoUrl : undefined}
-            microCopy={phoneFrameMicroCopy}
-          />
-        )}
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="studio-caption" className="text-sm font-medium text-foreground">
-              Caption
-            </label>
-            {status === "generating" ? (
-              <div className="min-h-16 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm">
-                <ShimmerOrPlaceholder text={revealedCaption} />
-              </div>
-            ) : (
-              <Textarea
-                id="studio-caption"
-                value={caption}
-                onChange={(event) => setCaption(event.target.value)}
-                disabled={status === "idle"}
-                placeholder="Generate a post to edit its caption here."
-              />
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="studio-hashtags" className="text-sm font-medium text-foreground">
-              Hashtags
-            </label>
-            {status === "generating" ? (
-              <div className="flex h-8 items-center rounded-lg border border-input bg-transparent px-2.5 text-sm">
-                <ShimmerOrPlaceholder text="" placeholder="Generating hashtags…" />
-              </div>
-            ) : (
-              <Input
-                id="studio-hashtags"
-                value={hashtagsText}
-                onChange={(event) => setHashtagsText(event.target.value)}
-                disabled={status === "idle"}
-                placeholder="shoplocal, weekendspecial, yourshopname"
-              />
-            )}
-          </div>
-
-          {status === "ready" && draft?.imageDescription && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Image concept: </span>
-              {draft.imageDescription}
-            </p>
+        {/* Center — "The post" */}
+        <div className="flex flex-col gap-3">
+          <h2 className="px-0.5 text-center text-xs font-medium tracking-wide text-muted-foreground uppercase xl:text-left">
+            The post
+          </h2>
+          {status === "idle" ? (
+            // Before the first generation, teach the flow instead of showing a
+            // blank phone mockup — the phone frame's own gutted "idle" state
+            // was too quiet to double as the page's real empty state.
+            <EmptyState
+              compact
+              icon={<Sparkles aria-hidden="true" className="size-4" />}
+              title="Describe it, generate it, queue it"
+              description="Type what you're posting about, hit Generate for a caption and image, then add the draft to your queue when it looks right."
+              className="mx-auto flex h-full min-h-[360px] w-full max-w-[300px] flex-col justify-center"
+            />
+          ) : (
+            <PhoneFrame
+              format={format}
+              status={phoneFrameStatus}
+              resultKey={resultKey}
+              businessName={businessName}
+              caption={caption}
+              hashtags={hashtagsList}
+              imageDescription={draft?.imageDescription ?? ""}
+              imageUrl={imageUrl}
+              videoUrl={format === "slideshow" ? slideshowVideoUrl : undefined}
+              microCopy={phoneFrameMicroCopy}
+            />
           )}
+        </div>
+
+        {/* Right rail — "Make it yours" */}
+        <div className="flex flex-col gap-3">
+          <h2 className="px-0.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Make it yours</h2>
+          <div className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-raised">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="studio-caption" className="text-sm font-medium text-foreground">
+                Caption
+              </label>
+              {status === "generating" ? (
+                <div className="min-h-16 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm">
+                  <ShimmerOrPlaceholder text={revealedCaption} />
+                </div>
+              ) : (
+                <Textarea
+                  id="studio-caption"
+                  value={caption}
+                  onChange={(event) => setCaption(event.target.value)}
+                  disabled={status === "idle"}
+                  placeholder="Generate a post to edit its caption here."
+                />
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="studio-hashtags" className="text-sm font-medium text-foreground">
+                Hashtags
+              </label>
+              {status === "generating" ? (
+                <div className="flex h-8 items-center rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                  <ShimmerOrPlaceholder text="" placeholder="Generating hashtags…" />
+                </div>
+              ) : (
+                <Input
+                  id="studio-hashtags"
+                  value={hashtagsText}
+                  onChange={(event) => setHashtagsText(event.target.value)}
+                  disabled={status === "idle"}
+                  placeholder="shoplocal, weekendspecial, yourshopname"
+                />
+              )}
+            </div>
+
+            {status === "ready" && draft?.imageDescription && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Image concept: </span>
+                {draft.imageDescription}
+              </p>
+            )}
+
+            <Button type="button" variant="outline" size="sm" onClick={() => setRailOpen(true)} className="gap-1.5">
+              <SlidersHorizontal aria-hidden="true" className="size-3.5" />
+              AI Assist
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Zone 3 — sticky action row, once content exists */}
+      {/* Sticky action row, once content exists */}
       <AnimatePresence>
         {draft && (
           <motion.div
@@ -591,7 +604,7 @@ export function Composer({ businessName, templates = [], aiAssistAvailable = tru
             animate={{ opacity: 1, y: 0 }}
             exit={reduceMotion ? undefined : { opacity: 0, y: 8 }}
             transition={{ duration: duration.base, ease: easing.out }}
-            className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-3 py-2.5 shadow-raised backdrop-blur-sm"
+            className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 rounded-2xl bg-card/95 px-3 py-2.5 shadow-overlay backdrop-blur-sm"
           >
             <Button
               type="button"

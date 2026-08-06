@@ -28,6 +28,8 @@ export type SegmentedOption<T extends string> = {
   ariaLabel?: string
   /** Native title tooltip for this specific pill (e.g. AiModeToggle's per-option explanation). */
   title?: string
+  /** Optional id of an element describing this option (aria-describedby) — see FormatSegmented's captions. */
+  describedBy?: string
   disabled?: boolean
 }
 
@@ -112,6 +114,7 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={isSelected}
             aria-label={option.ariaLabel}
+            aria-describedby={option.describedBy}
             title={option.title}
             disabled={disabled || option.disabled}
             tabIndex={isSelected ? 0 : -1}

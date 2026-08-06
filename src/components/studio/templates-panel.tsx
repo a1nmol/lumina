@@ -153,7 +153,7 @@ export function TemplatesPanel({ templates, onUse, disabled, className }: Templa
                 return (
                   <div
                     key={template.id}
-                    className="group/template relative flex w-56 shrink-0 flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-soft transition-shadow duration-150 hover:shadow-raised"
+                    className="group/template relative flex w-56 shrink-0 flex-col gap-2 rounded-2xl bg-card p-3 shadow-raised transition-shadow duration-150 hover:shadow-overlay"
                   >
                     <button
                       type="button"

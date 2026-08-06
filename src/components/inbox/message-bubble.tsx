@@ -30,22 +30,32 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   }
 
   const isOutbound = message.direction === "outbound"
+  // Companion C2 — AI-sent outbound bubbles (message.ai_handled) get a
+  // subtle lamplight left-edge glow instead of the brand-indigo tint every
+  // outbound bubble used to share regardless of who actually sent it —
+  // "the shop's own light," not the AI reusing the owner's brand color.
+  // Owner-sent outbound bubbles are unchanged (bg-primary/10).
+  const isAiSent = isOutbound && !!message.ai_handled
 
   return (
     <div className={cn("flex w-full flex-col gap-1", isOutbound ? "items-end" : "items-start")}>
       <div
         className={cn(
           "max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap",
-          isOutbound
-            ? "rounded-br-md bg-primary/10 text-foreground"
-            : "rounded-bl-md bg-muted text-foreground"
+          isAiSent
+            ? "rounded-br-md bg-muted text-foreground shadow-[inset_2px_0_0_0_var(--color-lamplight),-8px_0_18px_-10px_var(--color-lamplight)]"
+            : isOutbound
+              ? "rounded-br-md bg-primary/10 text-foreground"
+              : "rounded-bl-md bg-muted text-foreground"
         )}
       >
         {message.body}
       </div>
       <div className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
         {message.ai_handled && (
-          <span className="inline-flex items-center gap-0.5 font-medium text-primary">
+          // Lamplight, not brand-indigo (review consistency fix): the AI's
+          // mark matches the amber edge its bubbles carry.
+          <span className="inline-flex items-center gap-0.5 font-medium text-lamplight">
             <Sparkles aria-hidden="true" className="size-3" />
             AI
           </span>

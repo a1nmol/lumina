@@ -365,10 +365,17 @@ export function InboxShell({
   )
 
   return (
-    <div className="flex min-h-[26rem] flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+    // Companion C2 — the three panes as floating layers on the room canvas:
+    // a barely-there dusk radial wash (.room-canvas-dusk, tokens-only —
+    // see globals.css) behind soft elevated panels with real gaps between
+    // them, rather than one bordered box with internal divider lines.
+    // Thread list = a quiet elevated panel; conversation pane = the star of
+    // the room (bigger elevation, brighter surface, center stage); context
+    // pane = recessed/quieter (muted surface, lower elevation).
+    <div className="room-canvas-dusk flex min-h-[26rem] flex-1 gap-2.5 overflow-hidden rounded-3xl p-2 sm:gap-3 sm:p-3">
       <div
         className={cn(
-          "w-full flex-col md:w-[340px] md:shrink-0 md:border-r md:border-border",
+          "w-full flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-border/40 shadow-raised md:w-[340px] md:shrink-0",
           selectedId ? "hidden md:flex" : "flex"
         )}
       >
@@ -387,7 +394,7 @@ export function InboxShell({
 
       <div
         className={cn(
-          "min-w-0 flex-1 flex-col xl:border-r xl:border-border",
+          "min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-card shadow-overlay ring-1 ring-border/30",
           selectedId ? "flex" : "hidden md:flex"
         )}
       >
@@ -405,7 +412,9 @@ export function InboxShell({
         />
       </div>
 
-      <div className="hidden xl:flex xl:w-[300px] xl:shrink-0 xl:flex-col">{contextPaneNode}</div>
+      <div className="hidden xl:flex xl:w-[300px] xl:shrink-0 xl:flex-col xl:overflow-hidden xl:rounded-2xl xl:bg-muted/40 xl:ring-1 xl:ring-border/40 xl:shadow-soft">
+        {contextPaneNode}
+      </div>
 
       <Sheet open={contextSheetOpen} onOpenChange={setContextSheetOpen}>
         <SheetContent side="right" className="xl:hidden">

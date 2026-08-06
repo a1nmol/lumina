@@ -58,7 +58,7 @@ export function AiMemoryStrip({ aiMemory, className }: AiMemoryStripProps) {
         <AccordionTrigger className="py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
           <span className="inline-flex items-center gap-1.5">
             <BrainCircuit aria-hidden="true" className="size-3.5" />
-            AI memory
+            What I remember about them
           </span>
         </AccordionTrigger>
         <AccordionPanel className="text-xs text-muted-foreground">

@@ -113,7 +113,10 @@ export function AiAssistRail({ open, onOpenChange, caption, disabled, available,
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="sm:max-w-[360px]">
+      {/* Companion C2 (item 8) — restyled to the floating-panel language
+          (rounded leading edge instead of a hard square corner); structure
+          and behavior are untouched, still the same Sheet. */}
+      <SheetContent side="right" className="rounded-l-2xl sm:max-w-[360px]">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-1.5">
             <Wand2 aria-hidden="true" className="size-4 text-primary" />
@@ -125,7 +128,7 @@ export function AiAssistRail({ open, onOpenChange, caption, disabled, available,
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 rounded-2xl bg-muted/40 p-2.5 shadow-soft">
             {QUICK_ACTIONS.map(({ id, label, icon: Icon, instruction: presetInstruction }) => (
               <Button
                 key={id}

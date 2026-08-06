@@ -492,6 +492,25 @@
     );
 }
 
+/* Companion Inbox room canvas (C2) — the "barely-there dusk radial wash"
+   behind the three floating panes (src/components/inbox/inbox-shell.tsx).
+   Same method as .morning-sky above (static color-mix radial gradient,
+   never animated, never a gradient painted directly on a pane) but centered
+   and much fainter — this sits behind dense working UI, not a hero. */
+.room-canvas-dusk {
+  background-image:
+    radial-gradient(
+      900px circle at 50% -10%,
+      color-mix(in oklch, var(--primary) 5%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      620px circle at 100% 100%,
+      color-mix(in oklch, var(--amber-glow) 4%, transparent),
+      transparent 72%
+    );
+}
+
 /* Fine, static paper-grain texture — SVG fractal noise blended at ~3%
    opacity so it reads as tooth on the paper rather than a visible pattern.
    Never animates (grain is a texture, not a motion effect), so it's

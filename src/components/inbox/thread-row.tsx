@@ -10,6 +10,7 @@ import type { ConversationStatus } from "@/lib/types"
 
 import type { ThreadListConversation } from "@/app/(app)/inbox/actions"
 
+import { AI_STATE_META } from "./ai-state-chip"
 import { getThreadSnippet, initialsFromName } from "./inbox-filters"
 import { formatRelativeTime } from "./relative-time"
 
@@ -73,8 +74,8 @@ export const ThreadRow = forwardRef<HTMLButtonElement, ThreadRowProps>(function 
         </span>
         {showAiSparkle && (
           <span
-            aria-label="AI handled"
-            title="AI handled"
+            aria-label={AI_STATE_META[conversation.ai_state].label}
+            title={AI_STATE_META[conversation.ai_state].label}
             className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-card"
           >
             <Sparkles aria-hidden="true" className="size-2.5" />
