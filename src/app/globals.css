@@ -719,6 +719,35 @@
   background-size: 14px 14px;
 }
 
+/* Companion C5A — room illustrations (src/components/brand/room-illustrations.tsx).
+   Two shared keyframes covering the "exactly one animated element per scene"
+   rule for the empty-state SVGs: a gentle opacity breathe (sparks/dots/cells)
+   and a 2px float (stars/sheets). Hoisted once here — same pattern as
+   `studio-shimmer-sweep` above — and consumed per element via Tailwind's
+   arbitrary `animate-[keyframe-name_...]` utility rather than a named class,
+   since each scene applies it to a different element. Every consumer also
+   carries `motion-reduce:animate-none` directly (belt-and-suspenders on top
+   of the global prefers-reduced-motion override above, which already forces
+   near-zero duration). */
+@keyframes lamplight-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes lamplight-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
 /* Companion dock (C1) — dusk-glass material for the floating bottom-center
    nav (src/components/companion/dock.tsx). Composes existing tokens only:
    --popover for the base surface, --border for the hairline ring, a

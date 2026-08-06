@@ -3,9 +3,10 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { motion, useReducedMotion } from "framer-motion"
-import { MessageCircle, MoreHorizontal, Plus, Search, Users, X } from "lucide-react"
+import { MessageCircle, MoreHorizontal, Plus, Search, X } from "lucide-react"
 import { toast } from "sonner"
 
+import { ContactsScene } from "@/components/brand/room-illustrations"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookingDialog } from "@/components/booking-dialog"
 import { EmptyState } from "@/components/empty-state"
@@ -395,7 +396,7 @@ function ContactCard({ contact, index, reduceMotion, onOpen, onBook }: CardProps
 function EmptyContactsState({ onAdd }: { onAdd: () => void }) {
   return (
     <EmptyState
-      icon={<Users className="size-6" />}
+      illustration={<ContactsScene />}
       title="Build your customer list"
       description="Every lead and customer gets a contact record — synced automatically from content and FrontDesk, or added by hand right here."
       actionLabel="Add a contact"

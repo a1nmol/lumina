@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, Filter, Loader2, RefreshCw, Reply, Send, Sparkles, Star, X } from "lucide-react"
 import { toast } from "sonner"
 
+import { ReviewsScene } from "@/components/brand/room-illustrations"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -524,7 +525,7 @@ function ReviewReplyPanel({
 function EmptyReviewsState() {
   return (
     <EmptyState
-      icon={<Star className="size-6" />}
+      illustration={<ReviewsScene />}
       title="No reviews yet"
       description="Once customers leave reviews on Google or Facebook, they'll show up here to read and reply to — or ask for your first one with the button above."
     />

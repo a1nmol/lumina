@@ -1,12 +1,11 @@
 "use client"
 
 import { motion, useReducedMotion } from "framer-motion"
-import { Waypoints } from "lucide-react"
 
-import { EmptyState } from "@/components/empty-state"
 import { duration, easing, staggerContainer } from "@/lib/motion"
 import type { LoopPair as LoopPairType } from "@/lib/types"
 
+import { LoopExplainer } from "./loop-explainer"
 import { LoopPair } from "./loop-pair"
 
 type LoopFeedProps = {
@@ -17,16 +16,10 @@ type LoopFeedProps = {
 export function LoopFeed({ pairs }: LoopFeedProps) {
   const reduceMotion = useReducedMotion()
 
+  // Companion C5B — the generic empty state now teaches the Loop mechanic
+  // instead of just saying "nothing here yet."
   if (pairs.length === 0) {
-    return (
-      <EmptyState
-        icon={<Waypoints aria-hidden="true" className="size-6" />}
-        title="No matches yet"
-        description="Publish a post and Lumina will show you exactly who it brought in."
-        actionLabel="Go to Content Studio"
-        actionHref="/studio"
-      />
-    )
+    return <LoopExplainer />
   }
 
   const leadCount = pairs.reduce(

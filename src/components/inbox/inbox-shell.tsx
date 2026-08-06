@@ -1,9 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Inbox as InboxIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { InboxScene } from "@/components/brand/room-illustrations"
 import { EmptyState } from "@/components/empty-state"
 import {
   Sheet,
@@ -338,11 +338,10 @@ export function InboxShell({
   if (conversations.length === 0) {
     return (
       <EmptyState
-        icon={<InboxIcon aria-hidden="true" className="size-6" />}
+        illustration={<InboxScene />}
         title="Every conversation, one inbox"
         description="Comments, DMs, texts, and emails land here with AI-drafted replies ready to send."
         actionLabel="Connect a channel"
-        withWick
       />
     )
   }

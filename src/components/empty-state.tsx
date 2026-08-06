@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import { duration, easing } from "@/lib/motion"
 
 type EmptyStateProps = {
-  /** Pre-rendered Lucide icon, e.g. `<Sparkles aria-hidden className="size-6" />`. Required in the default (non-compact) treatment — even when `withWick` is true, since Wick only replaces the ring's contents. Omit (or ignore) when `compact` is true; compact never renders an icon. */
+  /** Pre-rendered Lucide icon, e.g. `<Sparkles aria-hidden className="size-6" />`. Required in the default (non-compact) treatment — even when `withWick` is true, since Wick only replaces the ring's contents. Ignored when `illustration` is provided. Optional when `compact` is true — compact renders it small (size-4, no ring) when provided. */
   icon?: ReactNode
   title: string
   description?: string
@@ -27,11 +27,18 @@ type EmptyStateProps = {
    * (which hides) — an emotional-edge moment per brand-redesign-plan.md §4.
    * Off by default. Never enable on admin/settings/dense-table surfaces
    * (Wick's own dev-only guard also warns for `/admin` and `/settings`).
-   * Ignored when `compact` is true.
+   * Ignored when `compact` is true, and when `illustration` is provided.
    */
   withWick?: boolean
   /** Only meaningful when `withWick` is true — which Wick state to render. Defaults to "idle". */
   wickState?: WickState
+  /**
+   * A hand-crafted room scene (see src/components/brand/room-illustrations.tsx,
+   * Companion C5A), e.g. `<InboxScene />`. When provided, it renders in place
+   * of the icon ring / Wick — takes priority over both. Ignored when `compact`
+   * is true (compact never renders an illustration, icon, or Wick).
+   */
+  illustration?: ReactNode
   /**
    * Small, dense-UI-safe treatment for in-pane use (a day cell, a context
    * pane, a filtered sub-list) — no illustrated icon ring, no display serif,
@@ -42,7 +49,7 @@ type EmptyStateProps = {
   compact?: boolean
 }
 
-/** Illustrated (monochrome, gradient-ring — or Wick) empty state with an optional single primary CTA. */
+/** Illustrated (monochrome, gradient-ring — room scene — or Wick) empty state with an optional single primary CTA. */
 export function EmptyState({
   icon,
   title,
@@ -53,6 +60,7 @@ export function EmptyState({
   className,
   withWick = false,
   wickState = "idle",
+  illustration,
   compact = false,
 }: EmptyStateProps) {
   const reduceMotion = useReducedMotion()
@@ -105,7 +113,9 @@ export function EmptyState({
         className
       )}
     >
-      {withWick ? (
+      {illustration ? (
+        illustration
+      ) : withWick ? (
         <Wick state={wickState} size={56} />
       ) : (
         <span

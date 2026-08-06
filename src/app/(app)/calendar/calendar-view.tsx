@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarDays } from "lucide-react"
 
+import { CalendarScene } from "@/components/brand/room-illustrations"
 import { EnablePushButton } from "@/components/calendar/enable-push-button"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
@@ -53,12 +53,11 @@ export function CalendarView({ initialPosts = DEMO_POSTS, isLive = false }: Cale
 
       {posts.length === 0 ? (
         <EmptyState
-          icon={<CalendarDays aria-hidden="true" className="size-6" />}
+          illustration={<CalendarScene />}
           title="Plan your content calendar"
           description="Drag, drop, and schedule posts across every channel from one queue — drafts, reminders, and evergreen posts included."
           actionLabel="Schedule a post"
           actionHref="/studio"
-          withWick
         />
       ) : (
         // Companion C3 — the room canvas: a barely-there morning wash
